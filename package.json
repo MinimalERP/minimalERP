@@ -1,0 +1,38 @@
+{
+  "name": "minimalerp",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @minimalerp/web dev",
+    "build": "pnpm --filter @minimalerp/web build",
+    "typecheck": "tsc -p tsconfig.json && pnpm -r --if-present typecheck",
+    "lint": "eslint .",
+    "boundaries": "depcruise apps packages --config tooling/dependency-cruiser.cjs",
+    "test": "vitest run --project unit",
+    "check": "pnpm typecheck && pnpm lint && pnpm boundaries && pnpm test && pnpm test:db && pnpm build && pnpm test:e2e",
+    "test:db": "vitest run --project db",
+    "build:functions": "node tooling/build-functions.mjs",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.1",
+    "dependency-cruiser": "^18.3.1",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.10.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.1"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "deno",
+      "version": "2.9.6",
+      "onFail": "download"
+    }
+  }
+}

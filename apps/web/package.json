@@ -1,0 +1,25 @@
+{
+  "name": "@minimalerp/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "typecheck": "tsc -p tsconfig.json",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@minimalerp/adapter-memory": "workspace:*",
+    "@minimalerp/command": "workspace:*",
+    "@minimalerp/domain": "workspace:*",
+    "@minimalerp/keyboard": "workspace:*",
+    "@minimalerp/ports": "workspace:*",
+    "@preact/signals": "^2.11.2",
+    "preact": "^10.29.8"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "vite": "^8.3.0"
+  }
+}

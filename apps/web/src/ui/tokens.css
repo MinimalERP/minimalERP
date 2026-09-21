@@ -1,0 +1,98 @@
+/*
+ * Design tokens. Dense, keyboard-first, text-forward UI — our own visual language.
+ * Components reference these variables only; never hard-code colours or sizes.
+ */
+:root {
+  /* surface */
+  --c-bg: #f6f5f1;
+  --c-surface: #ffffff;
+  --c-surface-alt: #eeece5;
+  --c-border: #cfcbbf;
+  /* text */
+  --c-text: #1d1c19;
+  --c-text-muted: #6a675e;
+  /* interaction */
+  --c-accent: #0b5cad;
+  --c-accent-text: #ffffff;
+  --c-focus: #e8a400;           /* the active field / row: must be unmistakable on a keyboard-only UI */
+  --c-focus-bg: #fff4d1;
+  /* accounting semantics */
+  --c-debit: #1d1c19;
+  --c-credit: #1d1c19;
+  --c-negative: #b3261e;
+  --c-warning: #8a5a00;
+  --c-success: #1b6e3c;
+
+  /* type */
+  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-figures: ui-monospace, 'Cascadia Mono', Consolas, monospace; /* tabular amounts */
+  --fs-sm: 12px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --lh: 1.35;
+
+  /* space (dense) */
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 8px;
+  --sp-4: 12px;
+  --sp-5: 20px;
+  --row-h: 24px;
+
+  --radius: 2px;
+  --focus-ring: 2px solid var(--c-focus);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --c-bg: #16150f;
+    --c-surface: #1e1d17;
+    --c-surface-alt: #27261f;
+    --c-border: #3d3b31;
+    --c-text: #ecebe4;
+    --c-text-muted: #9c998d;
+    --c-accent: #5aa2ee;
+    --c-accent-text: #0a1a2c;
+    --c-focus: #f2b632;
+    --c-focus-bg: #3a3212;
+    --c-debit: #ecebe4;
+    --c-credit: #ecebe4;
+    --c-negative: #f28b82;
+    --c-warning: #e8b04a;
+    --c-success: #6cc48d;
+  }
+}
+
+:root[data-theme='dark'] {
+  --c-bg: #16150f;
+  --c-surface: #1e1d17;
+  --c-surface-alt: #27261f;
+  --c-border: #3d3b31;
+  --c-text: #ecebe4;
+  --c-text-muted: #9c998d;
+  --c-accent: #5aa2ee;
+  --c-accent-text: #0a1a2c;
+  --c-focus: #f2b632;
+  --c-focus-bg: #3a3212;
+  --c-debit: #ecebe4;
+  --c-credit: #ecebe4;
+  --c-negative: #f28b82;
+  --c-warning: #e8b04a;
+  --c-success: #6cc48d;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font: var(--fs-md) / var(--lh) var(--font-ui);
+}
+
+:focus-visible { outline: var(--focus-ring); outline-offset: 0; }
+
+.boot { padding: var(--sp-5); max-width: 60ch; }
+.boot h1 { font-size: var(--fs-xl); margin: 0 0 var(--sp-3); }

@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Install scripts we explicitly allow. embedded-postgres ships the real PostgreSQL binaries per
+# platform; its install script wires up shared libraries on Linux/macOS. Used only by packages/db-tests.
+allowBuilds:
+  '@embedded-postgres/windows-x64': true
+  '@embedded-postgres/linux-x64': true
+  '@embedded-postgres/linux-arm64': true
+  '@embedded-postgres/darwin-arm64': true
+  '@embedded-postgres/darwin-x64': true
+  esbuild: true

@@ -1,0 +1,92 @@
+import { z } from 'zod';
+import { type Issue, IssueCode, issue } from '../../errors';
+import type { VoucherId } from '../../ids';
+import type { PlannedLine } from '../../posting/plan';
+import { draftBaseShape, ledgerIdSchema, localDateSchema } from '../drafts';
+import { defineVoucherKind } from '../kind';
+import {
+  deliveryProblems,
+  documentShape,
+  invoiceLineSchema,
+  invoiceTotal,
+  lineValueProblems,
+  partyProblems,
+  plannedLinksOf,
+  vendorLedgerOf,
+} from './documents';
+import { grandTotal, gstHeaderSchema, invoiceGst, taxPostings } from './gstDoc';
+import { plannedStockOf, shortfallProblems, stockEntryProblems } from './stockJournal';
+
+/**
+ * Purchase Invoice: goods bought from a supplier. One posting, three effects (ADR-0018), the mirror of the Sales Invoice:
+ *   accounts — Dr the purchase ledger / Cr the supplier's ledger for the total (quantity × rate of every line, each to the paisa), the
+ *              supplier's line being a NEW BILL named by the SUPPLIER'S invoice number (`billNo`) and falling due on `dueDate`;
+ *   stock    — every line takes its quantity IN to its godown at its rate (the stock book's average cost moves; periodic method);
+ *   orders   — every line that names a purchase-order line fills it; receiving more than is pending on that line is refused.
+ * GST (ADR-0019) is added to the same posting: each tax head debits its Input ledger and the supplier is owed the items plus the tax. The stock value stays
+ * the items alone: the tax is not part of what the goods cost.
+ */
+export const purchaseDraftSchema = z.object({
+  ...draftBaseShape,
+  ...documentShape,
+  purchaseLedgerId: ledgerIdSchema,
+  /** The supplier's own invoice number: the name of the bill this raises, and what a payment is matched against. */
+  billNo: z.string().trim().min(1, 'Enter the supplier’s invoice number').max(60),
+  /** When the supplier's bill falls due (the date plus the supplier's credit days, unless someone chose otherwise). */
+  dueDate: localDateSchema,
+  /** The GST of the invoice (only when the company charges GST and a line has a rate): where the supply is from and to, and the tax the lines come to. */
+  gst: gstHeaderSchema.optional(),
+  lines: z.array(invoiceLineSchema),
+});
+export type PurchaseDraft = z.output<typeof purchaseDraftSchema>;
+
+/** A purchase brings goods IN, valued at the line's rate. */
+const asEntries = (lines: PurchaseDraft['lines']) =>
+  lines.map((l) => ({ itemId: l.itemId, warehouseId: l.warehouseId, direction: 'in' as const, qty: l.qty, rate: l.rate }));
+
+export const purchaseKind = defineVoucherKind<PurchaseDraft>({
+  base: 'purchase',
+  layout: 'item-invoice',
+  schema: purchaseDraftSchema,
+
+  ledgerRefs: (draft) => [{ ledgerId: draft.purchaseLedgerId, path: 'purchaseLedgerId' }],
+
+  validate(draft, { masters, stock, orders }) {
+    const problems: Issue[] = partyProblems(draft, masters, 'vendor');
+    const ledger = masters.ledger(draft.purchaseLedgerId);
+    if (!ledger || !masters.groups.isWithinReserved(ledger.groupId, 'purchase-accounts')) {
+      problems.push(issue(IssueCode.SalesDocInvalid, 'Purchases are booked to a ledger under Purchase Accounts', 'purchaseLedgerId'));
+    }
+    if (draft.lines.length === 0) problems.push(issue(IssueCode.TooFewLines, 'A purchase invoice needs at least one line', 'lines'));
+    problems.push(...invoiceGst(draft, masters, 'purchase').problems);
+    if (draft.dueDate < draft.date) {
+      problems.push(issue(IssueCode.SalesDocInvalid, `The due date is before the invoice date (${draft.date})`, 'dueDate'));
+    }
+    asEntries(draft.lines).forEach((e, i) => {
+      problems.push(...stockEntryProblems(e, masters, `lines.${i}`));
+      const line = draft.lines[i];
+      if (line) problems.push(...lineValueProblems(line, `lines.${i}`));
+    });
+    if (problems.length === 0 && invoiceTotal(draft.lines) <= 0n) {
+      problems.push(issue(IssueCode.AmountNotPositive, 'The invoice comes to nothing: enter the rates', 'lines'));
+    }
+    if (problems.length > 0) return problems;
+    return [
+      ...deliveryProblems(draft, masters, orders, 'purchase'),
+      // an alteration that lowers what came in can leave a later day short
+      ...shortfallProblems(asEntries(draft.lines), draft.id, draft.date, masters, stock, 'lines'),
+    ];
+  },
+
+  post(draft, { masters }): readonly PlannedLine[] {
+    return [
+      { ledgerId: draft.purchaseLedgerId, side: 'debit', amount: invoiceTotal(draft.lines) },
+      ...taxPostings(masters, 'purchase', draft.gst),
+      { ledgerId: vendorLedgerOf(draft.partyId), side: 'credit', amount: grandTotal(draft.lines, draft.gst) },
+    ];
+  },
+  postStock: (draft) => plannedStockOf(asEntries(draft.lines)),
+  stockItems: (draft) => [...new Set(draft.lines.map((l) => l.itemId))],
+  postLinks: (draft) => plannedLinksOf(draft.lines),
+  orderIds: (draft) => [...new Set(draft.lines.flatMap((l) => (l.orderRef ? [l.orderRef.orderId as VoucherId] : [])))],
+});

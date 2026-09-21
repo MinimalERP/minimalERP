@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable pnpm (version pinned by packageManager in package.json)
+        run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - name: Architecture boundaries
+        run: pnpm boundaries
+      - name: Unit tests (includes guardrail self-tests)
+        run: pnpm test
+      - name: Database tests (embedded PostgreSQL + Edge Function on Deno)
+        run: pnpm test:db
+      - run: pnpm build
+      - name: Browser tests (keyboard-only, real Chromium)
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm test:e2e
+
+  # NOTE: the database step needs embedded-postgres + Deno on the runner. It is configured for Linux
+  # (allowBuilds in pnpm-workspace.yaml, devEngines in package.json) but has not been run on a Linux runner.
