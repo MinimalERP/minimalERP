@@ -82,12 +82,25 @@ export class SupabasePostingGateway implements PostingGateway, MasterGateway {
   /** Sends a command and unwraps the { ok, value | issues } envelope. */
   protected async call(body: Record<string, unknown>): Promise<Result<unknown>> {
     const { data, error } = await this.client.functions.invoke(FUNCTION, {
-      body: bigintSafe(body) as Record<string, unknown>,
+      body: bigintSafe(this.prepare(body)) as Record<string, unknown>,
     });
 
     if (error) return failWith(await issuesFromError(error));
     if (!isEnvelope(data)) return fail(issue(REQUEST_FAILED, 'The server sent an unexpected response'));
-    return data.ok ? ok(data.value) : failWith(data.issues);
+    if (!data.ok) return failWith(data.issues);
+    const fresh = (data as { fresh?: unknown }).fresh;
+    if (fresh !== undefined) this.received(fresh);
+    return ok(data.value);
+  }
+
+  /** Lets a subclass add to what is sent (the plain gateway sends exactly the command). */
+  protected prepare(body: Record<string, unknown>): Record<string, unknown> {
+    return body;
+  }
+
+  /** Called with what the server sent along with an answer (see `fresh` in the function's contract). The plain gateway has no use for it. */
+  protected received(_fresh: unknown): void {
+    /* nothing to keep */
   }
 }
 

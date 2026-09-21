@@ -37,26 +37,34 @@ import { z } from 'zod';
  *   200   { ok: false, issues: [{ code, message, path? }] }        a business-rule refusal
  *   400 malformed request · 401 not signed in · 405 wrong method · 500 unexpected failure
  * Business refusals are HTTP 200 on purpose: they are answers, not transport errors.
+ *
+ * Every request from a browser costs a network round trip, and after a change the browser reloads what the change touched. So a change
+ * (post / alter / cancel / master), `companies` and `company-create` accept `fresh: true`, and answer with what the browser would otherwise ask
+ * for next, in the same response:  { ok: true, value, fresh: { companyId, masters?: { core, ledgers }, books?: { vouchers, lines, movements } } }
+ * (masters after a master change, the books after a voucher change, both when a company is opened). Left out when the caller may not read it.
+ * Every answer carries a Server-Timing header (the time spent in here), so slowness can be split into "the network" and "the server".
  */
 
 const companyId = z.string().min(1);
 const body = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('post'), companyId, draft: z.unknown() }),
+  z.object({ action: z.literal('post'), companyId, draft: z.unknown(), fresh: z.boolean().optional() }),
   z.object({
     action: z.literal('alter'),
     companyId,
     voucherId: z.string().min(1),
     expectedVersion: z.number().int(),
     draft: z.unknown(),
+    fresh: z.boolean().optional(),
   }),
   z.object({
     action: z.literal('cancel'),
     companyId,
     voucherId: z.string().min(1),
     expectedVersion: z.number().int(),
+    fresh: z.boolean().optional(),
   }),
-  z.object({ action: z.literal('master'), companyId, command: z.unknown() }),
-  z.object({ action: z.literal('companies') }),
+  z.object({ action: z.literal('master'), companyId, command: z.unknown(), fresh: z.boolean().optional() }),
+  z.object({ action: z.literal('companies'), fresh: z.boolean().optional() }),
   z.object({
     action: z.literal('company-create'),
     company: z.object({
@@ -66,6 +74,7 @@ const body = z.discriminatedUnion('action', [
       stateCode: z.string().optional(),
       address: z.string().optional(),
     }),
+    fresh: z.boolean().optional(),
   }),
   z.object({ action: z.literal('load'), companyId }),
   z.object({ action: z.literal('vouchers'), companyId }),
@@ -116,13 +125,15 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
     'access-control-allow-origin': deps.allowOrigin ?? '*',
     'access-control-allow-headers': 'authorization, x-client-info, apikey, content-type, x-request-id',
     'access-control-allow-methods': 'POST, OPTIONS',
+    // Every call is preceded by a preflight round trip unless the browser remembers it (5 s by default). Chrome caps this at 2 hours.
+    'access-control-max-age': '7200',
   };
   const json = (status: number, payload: unknown) =>
     new Response(JSON.stringify(payload), { status, headers: { ...cors, 'content-type': 'application/json' } });
   const problem = (status: number, code: string, message: string) =>
     json(status, { ok: false, issues: [{ code, message } satisfies Issue] });
 
-  return async (request) => {
+  const handle = async (request: Request): Promise<Response> => {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (request.method !== 'POST') return problem(405, 'METHOD_NOT_ALLOWED', 'Use POST');
 
@@ -144,12 +155,14 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
 
       const gateway = deps.gatewayFor(user.userId, requestId);
       const cmd = parsed.data;
-      const asResponse = <T>(r: Result<T>, map: (v: T) => unknown) =>
-        json(200, r.ok ? { ok: true, value: map(r.value) } : { ok: false, issues: r.issues });
+      const asResponse = async <T>(r: Result<T>, map: (v: T) => unknown, fresh?: () => Promise<unknown>) =>
+        json(200, r.ok ? { ok: true, value: map(r.value), ...(fresh ? { fresh: await fresh() } : {}) } : { ok: false, issues: r.issues });
+      const wantsMasters = (c: { companyId: string; fresh?: boolean | undefined }) => (c.fresh ? () => freshMasters(gateway, c.companyId) : undefined);
+      const wantsBooks = (c: { companyId: string; fresh?: boolean | undefined }) => (c.fresh ? () => freshBooks(gateway, c.companyId) : undefined);
 
       switch (cmd.action) {
         case 'post':
-          return asResponse(await gateway.post({ companyId: cmd.companyId as never, draft: cmd.draft }), outcomeToWire);
+          return asResponse(await gateway.post({ companyId: cmd.companyId as never, draft: cmd.draft }), outcomeToWire, wantsBooks(cmd));
         case 'alter':
           return asResponse(
             await gateway.alter({
@@ -159,6 +172,7 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
               draft: cmd.draft,
             }),
             outcomeToWire,
+            wantsBooks(cmd),
           );
         case 'cancel':
           return asResponse(
@@ -168,12 +182,16 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
               expectedVersion: cmd.expectedVersion,
             }),
             (voucher) => ({ voucher: voucherToWire(voucher) }),
+            wantsBooks(cmd),
           );
         case 'master':
-          return asResponse(await gateway.execute({ companyId: cmd.companyId as never, command: cmd.command }), (outcome) => outcome);
+          return asResponse(await gateway.execute({ companyId: cmd.companyId as never, command: cmd.command }), (outcome) => outcome, wantsMasters(cmd));
 
-        case 'companies':
-          return json(200, { ok: true, value: { companies: await gateway.companiesOf() } });
+        case 'companies': {
+          const companies = await gateway.companiesOf();
+          const first = companies[0];
+          return json(200, { ok: true, value: { companies }, ...(cmd.fresh && first ? { fresh: await freshAll(gateway, first.id) } : {}) });
+        }
 
         case 'company-create': {
           const input = cmd.company;
@@ -194,7 +212,11 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
             address: input.address?.trim() || undefined,
             newId,
           });
-          return asResponse(await gateway.createCompany(masters), (created) => ({ companyId: created.companyId }));
+          return asResponse(
+            await gateway.createCompany(masters),
+            (created) => ({ companyId: created.companyId }),
+            cmd.fresh ? () => freshAll(gateway, masters.company.id) : undefined,
+          );
         }
 
         // ---- reads: each answers only to someone who may see that part of the books ----
@@ -242,6 +264,13 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
       return problem(500, 'INTERNAL', `Something went wrong (request ${requestId})`);
     }
   };
+
+  return async (request) => {
+    const started = performance.now();
+    const response = await handle(request);
+    response.headers.set('server-timing', `total;dur=${(performance.now() - started).toFixed(0)}`);
+    return response;
+  };
 }
 
 /**
@@ -254,3 +283,26 @@ async function refuse(gateway: BooksServer, companyId: string, permission: strin
 }
 
 const notFound = (companyId: string) => fail(issue(IssueCode.CompanyMismatch, `Company ${companyId} not found`));
+
+/**
+ * The parts of the books a browser reloads after a change, gathered here so they travel with the change's own answer.
+ * Each is left out (not refused) when the caller may not read it: they then ask, and get the ordinary refusal.
+ */
+async function freshMasters(gateway: BooksServer, companyId: string) {
+  if (!(await gateway.can(companyId, 'master.view'))) return undefined;
+  const masters = await gateway.loadJson(companyId);
+  return masters ? { companyId, masters } : undefined;
+}
+
+async function freshBooks(gateway: BooksServer, companyId: string) {
+  if (!(await gateway.can(companyId, 'voucher.view')) || !(await gateway.can(companyId, 'report.view'))) return undefined;
+  const id = companyId as CompanyId;
+  const [vouchers, lines, movements] = await Promise.all([gateway.list(id), gateway.lines({ companyId: id }), gateway.stockMovements({ companyId: id })]);
+  return { companyId, books: { vouchers: vouchers.map(voucherToWire), lines: lines.map(journalLineToWire), movements: movements.map(stockMovementToWire) } };
+}
+
+async function freshAll(gateway: BooksServer, companyId: string) {
+  const masters = await freshMasters(gateway, companyId);
+  const books = await freshBooks(gateway, companyId);
+  return { companyId, ...(masters ? { masters: masters.masters } : {}), ...(books ? { books: books.books } : {}) };
+}

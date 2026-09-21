@@ -40,8 +40,18 @@ sign-up), **each account has its own company**, and the companies people already
 
 ## Consequences
 - The browser holds no copy of the company: closing the tab loses nothing, and there is nothing to sync. Half-entered vouchers still wait in IndexedDB, per person.
-- Every screen action is now a network request. `Books` reloads masters, vouchers, journal and stock after a change (three parallel reads); a single
-  "snapshot" read is the obvious optimisation if that is slow.
+- **A round trip is the cost that matters.** Measured from India to the project's region (Tokyo): 0.3-0.7 s for a bare request, 0.5-1.1 s for a call to the
+  function, plus a CORS preflight of 0.3-0.5 s that the browser repeats unless told to remember it. Accepting a form first cost 2-3 sequential requests
+  (the change, then a reload of the masters or of vouchers/journal/stock): 2-5 s. Two measures, both pinned by `cloud.roundtrip.test.ts`:
+  1. The function sends `Access-Control-Max-Age: 7200`, so the preflight is paid once per session, not once per action.
+  2. A change (`post`, `alter`, `cancel`, `master`), `companies` and `company-create` accept `fresh: true` and answer with the parts of the books the browser
+     reloads next (masters after a master change; vouchers, journal and stock after a voucher change; everything when a company is opened).
+     `SupabaseBooksBackend` keeps them and answers the reload from them — each part once, for that company only, for at most 5 s — so opening the books,
+     posting and accepting a master form are each ONE request. Nothing is ever shown stale: a part answers one question, and anything else (a
+     ledger's own journal, a later ask) goes to the server. Every answer also carries `Server-Timing: total;dur=…` (the time spent in the function), so a slow
+     action can be split into "the network" and "the server" in the browser's Network panel.
+  What remains: each request is still 0.5-1 s, and the function fetches EVERYTHING (all vouchers and journal lines) on every change, which grows with the
+  books. The real fixes are a project in a nearer region (ap-south-1 for India: a new project, not a setting) and reading incrementally.
 - Reads that fail throw (the ports return plain values); the sign-in flow shows "could not open your books, try again" for the initial open, and other failures
   are logged. Better in-app handling of a dropped connection is not done.
 - Invitation emails and their links depend on the project's **Site URL** and **Redirect URLs** including the site's address, and the built-in email service is

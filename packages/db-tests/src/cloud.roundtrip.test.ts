@@ -25,10 +25,11 @@ const handler = createPostingHandler({
 });
 
 /** A Supabase client whose only working part is `functions.invoke`, wired straight to the handler as `userId`. */
-const browserAs = (userId: string): SupabaseBooksBackend => {
+const browserAs = (userId: string, calls: string[] = []): SupabaseBooksBackend => {
   const client: SupabaseLike = {
     functions: {
       invoke: async (_name, { body }) => {
+        calls.push(String(body['action'])); // one entry per network round trip
         const res = await handler(
           new Request('http://localhost/functions/v1/post-voucher', {
             method: 'POST',
@@ -109,3 +110,101 @@ describe('the online backend, end to end', () => {
     expect(again.ok).toBe(false);
   });
 });
+
+describe('how many round trips a person waits for (each one is 0.5-1 s from India; see ADR-0020)', () => {
+  const draft = (id: string, amount: string) => payment(w, { id, date: '2024-05-10', account: w.ledgers.bank, lines: [[w.ledgers.rent, amount]] }).voucher;
+
+  it('opening the books is ONE request, not one for the company and one for each of the four things it shows', async () => {
+    const calls: string[] = [];
+    const b = browserAs(w.ownerId, calls);
+    const mine = await b.companies();
+    const id = asCompanyId(mine.ok ? mine.value[0]!.id : 'none');
+    // what the app does next (Books.loadData, and the masters): all served from what came with the first answer
+    await b.load(id);
+    await Promise.all([b.list(id), b.lines({ companyId: id }), b.stockMovements({ companyId: id })]);
+    expect(calls).toEqual(['companies']);
+  });
+
+  it('posting a voucher and showing the books again is ONE request', async () => {
+    const calls: string[] = [];
+    const b = browserAs(w.ownerId, calls);
+    const id = asCompanyId(w.companyId);
+    await b.load(id); // (the app already has the masters when it posts)
+    calls.length = 0;
+
+    const posted = await b.post({ companyId: id, draft: draft('rt-fast', '12.00') });
+    if (!posted.ok) throw new Error(JSON.stringify(posted.issues));
+    const [vouchers, lines] = await Promise.all([b.list(id), b.lines({ companyId: id }), b.stockMovements({ companyId: id })]);
+    expect(calls).toEqual(['post']);
+    // and what it shows is up to date, not what was there before
+    expect(vouchers.some((v) => v.id === w.vid('rt-fast'))).toBe(true);
+    expect(lines.filter((l) => l.voucherId === w.vid('rt-fast'))).toHaveLength(2);
+  });
+
+  it('accepting a master form (a change, then the masters again) is ONE request, and the new record is in it', async () => {
+    const calls: string[] = [];
+    const b = browserAs(w.ownerId, calls);
+    const id = asCompanyId(w.companyId);
+    const before = await b.load(id);
+    const group = before.groups.all.find((g) => g.name === 'Bank Accounts');
+    expect(group).toBeDefined();
+    calls.length = 0;
+
+    const made = await b.execute({ companyId: id, command: { op: 'create', kind: 'ledger', id: randomUUID(), data: { name: 'Fast Bank', groupId: group!.id } } });
+    if (!made.ok) throw new Error(JSON.stringify(made.issues));
+    const after = await b.load(id);
+    expect(calls).toEqual(['master']);
+    expect(after.ledgers.some((l) => l.name === 'Fast Bank')).toBe(true);
+  });
+
+  it('a delivered part answers ONE question: asking again goes to the server (so nothing is ever shown stale)', async () => {
+    const calls: string[] = [];
+    const b = browserAs(w.ownerId, calls);
+    const id = asCompanyId(w.companyId);
+    await b.load(id);
+    await b.post({ companyId: id, draft: draft('rt-once', '1.00') });
+    calls.length = 0;
+    await b.list(id); // from what came with the post
+    await b.list(id); // asked again: the server
+    expect(calls).toEqual(['vouchers']);
+  });
+
+  it('a question about PART of the journal is never answered from the delivered whole', async () => {
+    const calls: string[] = [];
+    const b = browserAs(w.ownerId, calls);
+    const id = asCompanyId(w.companyId);
+    await b.load(id);
+    await b.post({ companyId: id, draft: draft('rt-part', '2.00') });
+    calls.length = 0;
+    const one = await b.lines({ companyId: id, voucherId: w.vid('rt-part') });
+    expect(one).toHaveLength(2);
+    expect(calls).toEqual(['lines']);
+  });
+
+  it('what came with a change for one company never answers a question about another', async () => {
+    const calls: string[] = [];
+    const b = browserAs(w.ownerId, calls);
+    const id = asCompanyId(w.companyId);
+    await b.load(id);
+    await b.post({ companyId: id, draft: draft('rt-other', '3.00') });
+    calls.length = 0;
+    await expect(b.list(asCompanyId(randomUUID()))).rejects.toThrow(/Not permitted/); // went to the server, which refused
+    expect(calls).toEqual(['vouchers']);
+  });
+
+  it('the function tells the browser to remember its preflight, and how long it spent', async () => {
+    const pre = await handler(new Request('http://localhost/functions/v1/post-voucher', { method: 'OPTIONS' }));
+    expect(pre.status).toBe(204);
+    expect(Number(pre.headers.get('access-control-max-age'))).toBeGreaterThanOrEqual(3600);
+
+    const res = await handler(
+      new Request('http://localhost/functions/v1/post-voucher', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${w.ownerId}` },
+        body: JSON.stringify({ action: 'companies' }),
+      }),
+    );
+    expect(res.headers.get('server-timing')).toMatch(/^total;dur=[0-9]+$/);
+  });
+});
+
