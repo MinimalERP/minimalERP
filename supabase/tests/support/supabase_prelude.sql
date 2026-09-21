@@ -11,15 +11,21 @@
 
 do $$
 begin
-  if not exists (select from pg_roles where rolname = 'anon') then
+  -- Roles belong to the whole cluster, and test files set up their databases in parallel (an advisory lock would not help: those are per
+  -- database). Two of them can both find a role missing and both create it; the loser gets a duplicate-key error on pg_authid, which is
+  -- exactly "already there", so it is ignored.
+  begin
     create role anon nologin noinherit;
-  end if;
-  if not exists (select from pg_roles where rolname = 'authenticated') then
+  exception when duplicate_object or unique_violation then null;
+  end;
+  begin
     create role authenticated nologin noinherit;
-  end if;
-  if not exists (select from pg_roles where rolname = 'service_role') then
+  exception when duplicate_object or unique_violation then null;
+  end;
+  begin
     create role service_role nologin noinherit bypassrls;
-  end if;
+  exception when duplicate_object or unique_violation then null;
+  end;
 end
 $$;
 

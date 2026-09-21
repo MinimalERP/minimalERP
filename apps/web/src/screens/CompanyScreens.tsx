@@ -169,19 +169,21 @@ export function CompanyCreateScreen({ frame }: { frame: Frame<ScreenRef> }) {
         <button type="button" class="button" disabled={busy} onClick={() => void accept()}>
           Create company {chord('voucher.accept') && <Kbd chord={chord('voucher.accept') as string} />}
         </button>
-        <button
-          type="button"
-          class="button"
-          disabled={busy}
-          onClick={() =>
-            void loadDemoCompany(host).then((r) => {
-              if (r.ok) app.goHome();
-              else setBanner(r.issues[0]?.message);
-            })
-          }
-        >
-          Or load the demo company
-        </button>
+        {host.canLoadDemo && (
+          <button
+            type="button"
+            class="button"
+            disabled={busy}
+            onClick={() =>
+              void loadDemoCompany(host).then((r) => {
+                if (r.ok) app.goHome();
+                else setBanner(r.issues[0]?.message);
+              })
+            }
+          >
+            Or load the demo company
+          </button>
+        )}
       </div>
     </section>
   );

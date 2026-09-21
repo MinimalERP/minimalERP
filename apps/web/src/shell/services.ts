@@ -10,6 +10,12 @@ import { KeyboardManager, KeymapStore, ScopeStack, type StorageLike } from '@min
 import { BooksHost } from '../books/books';
 import { GATEWAY, type ScreenRef, sameScreen } from './router';
 
+/** Who is signed in (online books only; the in-browser books have no account). */
+export interface Account {
+  readonly email: string;
+  signOut(): Promise<void>;
+}
+
 /**
  * What commands are allowed to do to the application. Commands receive this and nothing else, so a
  * module can navigate, open Go To, etc. without importing any UI.
@@ -17,6 +23,8 @@ import { GATEWAY, type ScreenRef, sameScreen } from './router';
 export interface AppContext {
   /** The open company, if any. Commands that need one check `books.current`. */
   readonly books: BooksHost;
+  /** The signed-in account. Undefined when the books live in the browser and nobody signs in. */
+  readonly account?: Account | undefined;
   navigate(ref: ScreenRef): void;
   /** Changes the top screen in place (a voucher switching type keeps its draft, its place and its history). */
   replace(ref: ScreenRef): void;
@@ -121,6 +129,7 @@ export interface ServicesOptions {
   readonly storage?: StorageLike | undefined;
   /** Where the open company lives. Omitted (tests) = a host with no way to create one. */
   readonly books?: BooksHost | undefined;
+  readonly account?: Account | undefined;
   readonly now?: (() => number) | undefined;
 }
 
@@ -139,6 +148,7 @@ export function createServices(options: ServicesOptions): Services {
 
   const app: AppContext = {
     books,
+    account: options.account,
     navigate(ref) {
       ui.closeGoTo();
       if (!sameScreen(screens.top.screen, ref)) screens.push(ref);

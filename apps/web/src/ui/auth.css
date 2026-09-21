@@ -1,0 +1,34 @@
+/* ---- signing in: what is shown before there is an account to show the app to ---- */
+.auth {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--sp-5) var(--sp-4);
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  line-height: var(--lh);
+}
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  margin-top: 12vh;
+  padding: var(--sp-5);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+.auth-card h1 { font-size: var(--fs-xl); margin: 0 0 var(--sp-3); letter-spacing: 0.02em; }
+.auth-card .lede { color: var(--c-text-muted); margin: 0 0 var(--sp-4); }
+.auth-card label { display: block; margin: var(--sp-3) 0 var(--sp-2); font-size: var(--fs-sm); color: var(--c-text-muted); }
+.auth-card .field-input { width: 100%; box-sizing: border-box; }
+.auth-message { min-height: calc(var(--lh) * 1em); margin: var(--sp-3) 0; font-size: var(--fs-sm); }
+.auth-card .toolbar { margin: var(--sp-3) 0 0; flex-wrap: wrap; }
+.auth-card .button.link { border-color: transparent; background: none; color: var(--c-accent); text-decoration: underline; }
+.auth-card .button:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+
+/* the signed-in account in the top bar */
+.account { color: var(--c-text-muted); font-size: var(--fs-sm); max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 720px) { .account { display: none; } }

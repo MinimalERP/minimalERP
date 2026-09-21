@@ -66,6 +66,15 @@ const commands: Command<AppContext>[] = [
     run: (app) => app.navigate({ type: 'settings-keyboard' }),
   },
   {
+    id: 'account.signOut',
+    title: 'Sign Out',
+    category: 'Account',
+    keywords: ['log out', 'logout', 'leave', 'switch user'],
+    description: 'Sign out of this account',
+    when: (app) => app.account !== undefined,
+    run: (app) => void app.account?.signOut(),
+  },
+  {
     id: 'settings.resetKeymap',
     title: 'Reset Keyboard Shortcuts',
     category: 'Settings',
@@ -127,5 +136,8 @@ export const coreModule: ModuleManifest<AppContext> = {
     { commandId: 'confirm.no', chord: 'Alt+N', scope: 'overlay:confirm' },
   ],
   menuSections: [{ id: 'utilities', title: 'Utilities & Settings', order: 4, description: 'Preferences and tools' }],
-  menu: [{ section: 'utilities', commandId: 'settings.keyboard', order: 1 }],
+  menu: [
+    { section: 'utilities', commandId: 'settings.keyboard', order: 1 },
+    { section: 'utilities', commandId: 'account.signOut', order: 9 },
+  ],
 };

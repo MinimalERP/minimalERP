@@ -1,10 +1,10 @@
 import {
   type CompanyId,
-  type Issue,
   type JournalLine,
   type LocalDate,
   type MasterKind,
   type Masters,
+  type NewCompany,
   type OrderBook as OrderBookType,
   type Result,
   type StockBook as StockBookType,
@@ -12,14 +12,9 @@ import {
   type VoucherId,
   IssueCode,
   asCompanyId,
-  canonicalId,
   deterministicUuid,
-  gstinProblem,
-  normalizeName,
   orderBookOf,
   StockBook,
-  parseLocalDate,
-  stateOfGstin,
   fail,
   issue,
   ledgerMovements,
@@ -39,6 +34,9 @@ import type {
 } from '@minimalerp/ports';
 import type { KeyValueStore } from './store';
 
+export { newCompanyIssues } from '@minimalerp/domain';
+export type { NewCompany };
+
 /** Everything the screens need from a backend: master commands, posting, and reading masters back. Adapters provide it. */
 export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository {}
 
@@ -49,16 +47,6 @@ export interface LocalBackend extends BooksBackend {
   replay(entries: readonly unknown[]): Promise<Result<void>>;
   /** Adds the GST / TDS system ledgers a company saved before they existed does not have (idempotent). */
   ensureSystemLedgers?(): void;
-}
-
-/** The choices made when a company is created. Everything else about a new company is the standard seed. */
-export interface NewCompany {
-  readonly name: string;
-  /** First day of the first financial year, `YYYY-MM-DD`. */
-  readonly fyStart: string;
-  readonly gstin?: string | undefined;
-  readonly stateCode?: string | undefined;
-  readonly address?: string | undefined;
 }
 
 /** What is stored to rebuild a company: the seed inputs and every change since. */
@@ -307,8 +295,10 @@ export interface BooksFactory {
   /** The company saved from a previous visit, if any. */
   restore(): Promise<Books | undefined>;
   create(input: NewCompany): Promise<Result<Books>>;
-  /** Forget the saved company (start over). */
-  discard(): Promise<void>;
+  /** Forget the saved company (start over). Absent when the company is not the browser's to delete (the online books). */
+  discard?(): Promise<void>;
+  /** Whether the sample company may be loaded. False for the online books: it would fill someone's real books with make-believe. */
+  readonly allowsDemo?: boolean;
 }
 
 /**
@@ -328,6 +318,15 @@ export class BooksHost {
 
   get canCreate(): boolean {
     return this.factory !== undefined;
+  }
+
+  /** Whether the company can be deleted from here (the browser's own copy can; online books are not deleted from a screen). */
+  get canClose(): boolean {
+    return this.factory?.discard !== undefined;
+  }
+
+  get canLoadDemo(): boolean {
+    return this.factory !== undefined && this.factory.allowsDemo !== false;
   }
 
   subscribe(listener: () => void): () => void {
@@ -354,7 +353,8 @@ export class BooksHost {
   }
 
   async close(): Promise<void> {
-    await this.factory?.discard();
+    if (!this.factory?.discard) return;
+    await this.factory.discard();
     this.adopt(undefined);
   }
 
@@ -389,18 +389,3 @@ export const PLURALS: Readonly<Record<MasterKind, string>> = {
   company: 'Company',
 };
 
-/** Problems with the details typed for a new company (each carries the field it belongs to). */
-export function newCompanyIssues(input: NewCompany): Issue[] {
-  const problems: Issue[] = [];
-  if (normalizeName(input.name) === '') problems.push(issue(IssueCode.SchemaInvalid, 'Enter the company name', 'name'));
-  if (parseLocalDate(input.fyStart) === undefined) problems.push(issue(IssueCode.SchemaInvalid, 'Enter a valid date as YYYY-MM-DD', 'fyStart'));
-  const gstin = canonicalId(input.gstin ?? '');
-  if (gstin !== '') {
-    const p = gstinProblem(gstin);
-    if (p) problems.push(issue(IssueCode.InvalidGstin, p, 'gstin'));
-    else if (input.stateCode && input.stateCode !== stateOfGstin(gstin)) {
-      problems.push(issue(IssueCode.InvalidGstin, `State code ${input.stateCode} does not match the GSTIN (${stateOfGstin(gstin)})`, 'stateCode'));
-    }
-  }
-  return problems;
-}

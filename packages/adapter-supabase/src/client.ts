@@ -34,3 +34,29 @@ export interface SupabaseLike {
   };
   from(table: string): { select(columns: string): FilterBuilder };
 }
+
+export interface SupabaseAuthSession {
+  readonly user: { readonly id: string; readonly email?: string | undefined; readonly identities?: readonly unknown[] | undefined };
+}
+
+interface AuthError extends SupabaseError {
+  /** supabase-js's machine-readable reason (`invalid_credentials`, `user_already_exists`…). */
+  readonly code?: string | undefined;
+}
+
+/** The slice of `client.auth` the sign-in adapter uses. */
+export interface SupabaseAuthLike {
+  readonly auth: {
+    getSession(): Promise<{ data: { session: SupabaseAuthSession | null }; error: AuthError | null }>;
+    signInWithPassword(credentials: { email: string; password: string }): Promise<{
+      data: { session: SupabaseAuthSession | null };
+      error: AuthError | null;
+    }>;
+    resetPasswordForEmail(email: string, options?: { redirectTo?: string }): Promise<{ error: AuthError | null }>;
+    updateUser(attributes: { password: string }): Promise<{ data: { user: SupabaseAuthSession['user'] | null }; error: AuthError | null }>;
+    signOut(): Promise<{ error: AuthError | null }>;
+    onAuthStateChange(callback: (event: string, session: SupabaseAuthSession | null) => void): {
+      data: { subscription: { unsubscribe(): void } };
+    };
+  };
+}

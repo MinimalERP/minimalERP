@@ -6,6 +6,9 @@
  * structurally, so it is verified at runtime instead — see compat.test.ts.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { SupabaseLike } from './client';
+import type { SupabaseAuthLike, SupabaseLike } from './client';
 
 export const realFunctionsAreCompatible = (client: SupabaseClient): Pick<SupabaseLike, 'functions'> => client;
+
+/** Likewise the `auth` half, which is what SupabaseAuth calls. */
+export const realAuthIsCompatible = (client: SupabaseClient): SupabaseAuthLike => client;

@@ -11,11 +11,13 @@
   },
   "dependencies": {
     "@minimalerp/adapter-memory": "workspace:*",
+    "@minimalerp/adapter-supabase": "workspace:*",
     "@minimalerp/command": "workspace:*",
     "@minimalerp/domain": "workspace:*",
     "@minimalerp/keyboard": "workspace:*",
     "@minimalerp/ports": "workspace:*",
     "@preact/signals": "^2.11.2",
+    "@supabase/supabase-js": "^2.116.0",
     "preact": "^10.29.8"
   },
   "devDependencies": {

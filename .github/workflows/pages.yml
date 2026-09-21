@@ -26,10 +26,23 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The site is the ONLINE books: sign-in, and the company stored in Supabase. Both values are public (the anon key ships in the page by
+      # design), so they are repository *variables*, not secrets. Never add the service_role key here: Vite would publish it.
+      - name: Require the online-books configuration
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::error::Set the repository variables SUPABASE_URL and SUPABASE_ANON_KEY (Settings > Secrets and variables > Actions > Variables). Without them the site would fall back to books stored in the browser."
+            exit 1
+          fi
+        env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
       - name: Build the web app for /<repo>/
         run: pnpm build
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: apps/web/dist

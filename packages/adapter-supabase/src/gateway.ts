@@ -80,7 +80,7 @@ export class SupabasePostingGateway implements PostingGateway, MasterGateway {
   }
 
   /** Sends a command and unwraps the { ok, value | issues } envelope. */
-  private async call(body: Record<string, unknown>): Promise<Result<unknown>> {
+  protected async call(body: Record<string, unknown>): Promise<Result<unknown>> {
     const { data, error } = await this.client.functions.invoke(FUNCTION, {
       body: bigintSafe(body) as Record<string, unknown>,
     });

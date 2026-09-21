@@ -80,7 +80,7 @@ const commands: Command<AppContext>[] = [
     category: 'Company',
     keywords: ['sample', 'example', 'try', 'demo data'],
     description: 'A ready-made manufacturer with ledgers, parties and stock items to explore',
-    when: (app) => !NEEDS_COMPANY(app) && app.books.canCreate,
+    when: (app) => !NEEDS_COMPANY(app) && app.books.canCreate && app.books.canLoadDemo,
     run: (app) => {
       void loadDemoCompany(app.books).then((result) => {
         if (result.ok) app.goHome();
@@ -94,7 +94,7 @@ const commands: Command<AppContext>[] = [
     category: 'Company',
     keywords: ['delete', 'start over', 'reset', 'remove data'],
     description: 'Delete this browser’s copy of the company and start again',
-    when: NEEDS_COMPANY,
+    when: (app) => NEEDS_COMPANY(app) && app.books.canClose,
     run: (app) => app.navigate({ type: 'company-reset' }),
   },
 

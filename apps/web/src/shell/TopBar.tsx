@@ -53,6 +53,16 @@ export function TopBar() {
       </nav>
       <span class="spacer" />
       <span class="company" data-testid="company-name">{books.current?.masters.company.name ?? 'No company open'}</span>
+      {app.account && (
+        <>
+          <span class="account" data-testid="account-email" title={app.account.email}>
+            {app.account.email}
+          </span>
+          <button type="button" class="goto-button" onClick={() => void app.account?.signOut()} aria-label="Sign out">
+            <span>Sign out</span>
+          </button>
+        </>
+      )}
       {PANEL_SCREENS.includes(screens.top.screen.type) && (
         <button type="button" class="goto-button keys-toggle" onClick={() => ui.toggleKeys()} aria-pressed={ui.keysOpen} aria-label="Keys">
           <span>Keys</span>

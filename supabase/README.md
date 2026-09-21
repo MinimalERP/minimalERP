@@ -37,15 +37,26 @@ pnpm test:db             every migration on a real PostgreSQL + all database/sec
 ```
 No Docker needed for tests: they use an embedded PostgreSQL.
 
-### Deploying (not yet done — needs a Supabase project)
+### Deploying
+The project is linked (`supabase/.temp/linked-project.json`, git-ignored). Note: in this repo the CLI must be run from OUTSIDE the repository
+(`npx supabase@latest …` from your home directory, with `--workdir` and `--project-ref`) because `package.json`'s `devEngines` asks for Deno.
+
 ```
-supabase link --project-ref <ref>
-supabase db push                      # applies migrations/
+supabase db push --project-ref <ref>                                    # applies migrations/ (forward-only)
 pnpm build:functions
-supabase functions deploy post-voucher
+supabase functions deploy post-voucher --project-ref <ref>              # the function serves the writes AND the reads/company actions
 ```
 `supabase/config.toml` is created by `supabase init` (needs the Supabase CLI). The function needs no secrets set by hand:
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_DB_URL` are provided by the platform.
+
+### Making the site sign-in ready (ADR-0020) — dashboard settings, once
+1. **Authentication › Sign In / Providers › Email**: leave *Confirm email* on, and turn **Allow new users to sign up OFF** (invitation only).
+2. **Authentication › URL Configuration**: *Site URL* = the site (`https://minimalerp.github.io/minimalERP/`); add it (and `http://localhost:5173/**` for development) to *Redirect URLs*.
+   Invitation and reset links come back to these addresses; a link to an address not on the list is refused.
+3. **Invite a person**: Authentication › Users › *Invite user*. They follow the emailed link, choose a password, and create their company.
+4. The built-in email service allows only a few emails an hour; use a custom SMTP provider (Project Settings › Authentication) before inviting many people.
+5. GitHub: repository *variables* `SUPABASE_URL` and `SUPABASE_ANON_KEY` (Settings › Secrets and variables › Actions › Variables). The anon key is public by design;
+   never store the service-role key or an access token there.
 
 ## Rules for every future migration
 - every business table has `company_id`, and every foreign key is composite `(company_id, id)`

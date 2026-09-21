@@ -1,12 +1,22 @@
 import {
+  type CompanyId,
   type Issue,
+  type Masters,
   type Result,
+  IssueCode,
+  fail,
+  issue,
+  canonicalId,
   journalLineToWire,
+  localDate,
+  newCompanyIssues,
+  normalizeName,
   orderLinkToWire,
+  seedCompany,
   stockMovementToWire,
   voucherToWire,
 } from '@minimalerp/domain';
-import type { MasterGateway, PostOutcome, PostingGateway } from '@minimalerp/ports';
+import type { JournalRepository, MasterGateway, PostOutcome, PostingGateway, StockRepository, VoucherRepository } from '@minimalerp/ports';
 import { z } from 'zod';
 
 /**
@@ -19,6 +29,10 @@ import { z } from 'zod';
  *         { action: 'alter',  companyId, voucherId, expectedVersion, draft }
  *         { action: 'cancel', companyId, voucherId, expectedVersion }
  *         { action: 'master', companyId, command }      a master-data command: create / alter / setActive
+ *         { action: 'companies' }                        the caller's companies: [{ id, name }]
+ *         { action: 'company-create', company }          seed a company for the caller (one per account), who becomes its owner
+ *         { action: 'load', companyId }                  the masters as JSON ({ core, ledgers }; the browser rebuilds them with buildMasters)
+ *         { action: 'vouchers' | 'voucher' | 'lines' | 'stock', companyId, … }   reads, each checked against the caller's permission
  *   200   { ok: true,  value: { voucher, journal?, replayed? } }   money as decimal strings
  *   200   { ok: false, issues: [{ code, message, path? }] }        a business-rule refusal
  *   400 malformed request · 401 not signed in · 405 wrong method · 500 unexpected failure
@@ -42,13 +56,47 @@ const body = z.discriminatedUnion('action', [
     expectedVersion: z.number().int(),
   }),
   z.object({ action: z.literal('master'), companyId, command: z.unknown() }),
+  z.object({ action: z.literal('companies') }),
+  z.object({
+    action: z.literal('company-create'),
+    company: z.object({
+      name: z.string(),
+      fyStart: z.string(),
+      gstin: z.string().optional(),
+      stateCode: z.string().optional(),
+      address: z.string().optional(),
+    }),
+  }),
+  z.object({ action: z.literal('load'), companyId }),
+  z.object({ action: z.literal('vouchers'), companyId }),
+  z.object({ action: z.literal('voucher'), companyId, voucherId: z.string().min(1) }),
+  z.object({
+    action: z.literal('lines'),
+    companyId,
+    from: z.string().optional(),
+    to: z.string().optional(),
+    ledgerId: z.string().optional(),
+    voucherId: z.string().optional(),
+  }),
+  z.object({ action: z.literal('stock'), companyId, itemIds: z.array(z.string()).optional() }),
 ]);
+
+/**
+ * What the handler needs from the server-side backend beyond posting: the reads the browser cannot do itself, and company creation.
+ * The reads run as the service role (they bypass row-level security), so the handler asks `can` before every one of them.
+ */
+export interface BooksServer extends PostingGateway, MasterGateway, VoucherRepository, JournalRepository, StockRepository {
+  companiesOf(): Promise<readonly { readonly id: string; readonly name: string }[]>;
+  can(companyId: string, permission: string): Promise<boolean>;
+  loadJson(companyId: string): Promise<{ readonly core: unknown; readonly ledgers: unknown } | undefined>;
+  createCompany(masters: Masters): Promise<Result<{ companyId: CompanyId }>>;
+}
 
 export interface PostingHandlerDeps {
   /** Resolves the signed-in user from the request (JWT), or undefined if there is none. */
   authenticate(request: Request): Promise<{ userId: string } | undefined>;
   /** A gateway that acts as `actorId` and tags audit rows with `requestId`. */
-  gatewayFor(actorId: string, requestId: string): PostingGateway & MasterGateway;
+  gatewayFor(actorId: string, requestId: string): BooksServer;
   /** Called with unexpected errors so the host can log them. Never sent to the client. */
   onError?(error: unknown, requestId: string): void;
   /** CORS: allowed origin for browser callers. Defaults to '*'. */
@@ -123,6 +171,71 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
           );
         case 'master':
           return asResponse(await gateway.execute({ companyId: cmd.companyId as never, command: cmd.command }), (outcome) => outcome);
+
+        case 'companies':
+          return json(200, { ok: true, value: { companies: await gateway.companiesOf() } });
+
+        case 'company-create': {
+          const input = cmd.company;
+          // One company per account (someone who wants another asks to be invited to it).
+          if ((await gateway.companiesOf()).length > 0) {
+            return json(200, { ok: false, issues: [issue(IssueCode.UnsupportedOperation, 'This account already has a company')] });
+          }
+          const problems = newCompanyIssues(input);
+          if (problems.length > 0) return json(200, { ok: false, issues: problems });
+          const ids = new Map<string, string>(); // one id per seeded thing, however many times the seed asks for it
+          const newId = (name: string) => ids.get(name) ?? (ids.set(name, crypto.randomUUID()), ids.get(name)!);
+          const gstin = canonicalId(input.gstin ?? '');
+          const masters = seedCompany({
+            name: normalizeName(input.name),
+            fyStart: localDate(input.fyStart),
+            gstin: gstin === '' ? undefined : gstin,
+            stateCode: input.stateCode?.trim() || undefined,
+            address: input.address?.trim() || undefined,
+            newId,
+          });
+          return asResponse(await gateway.createCompany(masters), (created) => ({ companyId: created.companyId }));
+        }
+
+        // ---- reads: each answers only to someone who may see that part of the books ----
+        case 'load': {
+          const denied = await refuse(gateway, cmd.companyId, 'master.view');
+          if (denied) return json(200, denied);
+          const loaded = await gateway.loadJson(cmd.companyId);
+          return loaded ? json(200, { ok: true, value: loaded }) : json(200, notFound(cmd.companyId));
+        }
+        case 'vouchers': {
+          const denied = await refuse(gateway, cmd.companyId, 'voucher.view');
+          if (denied) return json(200, denied);
+          return json(200, { ok: true, value: { vouchers: (await gateway.list(cmd.companyId as never)).map(voucherToWire) } });
+        }
+        case 'voucher': {
+          const denied = await refuse(gateway, cmd.companyId, 'voucher.view');
+          if (denied) return json(200, denied);
+          const found = await gateway.get(cmd.companyId as never, cmd.voucherId as never);
+          return json(200, { ok: true, value: { voucher: found ? voucherToWire(found) : null } });
+        }
+        case 'lines': {
+          const denied = await refuse(gateway, cmd.companyId, 'report.view');
+          if (denied) return json(200, denied);
+          const lines = await gateway.lines({
+            companyId: cmd.companyId as never,
+            ...(cmd.from !== undefined ? { from: cmd.from as never } : {}),
+            ...(cmd.to !== undefined ? { to: cmd.to as never } : {}),
+            ...(cmd.ledgerId !== undefined ? { ledgerId: cmd.ledgerId as never } : {}),
+            ...(cmd.voucherId !== undefined ? { voucherId: cmd.voucherId as never } : {}),
+          });
+          return json(200, { ok: true, value: { lines: lines.map(journalLineToWire) } });
+        }
+        case 'stock': {
+          const denied = await refuse(gateway, cmd.companyId, 'report.view');
+          if (denied) return json(200, denied);
+          const movements = await gateway.stockMovements({
+            companyId: cmd.companyId as never,
+            ...(cmd.itemIds !== undefined ? { itemIds: cmd.itemIds as never } : {}),
+          });
+          return json(200, { ok: true, value: { movements: movements.map(stockMovementToWire) } });
+        }
       }
     } catch (error) {
       deps.onError?.(error, requestId);
@@ -130,3 +243,14 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
     }
   };
 }
+
+/**
+ * The same answer whether the company does not exist or the caller is not in it: a stranger learns nothing about which ids are real.
+ */
+async function refuse(gateway: BooksServer, companyId: string, permission: string) {
+  return (await gateway.can(companyId, permission))
+    ? undefined
+    : { ok: false as const, issues: [issue(IssueCode.PermissionDenied, `Not permitted: ${permission}`)] };
+}
+
+const notFound = (companyId: string) => fail(issue(IssueCode.CompanyMismatch, `Company ${companyId} not found`));

@@ -129,3 +129,24 @@ export interface OrderQuery {
 export interface OrderRepository {
   orderLinks(query: OrderQuery): Promise<readonly OrderLink[]>;
 }
+
+/** Who is signed in. Only what the app shows and keys per-person storage by; the server decides what they may do. */
+export interface AuthSession {
+  readonly userId: string;
+  readonly email: string;
+}
+
+/**
+ * Signing in and out. Failures come back as issues whose message is fit to show the person (wrong password, no such account…),
+ * never as a thrown error. `onChange` fires when the session appears or goes (another tab signed out, the refresh token expired).
+ */
+export interface AuthGateway {
+  session(): Promise<AuthSession | undefined>;
+  signIn(email: string, password: string): Promise<Result<AuthSession>>;
+  /** Emails a link that brings the person back to set a new password. (There is no sign-up: accounts are made by invitation.) */
+  requestPasswordReset(email: string): Promise<Result<void>>;
+  /** For the person who arrived by an invitation or reset link (they are signed in by it): choose the password they will sign in with. */
+  setPassword(password: string): Promise<Result<AuthSession>>;
+  signOut(): Promise<void>;
+  onChange(listener: (session: AuthSession | undefined) => void): () => void;
+}

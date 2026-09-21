@@ -199,6 +199,9 @@ importers:
       '@minimalerp/adapter-memory':
         specifier: workspace:*
         version: link:../../packages/adapter-memory
+      '@minimalerp/adapter-supabase':
+        specifier: workspace:*
+        version: link:../../packages/adapter-supabase
       '@minimalerp/command':
         specifier: workspace:*
         version: link:../../packages/command
@@ -214,6 +217,9 @@ importers:
       '@preact/signals':
         specifier: ^2.11.2
         version: 2.11.2(preact@10.29.8)
+      '@supabase/supabase-js':
+        specifier: ^2.116.0
+        version: 2.116.0
       preact:
         specifier: ^10.29.8
         version: 10.29.8
@@ -269,6 +275,9 @@ importers:
       '@minimalerp/adapter-postgres':
         specifier: workspace:*
         version: link:../adapter-postgres
+      '@minimalerp/adapter-supabase':
+        specifier: workspace:*
+        version: link:../adapter-supabase
       '@minimalerp/domain':
         specifier: workspace:*
         version: link:../domain

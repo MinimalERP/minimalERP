@@ -329,6 +329,33 @@ export class PostgresBackend
     return core.with({ ledgers: ledgersFromJson(r.rows[0]?.['l'], companyId) });
   }
 
+  /** The companies the actor belongs to, oldest first (what the browser opens on sign-in). */
+  async companiesOf(): Promise<readonly { readonly id: string; readonly name: string }[]> {
+    const r = await this.db.query(
+      `select c.id, c.name
+         from public.companies c join public.company_members m on m.company_id = c.id
+        where m.user_id = $1::uuid
+        order by c.created_at, c.id`,
+      [this.options.actorId],
+    );
+    return r.rows.map((row) => ({ id: text(row['id']), name: text(row['name']) }));
+  }
+
+  /** Whether the actor holds a permission in a company (false for a company that does not exist, or that they are not in). */
+  async can(companyId: string, permission: string): Promise<boolean> {
+    if (!isUuid(companyId)) return false;
+    const r = await this.db.query('select public.actor_can($1::uuid, $2::uuid, $3) as ok', [this.options.actorId, companyId, permission]);
+    return r.rows[0]?.['ok'] === true;
+  }
+
+  /** The masters as the JSON the database hands over: the browser rebuilds the same snapshot from it with buildMasters. */
+  async loadJson(companyId: string): Promise<{ readonly core: unknown; readonly ledgers: unknown } | undefined> {
+    const core = await this.loadCoreJson(companyId as CompanyId);
+    if (!core) return undefined;
+    const r = await this.db.query('select public.load_ledgers_json($1::uuid, null) as l', [companyId]);
+    return { core, ledgers: r.rows[0]?.['l'] };
+  }
+
   async get(companyId: CompanyId, voucherId: VoucherId): Promise<Voucher | undefined> {
     return isUuid(voucherId) ? this.fetchVoucher(companyId, voucherId) : undefined;
   }

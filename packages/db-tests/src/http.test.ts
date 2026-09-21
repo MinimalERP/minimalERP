@@ -190,7 +190,7 @@ describe('CORS and failures', () => {
         alter: async () => { throw new Error('x'); },
         cancel: async () => { throw new Error('x'); },
         execute: async () => { throw new Error('x'); },
-      }),
+      }) as never, // only posting is exercised: the reads and company actions are covered in cloud.test.ts
       onError: (error, requestId) => void errors.push({ error, requestId }),
     });
     const res = await boom(

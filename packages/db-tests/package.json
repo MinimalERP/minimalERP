@@ -9,6 +9,7 @@
   "dependencies": {
     "@minimalerp/adapter-memory": "workspace:*",
     "@minimalerp/adapter-postgres": "workspace:*",
+    "@minimalerp/adapter-supabase": "workspace:*",
     "@minimalerp/domain": "workspace:*",
     "@minimalerp/ports": "workspace:*",
     "@minimalerp/testkit": "workspace:*",
