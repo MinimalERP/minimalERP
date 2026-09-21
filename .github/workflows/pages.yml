@@ -43,6 +43,7 @@ jobs:
           VITE_BASE: /${{ github.event.repository.name }}/
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_REGION: ${{ vars.SUPABASE_REGION }} # optional: the project's region, so the function runs next to the database
       - uses: actions/upload-pages-artifact@v3
         with:
           path: apps/web/dist

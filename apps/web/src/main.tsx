@@ -112,7 +112,7 @@ async function startCloud(config: CloudConfig): Promise<void> {
     clearAuthHash();
     chooseOnlineBooks(storage); // signed in: the online books are the ones in use
     const factory = createCloudFactory({
-      backend: new SupabaseBooksBackend(client as unknown as SupabaseLike),
+      backend: new SupabaseBooksBackend(client as unknown as SupabaseLike, { region: config.region }),
       drafts: indexedDbStore(`minimalerp-drafts-${session.userId}`) ?? memoryStore(), // scratch work, per person, on this device
     });
     const host = new BooksHost(factory);

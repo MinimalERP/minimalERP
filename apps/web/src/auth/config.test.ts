@@ -19,6 +19,14 @@ describe('cloudConfig', () => {
     expect(() => cloudConfig({ VITE_SUPABASE_ANON_KEY: 'key' })).toThrow(/half set up/);
   });
 
+  it('reads the project region when given, refuses a malformed one, and does without', () => {
+    const base = { VITE_SUPABASE_URL: 'https://abc.supabase.co', VITE_SUPABASE_ANON_KEY: 'k' };
+    expect(cloudConfig({ ...base, VITE_SUPABASE_REGION: ' ap-northeast-1 ' })?.region).toBe('ap-northeast-1');
+    expect(cloudConfig({ ...base, VITE_SUPABASE_REGION: '' })?.region).toBeUndefined();
+    expect(cloudConfig(base)?.region).toBeUndefined();
+    expect(() => cloudConfig({ ...base, VITE_SUPABASE_REGION: 'tokyo' })).toThrow(/ap-northeast-1/);
+  });
+
   it('accepts only https, or a local Supabase on this machine', () => {
     expect(() => cloudConfig({ VITE_SUPABASE_URL: 'http://abc.supabase.co', VITE_SUPABASE_ANON_KEY: 'k' })).toThrow(/https/);
     expect(cloudConfig({ VITE_SUPABASE_URL: 'http://127.0.0.1:54321', VITE_SUPABASE_ANON_KEY: 'k' })?.url).toBe('http://127.0.0.1:54321');

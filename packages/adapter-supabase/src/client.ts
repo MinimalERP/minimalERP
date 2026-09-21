@@ -30,7 +30,7 @@ export interface FilterBuilder extends PromiseLike<QueryResult> {
 
 export interface SupabaseLike {
   readonly functions: {
-    invoke(name: string, options: { body: Record<string, unknown> }): Promise<InvokeResult>;
+    invoke(name: string, options: { body: Record<string, unknown>; headers?: Record<string, string> }): Promise<InvokeResult>;
   };
   from(table: string): { select(columns: string): FilterBuilder };
 }

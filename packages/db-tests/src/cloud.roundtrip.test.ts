@@ -196,6 +196,7 @@ describe('how many round trips a person waits for (each one is 0.5-1 s from Indi
     const pre = await handler(new Request('http://localhost/functions/v1/post-voucher', { method: 'OPTIONS' }));
     expect(pre.status).toBe(204);
     expect(Number(pre.headers.get('access-control-max-age'))).toBeGreaterThanOrEqual(3600);
+    expect(pre.headers.get('access-control-allow-headers')).toContain('x-region'); // without this the browser refuses to send the header at all
 
     const res = await handler(
       new Request('http://localhost/functions/v1/post-voucher', {

@@ -6,13 +6,13 @@ import type { InvokeResult, SupabaseLike } from './client';
 const company = asCompanyId('11111111-1111-4111-8111-111111111111');
 
 /** A client that answers every request with the next canned reply and remembers what it was sent. */
-function client(replies: InvokeResult[]) {
+function client(replies: InvokeResult[], region?: string) {
   const sent: Record<string, unknown>[] = [];
-  const invoke = vi.fn(async (_name: string, options: { body: Record<string, unknown> }) => {
+  const invoke = vi.fn(async (_name: string, options: { body: Record<string, unknown>; headers?: Record<string, string> }) => {
     sent.push(options.body);
     return replies.shift() ?? { data: { ok: true, value: { vouchers: [], lines: [], movements: [] } }, error: null };
   });
-  return { backend: new SupabaseBooksBackend({ functions: { invoke }, from: () => { throw new Error('unused'); } } as unknown as SupabaseLike), sent, invoke };
+  return { backend: new SupabaseBooksBackend({ functions: { invoke }, from: () => { throw new Error('unused'); } } as unknown as SupabaseLike, { region }), sent, invoke };
 }
 
 /** The answer to opening the books: the company list, with the books that would otherwise take four more requests. */
@@ -72,5 +72,20 @@ describe('what arrives with an answer, and when it may be used', () => {
     await backend.companies();
     await backend.list(company);
     expect(invoke).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('where the function runs', () => {
+  it('is pinned to the given region with x-region, on every request', async () => {
+    const { backend, invoke } = client([opened(), opened()], 'ap-northeast-1');
+    await backend.companies();
+    await backend.companies();
+    for (const call of invoke.mock.calls) expect(call[1].headers).toEqual({ 'x-region': 'ap-northeast-1' });
+  });
+
+  it('is left to Supabase (no header at all) when no region is given', async () => {
+    const { backend, invoke } = client([opened()]);
+    await backend.companies();
+    expect(invoke.mock.calls[0]![1]).not.toHaveProperty('headers');
   });
 });

@@ -7,6 +7,8 @@ export interface CloudConfig {
   readonly url: string;
   /** The project's public (anon) key. It is meant to ship in the page: what it may do is decided by the database, not by hiding it. */
   readonly anonKey: string;
+  /** The project's own region (`ap-northeast-1`): the function is run there, next to the database, instead of at the edge nearest the caller. */
+  readonly region?: string | undefined;
 }
 
 const LOCAL_HOST = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/;
@@ -26,7 +28,11 @@ export function cloudConfig(env: Readonly<Record<string, unknown>>): CloudConfig
   if (!url.startsWith('https://') && !LOCAL_HOST.test(url)) {
     throw new Error('VITE_SUPABASE_URL must be an https:// address (the project URL from the Supabase dashboard).');
   }
-  return { url: url.replace(/\/+$/, ''), anonKey };
+  const region = typeof env['VITE_SUPABASE_REGION'] === 'string' ? env['VITE_SUPABASE_REGION'].trim() : '';
+  if (region !== '' && !/^[a-z]{2}-[a-z]+-[0-9]$/.test(region)) {
+    throw new Error('VITE_SUPABASE_REGION must look like ap-northeast-1 (the project region from the Supabase dashboard), or be left out.');
+  }
+  return { url: url.replace(/\/+$/, ''), anonKey, ...(region !== '' ? { region } : {}) };
 }
 
 /** How the person reached the page, read from the address BEFORE the auth library consumes and clears it. */

@@ -45,7 +45,15 @@ const isEnvelope = (v: unknown): v is Envelope =>
  * identity. The browser never sends journal lines — only intent.
  */
 export class SupabasePostingGateway implements PostingGateway, MasterGateway {
-  constructor(private readonly client: SupabaseLike) {}
+  /**
+   * `region` pins where the function runs (Supabase's `x-region` header), e.g. 'ap-northeast-1'. Left alone, Supabase runs it at the edge
+   * nearest the caller — which is far from the database for anyone not near it, and a change makes about ten database queries: from India to a
+   * Tokyo database that was 5 s to open the books, all of it crossing regions. Set it to the project's own region.
+   */
+  constructor(
+    private readonly client: SupabaseLike,
+    private readonly options: { readonly region?: string | undefined } = {},
+  ) {}
 
   async post(request: PostRequest): Promise<Result<PostOutcome>> {
     const r = await this.call({ action: 'post', companyId: request.companyId, draft: request.draft });
@@ -83,6 +91,7 @@ export class SupabasePostingGateway implements PostingGateway, MasterGateway {
   protected async call(body: Record<string, unknown>): Promise<Result<unknown>> {
     const { data, error } = await this.client.functions.invoke(FUNCTION, {
       body: bigintSafe(this.prepare(body)) as Record<string, unknown>,
+      ...(this.options.region ? { headers: { 'x-region': this.options.region } } : {}),
     });
 
     if (error) return failWith(await issuesFromError(error));

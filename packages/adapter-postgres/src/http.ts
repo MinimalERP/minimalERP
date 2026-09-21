@@ -123,7 +123,7 @@ const outcomeToWire = (o: PostOutcome) => ({
 export function createPostingHandler(deps: PostingHandlerDeps): (request: Request) => Promise<Response> {
   const cors = {
     'access-control-allow-origin': deps.allowOrigin ?? '*',
-    'access-control-allow-headers': 'authorization, x-client-info, apikey, content-type, x-request-id',
+    'access-control-allow-headers': 'authorization, x-client-info, apikey, content-type, x-request-id, x-region',
     'access-control-allow-methods': 'POST, OPTIONS',
     // Every call is preceded by a preflight round trip unless the browser remembers it (5 s by default). Chrome caps this at 2 hours.
     'access-control-max-age': '7200',
