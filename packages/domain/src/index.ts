@@ -16,6 +16,7 @@ export * from './masters/records';
 export * from './masters/rules';
 export * from './masters/commands';
 export * from './masters/seed';
+export * from './masters/rows';
 
 export * from './vouchers/drafts';
 export * from './vouchers/allocations';
