@@ -63,6 +63,16 @@ export function TopBar() {
           </button>
         </>
       )}
+      {app.localBooks && (
+        <>
+          <span class="account" data-testid="local-books" title="Your books are kept in this browser only">
+            This browser only
+          </span>
+          <button type="button" class="goto-button" onClick={() => app.localBooks?.signIn()} aria-label="Sign in">
+            <span>Sign in</span>
+          </button>
+        </>
+      )}
       {PANEL_SCREENS.includes(screens.top.screen.type) && (
         <button type="button" class="goto-button keys-toggle" onClick={() => ui.toggleKeys()} aria-pressed={ui.keysOpen} aria-label="Keys">
           <span>Keys</span>

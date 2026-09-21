@@ -31,6 +31,12 @@ sign-up), **each account has its own company**, and the companies people already
    would fill real books with make-believe) are not offered.
 6. **Secrets.** The anon key is public by design and is a repository *variable*. The service-role key never leaves the Edge Function's environment and must never
    be given a `VITE_` name, because Vite publishes those.
+7. **"Use without signing in" (added the same day, at the user's request).** The sign-in page offers the browser-only books: the same backend and IndexedDB store the
+   app used before it went online, so a company someone already made in this browser is still there. The choice is remembered on the device (`auth/mode.ts`);
+   the top bar then shows "This browser only" and a **Sign in** button (and Go To finds "Sign In"), and signing in makes the online books the ones in use again.
+   The two never mix and nothing is uploaded or migrated. This relaxes decision 3: **invitation-only governs the online books** (an account, a company stored
+   in Supabase, other people's access to it), not use of the app itself, which anyone who opens the site may now do with books that live only in their own browser.
+   Those books are not backed up or shared, and clearing the site's data deletes them; the button says so.
 
 ## Consequences
 - The browser holds no copy of the company: closing the tab loses nothing, and there is nothing to sync. Half-entered vouchers still wait in IndexedDB, per person.

@@ -17,9 +17,11 @@ export interface AuthScreenProps {
   /** True when the link has already signed them in and only the password is missing. */
   readonly signedInByLink: boolean;
   readonly onSignedIn: (session: AuthSession) => void;
+  /** Offered when the person may keep their books in this browser instead. Absent: signing in is the only way in. */
+  readonly onUseLocal?: (() => void) | undefined;
 }
 
-export function AuthScreen({ auth, landing, signedInByLink, onSignedIn }: AuthScreenProps) {
+export function AuthScreen({ auth, landing, signedInByLink, onSignedIn, onUseLocal }: AuthScreenProps) {
   const [mode, setMode] = useState<Mode>(signedInByLink && (landing.kind === 'invite' || landing.kind === 'recovery') ? 'set-password' : 'sign-in');
   const [notice, setNotice] = useState<string | undefined>(landing.kind === 'error' ? landing.message : undefined);
 
@@ -32,6 +34,7 @@ export function AuthScreen({ auth, landing, signedInByLink, onSignedIn }: AuthSc
             auth={auth}
             notice={notice}
             onSignedIn={onSignedIn}
+            onUseLocal={onUseLocal}
             onForgot={() => {
               setNotice(undefined);
               setMode('forgot');
@@ -69,7 +72,19 @@ function Message({ text, kind }: { text: string | undefined; kind: 'error' | 'in
   );
 }
 
-function SignIn({ auth, notice, onSignedIn, onForgot }: { auth: AuthGateway; notice: string | undefined; onSignedIn: (s: AuthSession) => void; onForgot: () => void }) {
+function SignIn({
+  auth,
+  notice,
+  onSignedIn,
+  onForgot,
+  onUseLocal,
+}: {
+  auth: AuthGateway;
+  notice: string | undefined;
+  onSignedIn: (s: AuthSession) => void;
+  onForgot: () => void;
+  onUseLocal: (() => void) | undefined;
+}) {
   const first = useFocusFirst();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -104,6 +119,14 @@ function SignIn({ auth, notice, onSignedIn, onForgot }: { auth: AuthGateway; not
           Forgot password
         </button>
       </div>
+      {onUseLocal && (
+        <p class="auth-local">
+          <button type="button" class="button link" onClick={onUseLocal}>
+            Use without signing in
+          </button>
+          <span>Your books stay in this browser only: not backed up, not shared, and gone if you clear this site’s data.</span>
+        </p>
+      )}
     </form>
   );
 }

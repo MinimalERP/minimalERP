@@ -16,6 +16,12 @@ export interface Account {
   signOut(): Promise<void>;
 }
 
+/** Present when the books are kept in this browser although the site also has online books to sign in to. */
+export interface LocalBooks {
+  /** Goes to the sign-in page (the browser-only books are left exactly as they are). */
+  signIn(): void;
+}
+
 /**
  * What commands are allowed to do to the application. Commands receive this and nothing else, so a
  * module can navigate, open Go To, etc. without importing any UI.
@@ -25,6 +31,7 @@ export interface AppContext {
   readonly books: BooksHost;
   /** The signed-in account. Undefined when the books live in the browser and nobody signs in. */
   readonly account?: Account | undefined;
+  readonly localBooks?: LocalBooks | undefined;
   navigate(ref: ScreenRef): void;
   /** Changes the top screen in place (a voucher switching type keeps its draft, its place and its history). */
   replace(ref: ScreenRef): void;
@@ -130,6 +137,7 @@ export interface ServicesOptions {
   /** Where the open company lives. Omitted (tests) = a host with no way to create one. */
   readonly books?: BooksHost | undefined;
   readonly account?: Account | undefined;
+  readonly localBooks?: LocalBooks | undefined;
   readonly now?: (() => number) | undefined;
 }
 
@@ -149,6 +157,7 @@ export function createServices(options: ServicesOptions): Services {
   const app: AppContext = {
     books,
     account: options.account,
+    localBooks: options.localBooks,
     navigate(ref) {
       ui.closeGoTo();
       if (!sameScreen(screens.top.screen, ref)) screens.push(ref);

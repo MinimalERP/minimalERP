@@ -75,6 +75,15 @@ const commands: Command<AppContext>[] = [
     run: (app) => void app.account?.signOut(),
   },
   {
+    id: 'account.signIn',
+    title: 'Sign In',
+    category: 'Account',
+    keywords: ['log in', 'login', 'online books', 'account'],
+    description: 'Sign in to your online books (the books in this browser stay as they are)',
+    when: (app) => app.localBooks !== undefined,
+    run: (app) => app.localBooks?.signIn(),
+  },
+  {
     id: 'settings.resetKeymap',
     title: 'Reset Keyboard Shortcuts',
     category: 'Settings',
@@ -139,5 +148,6 @@ export const coreModule: ModuleManifest<AppContext> = {
   menu: [
     { section: 'utilities', commandId: 'settings.keyboard', order: 1 },
     { section: 'utilities', commandId: 'account.signOut', order: 9 },
+    { section: 'utilities', commandId: 'account.signIn', order: 9 },
   ],
 };

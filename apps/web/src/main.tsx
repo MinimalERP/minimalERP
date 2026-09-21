@@ -7,12 +7,15 @@
 //     someone has signed in (invitation only); the company is read from and written to Supabase through the `post-voucher` Edge Function.
 //   - built with neither (development and the browser tests): the books live in this browser — a backend that enforces every rule,
 //     saved to IndexedDB — and there is no sign-in.
+//   Online builds also offer "Use without signing in" on the sign-in page: the same browser-only books, remembered on this device
+//   (see auth/mode.ts), with a Sign in button in the top bar to go back. The two never mix: an account's company is online, this one is here.
 import { MemoryBackend } from '@minimalerp/adapter-memory';
 import { SupabaseAuth, SupabaseBooksBackend, type SupabaseLike } from '@minimalerp/adapter-supabase';
 import type { AuthSession } from '@minimalerp/ports';
 import { render } from 'preact';
 import { AuthScreen, StartupProblem } from './auth/AuthScreens';
 import { type CloudConfig, cloudConfig, landingOf } from './auth/config';
+import { chooseLocalBooks, chooseOnlineBooks, prefersLocalBooks } from './auth/mode';
 import { BooksHost } from './books/books';
 import { createCloudFactory } from './books/cloud';
 import { indexedDbStore } from './books/idb';
@@ -25,7 +28,7 @@ import { vouchersModule } from './modules/vouchers';
 import { ServicesContext } from './shell/hooks';
 import { bindRouter } from './shell/router';
 import { Shell } from './shell/Shell';
-import { type Account, createServices } from './shell/services';
+import { type Account, type LocalBooks, createServices } from './shell/services';
 import './ui/tokens.css';
 import './ui/shell.css';
 import './ui/auth.css';
@@ -48,12 +51,13 @@ function root(): HTMLElement {
 }
 
 /** Shows the application for an open (or not yet created) company. Called once. */
-function mountApp(books: BooksHost, account?: Account): void {
+function mountApp(books: BooksHost, account?: Account, localBooks?: LocalBooks): void {
   const services = createServices({
     target: window,
     storage: safeStorage(),
     books,
     account,
+    localBooks,
     modules: [coreModule, roadmapModule, mastersModule, vouchersModule, reportsModule],
   });
 
@@ -68,8 +72,8 @@ function mountApp(books: BooksHost, account?: Account): void {
   );
 }
 
-/** The books live in this browser. */
-async function startLocal(): Promise<void> {
+/** The books live in this browser. `localBooks` is given when the site also has online books to sign in to. */
+async function startLocal(localBooks?: LocalBooks): Promise<void> {
   const books = new BooksHost(
     createLocalFactory({
       makeBackend: (masters) => new MemoryBackend(masters),
@@ -77,7 +81,7 @@ async function startLocal(): Promise<void> {
     }),
   );
   await books.restore();
-  mountApp(books);
+  mountApp(books, undefined, localBooks);
 }
 
 /** The address carries the invitation's tokens until the auth library has read them; after that they are only clutter (and the router reads the hash). */
@@ -87,7 +91,18 @@ function clearAuthHash(): void {
 
 /** The books live online, behind a sign-in. */
 async function startCloud(config: CloudConfig): Promise<void> {
+  const storage = safeStorage();
   const landing = landingOf(window.location.hash); // read BEFORE the auth library consumes and clears the address
+  // Someone who chose to keep their books in this browser goes straight to them (an invitation or reset link still wins: it is a way in).
+  if (prefersLocalBooks(storage) && landing.kind === 'none') {
+    clearAuthHash();
+    return startLocal({
+      signIn: () => {
+        chooseOnlineBooks(storage);
+        window.location.reload();
+      },
+    });
+  }
   const { createClient } = await import('@supabase/supabase-js'); // not loaded at all when the books are local
   const client = createClient(config.url, config.anonKey);
   const auth = new SupabaseAuth(client, { redirectTo: new URL(import.meta.env.BASE_URL, window.location.origin).href });
@@ -95,6 +110,7 @@ async function startCloud(config: CloudConfig): Promise<void> {
   /** Signed in: open this account's books (or offer to create them), then show the app. */
   const enter = async (session: AuthSession): Promise<void> => {
     clearAuthHash();
+    chooseOnlineBooks(storage); // signed in: the online books are the ones in use
     const factory = createCloudFactory({
       backend: new SupabaseBooksBackend(client as unknown as SupabaseLike),
       drafts: indexedDbStore(`minimalerp-drafts-${session.userId}`) ?? memoryStore(), // scratch work, per person, on this device
@@ -122,7 +138,11 @@ async function startCloud(config: CloudConfig): Promise<void> {
 
   const showSignIn = (signedInByLink: boolean): void => {
     clearAuthHash();
-    render(<AuthScreen auth={auth} landing={landing} signedInByLink={signedInByLink} onSignedIn={(s) => void enter(s)} />, root());
+    const useLocal = () => {
+      chooseLocalBooks(storage);
+      window.location.reload();
+    };
+    render(<AuthScreen auth={auth} landing={landing} signedInByLink={signedInByLink} onSignedIn={(s) => void enter(s)} onUseLocal={useLocal} />, root());
   };
 
   const session = await auth.session(); // waits for the library to read an invitation link, if that is how the person came
