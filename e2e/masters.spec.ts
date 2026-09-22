@@ -461,6 +461,53 @@ test.describe('display, alter, deactivate', () => {
   });
 });
 
+test.describe('the manual next-number override (ADR-0021)', () => {
+  test.beforeEach(async ({ app }) => {
+    await loadDemo(app);
+  });
+
+  test('shows the next number, overrides it forward with a gap warning, and refuses a backward one', async ({ app }) => {
+    await goTo(app, 'numbering series');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText('Numbering Series');
+    await app.keyboard.type('sal'); // the Sales series ranks first; the fuzzy matcher may still surface others below it
+    await expect(app.getByRole('option').first()).toContainText('Sales —');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toContainText('Display Numbering Series: SAL/');
+
+    const notice = app.getByTestId('series-next-number');
+    await expect(notice).toBeVisible();
+    const current = Number(/Next number: (\d+)/.exec((await notice.textContent()) ?? '')?.[1]);
+    expect(Number.isInteger(current)).toBe(true);
+
+    // opening it shows the current value, pre-filled; accepting as-is is a no-op
+    await app.keyboard.press('Alt+n');
+    await expect(app.getByTestId('series-advance-dialog')).toBeVisible();
+    await expect(app.getByTestId('series-next-input')).toHaveValue(String(current));
+    await app.keyboard.press('Control+a');
+    await expect(app.getByTestId('series-advance-dialog')).toHaveCount(0);
+    await expect(notice).toContainText(`Next number: ${current}`);
+
+    // a forward jump warns how many numbers it skips, and takes effect
+    await app.keyboard.press('Alt+n');
+    await app.locator('[data-testid="series-next-input"]').fill(String(current + 50));
+    await expect(app.getByTestId('series-gap-hint')).toContainText('skip 49');
+    await app.keyboard.press('Control+a');
+    await expect(app.getByTestId('series-advance-dialog')).toHaveCount(0);
+    await expect(notice).toContainText(`Next number: ${current + 50}`);
+
+    // a backward value is refused inline, the dialog stays open, and nothing changes
+    await app.keyboard.press('Alt+n');
+    await app.locator('[data-testid="series-next-input"]').fill(String(current));
+    await app.keyboard.press('Control+a');
+    await expect(app.getByTestId('series-advance-error')).toContainText('cannot go before');
+    await expect(app.getByTestId('series-advance-dialog')).toBeVisible();
+    await app.keyboard.press('Escape');
+    await expect(app.getByTestId('series-advance-dialog')).toHaveCount(0);
+    await expect(notice).toContainText(`Next number: ${current + 50}`); // unchanged by the refused attempt
+  });
+});
+
 test.describe('the Gateway leads to masters', () => {
   test('Masters lists each kind once (creating is Alt+C inside the list), with no separate Create rows', async ({ app }) => {
     await loadDemo(app);

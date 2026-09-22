@@ -96,15 +96,18 @@ export interface MasterUsage {
   readonly ledgersWithEntries: ReadonlySet<string>;
   readonly voucherTypesInUse: ReadonlySet<string>;
   readonly seriesInUse: ReadonlySet<string>;
+  /** A numbering series' running counter — the number it would allocate next. Adapter-side only (see `seriesAdvanceIssues`); not part of `Masters`. */
+  readonly seriesNextValue: ReadonlyMap<string, number>;
 }
 
 export const NO_USAGE: MasterUsage = {
   ledgersWithEntries: new Set(),
   voucherTypesInUse: new Set(),
   seriesInUse: new Set(),
+  seriesNextValue: new Map(),
 };
 
-export type MasterOp = 'create' | 'alter' | 'setActive';
+export type MasterOp = 'create' | 'alter' | 'setActive' | 'advanceSeries';
 
 export interface MasterChange {
   readonly kind: MasterKind;
@@ -882,7 +885,7 @@ const DEFS: Readonly<Record<MasterKind, MasterDef>> = {
 // ---- the engine ----------------------------------------------------------------------------------
 
 const envelope = z.object({
-  op: z.enum(['create', 'alter', 'setActive']),
+  op: z.enum(['create', 'alter', 'setActive', 'advanceSeries']),
   kind: z.enum(MASTER_KINDS as [MasterKind, ...MasterKind[]]),
   id: z.string().min(1).max(128),
   data: z.unknown().optional(),
@@ -896,6 +899,28 @@ export function masterRecordName(r: MasterRecord): string {
   if ('symbol' in r) return r.symbol; // a unit is identified by its symbol
   if ('name' in r) return r.name;
   return `${r.prefix}…`; // a numbering series
+}
+
+/**
+ * Whether a numbering series' running counter may move to `requestedNextValue` — forward only, so it can never collide with a
+ * number already issued (everything before the current value is already accounted for). Shared by every backend (Postgres,
+ * in-memory) so the rule reads the same everywhere; the actual write is each adapter's own (see `packages/ports`'s
+ * `MasterGateway`) since `next_value` lives outside the domain snapshot (ADR-0021).
+ */
+export function seriesAdvanceIssues(currentNextValue: number, requestedNextValue: number): Issue[] {
+  if (!Number.isInteger(requestedNextValue) || requestedNextValue < 1) {
+    return [issue(IssueCode.OutOfRange, 'Enter a whole number, 1 or more', 'nextValue')];
+  }
+  if (requestedNextValue < currentNextValue) {
+    return [
+      issue(
+        IssueCode.SeriesNextBehind,
+        `The next number cannot go before ${currentNextValue} — number ${currentNextValue - 1} may already be issued`,
+        'nextValue',
+      ),
+    ];
+  }
+  return [];
 }
 
 /**
@@ -918,6 +943,18 @@ function prepareOne(input: unknown, masters: Masters, usage: MasterUsage, viaPar
 
   if (kind === 'company' && op === 'create') {
     return fail(issue(IssueCode.UnsupportedOperation, 'A company is created by onboarding, not as a master'));
+  }
+
+  if (op === 'advanceSeries') {
+    if (kind !== 'numberingSeries') return fail(issue(IssueCode.UnsupportedOperation, 'Only a numbering series has a next number'));
+    if (existing === undefined) return fail(issue(IssueCode.MasterNotFound, `No ${MASTER_LABELS[kind]} with that id`));
+    const current = usage.seriesNextValue.get(recordId);
+    if (current === undefined) return fail(issue(IssueCode.MastersChanged, 'Could not read the current next number; try again'));
+    const requested = Number((data as { nextValue?: unknown } | undefined)?.nextValue);
+    const problems = seriesAdvanceIssues(current, requested);
+    if (problems.length > 0) return failWith(problems);
+    // The series record itself never changes here; the before/after next_value lives only in the write's own audit row.
+    return ok({ change: { kind, op, id: recordId, before: existing, after: existing, replayed: requested === current }, masters });
   }
 
   if (op === 'setActive') {

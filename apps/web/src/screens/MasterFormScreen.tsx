@@ -24,6 +24,7 @@ import { useLeaveGuard } from '../shell/useLeaveGuard';
 import type { MasterMode, ScreenRef } from '../shell/router';
 import { Kbd } from '../ui/Kbd';
 import { ListView } from '../ui/ListView';
+import { SeriesAdvanceDialog } from './SeriesAdvanceDialog';
 
 const SCOPE = 'screen:master';
 const MAX_OPTIONS = 8;
@@ -58,6 +59,21 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
 
   const existing: MasterRecord | undefined =
     masters && mode !== 'create' && id !== undefined ? findMaster(masters, kind, id) : undefined;
+
+  // ---- a numbering series' running counter (ADR-0021): not part of the record, fetched on its own, shown read-only ----
+  const [seriesNext, setSeriesNext] = useState<number | undefined>(undefined);
+  const [advanceOpen, setAdvanceOpen] = useState(false);
+  const isSeries = kind === 'numberingSeries' && mode !== 'create' && id !== undefined;
+  useEffect(() => {
+    if (!isSeries || !books) return;
+    let cancelled = false;
+    void books.seriesStatus(id as string).then((r) => {
+      if (!cancelled && r.ok) setSeriesNext(r.value.nextValue);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [books, isSeries, id]);
 
   const initial = (): FormValues => {
     if (existing) return recordToValues(spec, existing);
@@ -456,6 +472,29 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
           }}
         />
       )}
+      {isSeries && seriesNext !== undefined && (
+        <Only
+          scope={SCOPE}
+          command="master.advanceSeries"
+          run={() => {
+            setAdvanceOpen(true);
+            return true;
+          }}
+        />
+      )}
+      {advanceOpen && seriesNext !== undefined && books && (
+        <SeriesAdvanceDialog
+          current={seriesNext}
+          onDone={(value) => {
+            setAdvanceOpen(false);
+            if (value === undefined) return; // Esc: cancelled
+            void books.advanceSeriesNext(id as string, value).then((r) => {
+              if (r.ok) void books.seriesStatus(id as string).then((s) => s.ok && setSeriesNext(s.value.nextValue));
+              else setBanner({ text: r.issues[0]?.message ?? 'That could not be applied', tone: 'error' });
+            });
+          }}
+        />
+      )}
     </>
   );
 
@@ -487,6 +526,18 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
         {mode === 'alter' && <>Change what you need, then accept.</>}
         {mode === 'create' && <>Fill in the details, then accept.</>}
       </p>
+
+      {isSeries && seriesNext !== undefined && (
+        <p class="notice" data-testid="series-next-number">
+          Next number: {seriesNext}
+          {chord('master.advanceSeries') && (
+            <>
+              {' — '}
+              <Kbd chord={chord('master.advanceSeries') as string} /> to change it.
+            </>
+          )}
+        </p>
+      )}
 
       {kind === 'ledger' && existing && (existing as { partyRole?: string }).partyRole !== undefined && (
         <p class="notice" data-testid="party-ledger-note">

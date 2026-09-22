@@ -1,4 +1,5 @@
 import {
+  type CompanyId,
   type Issue,
   type Result,
   type Voucher,
@@ -24,6 +25,7 @@ import type {
   PostOutcome,
   PostRequest,
   PostingGateway,
+  SeriesStatus,
 } from '@minimalerp/ports';
 import type { SupabaseError, SupabaseLike } from './client';
 
@@ -81,10 +83,16 @@ export class SupabasePostingGateway implements PostingGateway, MasterGateway {
     return r.ok ? ok(voucherFromWire((r.value as { voucher: VoucherWire }).voucher)) : r;
   }
 
-  /** Master-data commands (create / alter / activate) go through the same function: validated and committed on the server. */
+  /** Master-data commands (create / alter / activate / advanceSeries) go through the same function: validated and committed on the server. */
   async execute(request: MasterRequest): Promise<Result<MasterOutcome>> {
     const r = await this.call({ action: 'master', companyId: request.companyId, command: request.command });
     return r.ok ? ok(r.value as MasterOutcome) : r;
+  }
+
+  /** The current next number a numbering series would allocate — for the Numbering Series display and the override's default. */
+  async seriesStatus(companyId: CompanyId, seriesId: string): Promise<Result<SeriesStatus>> {
+    const r = await this.call({ action: 'series-status', companyId, seriesId });
+    return r.ok ? ok(r.value as SeriesStatus) : r;
   }
 
   /** Sends a command and unwraps the { ok, value | issues } envelope. */

@@ -250,6 +250,16 @@ export class Books {
     });
   }
 
+  /** A numbering series' current next number — for the Numbering Series display, and to default the override to a no-op. */
+  seriesStatus(seriesId: string): Promise<Result<{ readonly seriesId: string; readonly nextValue: number }>> {
+    return this.backend.seriesStatus(this.companyId, seriesId);
+  }
+
+  /** Moves a numbering series' next number forward (never back — see `seriesAdvanceIssues`). Equal to the current value is a no-op. */
+  advanceSeriesNext(seriesId: string, nextValue: number): Promise<Result<MasterOutcome>> {
+    return this.execute({ op: 'advanceSeries', kind: 'numberingSeries', id: seriesId, data: { nextValue } });
+  }
+
   /**
    * Sets a ledger's opening balance by posting the `opening` voucher for it. The voucher id is derived from the ledger,
    * so asking twice is a safe replay rather than a second balance.

@@ -172,6 +172,14 @@ const commands: Command<AppContext>[] = [
     configurable: true,
     panel: { label: 'Deactivate', group: 'Change', order: 32, on: ['master'] },
   },
+  {
+    id: 'master.advanceSeries',
+    title: 'Set the next number',
+    category: 'Data entry',
+    hidden: true,
+    configurable: true,
+    panel: { label: 'Next number…', group: 'Change', order: 33, on: ['master'], hideWhenUnavailable: true },
+  },
 ];
 
 const bindings: DefaultBinding[] = [
@@ -179,6 +187,7 @@ const bindings: DefaultBinding[] = [
   { commandId: 'master.createInline', chord: 'Alt+C' },
   { commandId: 'master.alter', chord: 'Alt+A' },
   { commandId: 'master.toggleActive', chord: 'Alt+X' },
+  { commandId: 'master.advanceSeries', chord: 'Alt+N' },
   { commandId: 'master.ledgerReport', chord: 'Alt+R' },
   { commandId: 'master.stockLedger', chord: 'Alt+E' },
 ];

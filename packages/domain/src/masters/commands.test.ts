@@ -4,7 +4,7 @@ import { IssueCode } from '../errors';
 import { deterministicUuid } from '../ids';
 import { gstinCheckChar } from './rules';
 import { seedCompany } from './seed';
-import { type MasterKind, type MasterUsage, NO_USAGE, prepareMasterCommand, findMaster } from './commands';
+import { type MasterKind, type MasterUsage, NO_USAGE, prepareMasterCommand, findMaster, seriesAdvanceIssues } from './commands';
 import type { Masters } from './masters';
 
 const newId = (name: string) => deterministicUuid(`t|${name}`);
@@ -410,6 +410,72 @@ describe('voucher types and numbering series', () => {
     expect(alter(base, 'numberingSeries', s.id, data, used).ok).toBe(true);
     expect(alter(base, 'numberingSeries', s.id, { ...data, startAt: 50 }, used).codes).toEqual([IssueCode.InUse]);
     expect(alter(base, 'numberingSeries', s.id, { ...data, startAt: 50 }).ok).toBe(true); // unused: free to change
+  });
+});
+
+describe('seriesAdvanceIssues (ADR-0021): the next-number override, forward only', () => {
+  it('accepts a forward jump and the no-op of the same value', () => {
+    expect(seriesAdvanceIssues(10, 10)).toEqual([]);
+    expect(seriesAdvanceIssues(10, 11)).toEqual([]);
+    expect(seriesAdvanceIssues(10, 500)).toEqual([]);
+  });
+
+  it('refuses a value behind the current one, without saying which one is "wrong" beyond the number itself', () => {
+    const problems = seriesAdvanceIssues(10, 9);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatchObject({ code: IssueCode.SeriesNextBehind, path: 'nextValue' });
+    expect(problems[0]?.message).toContain('10');
+  });
+
+  it('refuses a non-integer or a value below 1', () => {
+    expect(seriesAdvanceIssues(1, 0).map((i) => i.code)).toEqual([IssueCode.OutOfRange]);
+    expect(seriesAdvanceIssues(1, -5).map((i) => i.code)).toEqual([IssueCode.OutOfRange]);
+    expect(seriesAdvanceIssues(1, 1.5).map((i) => i.code)).toEqual([IssueCode.OutOfRange]);
+    expect(seriesAdvanceIssues(1, NaN).map((i) => i.code)).toEqual([IssueCode.OutOfRange]);
+  });
+});
+
+describe('numbering series: the manual next-number override (ADR-0021)', () => {
+  const base = fresh();
+  const s = base.series[0]!;
+  const usageAt = (nextValue: number): MasterUsage => ({ ...NO_USAGE, seriesNextValue: new Map([[s.id, nextValue]]) });
+
+  it('a forward jump is accepted, replays nothing, and leaves the series record itself unchanged', () => {
+    const r = prepareMasterCommand({ op: 'advanceSeries', kind: 'numberingSeries', id: s.id, data: { nextValue: 50 } }, base, usageAt(1));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.change).toMatchObject({ op: 'advanceSeries', id: s.id, replayed: false });
+    expect(r.value.masters.series.find((x) => x.id === s.id)).toEqual(s); // the running counter is adapter-side, not on the record
+  });
+
+  it('the same value as the current one is a safe replay — "continue from the last made number"', () => {
+    const r = prepareMasterCommand({ op: 'advanceSeries', kind: 'numberingSeries', id: s.id, data: { nextValue: 1 } }, base, usageAt(1));
+    expect(r).toMatchObject({ ok: true, value: { change: { replayed: true } } });
+  });
+
+  it('a backward value is refused', () => {
+    const r = prepareMasterCommand({ op: 'advanceSeries', kind: 'numberingSeries', id: s.id, data: { nextValue: 5 } }, base, usageAt(10));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.issues.map((i) => i.code)).toEqual([IssueCode.SeriesNextBehind]);
+  });
+
+  it('only a numbering series has a next number to move', () => {
+    expect(issuesOf(base, { op: 'advanceSeries', kind: 'ledger', id: newId('ledger:cash'), data: { nextValue: 5 } }).map((i) => i.code)).toEqual([
+      IssueCode.UnsupportedOperation,
+    ]);
+  });
+
+  it('refuses an id that does not exist', () => {
+    expect(issuesOf(base, { op: 'advanceSeries', kind: 'numberingSeries', id: newId('ghost'), data: { nextValue: 5 } }).map((i) => i.code)).toEqual([
+      IssueCode.MasterNotFound,
+    ]);
+  });
+
+  it('refuses when the current next number could not be read (a backend that never populated it)', () => {
+    expect(issuesOf(base, { op: 'advanceSeries', kind: 'numberingSeries', id: s.id, data: { nextValue: 5 } }).map((i) => i.code)).toEqual([
+      IssueCode.MastersChanged,
+    ]);
   });
 });
 

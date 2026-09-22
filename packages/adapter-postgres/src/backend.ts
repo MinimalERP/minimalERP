@@ -290,6 +290,21 @@ export class PostgresBackend
       if (change.replayed) return ok(outcome);
       if (changes.some((c) => !isUuid(c.id))) return fail(issue(IssueCode.SchemaInvalid, 'A master record id must be a UUID', 'id'));
 
+      // A numbering series' next number: its own function, its own audit action — not the generic per-table upsert
+      // (next_value is not even a column master_apply's upsert is allowed to touch), and no masters_version bump —
+      // nothing else's validated snapshot goes stale because of this.
+      if (change.op === 'advanceSeries') {
+        const requested = Number((request.command as { data?: { nextValue?: unknown } } | null)?.data?.nextValue);
+        const advanced = await this.rpc('select public.series_advance($1::uuid, $2::uuid, $3, $4::uuid, $5::bigint) as r', [
+          this.options.actorId,
+          request.companyId,
+          this.options.requestId ?? null,
+          change.id,
+          requested,
+        ]);
+        return advanced.ok ? ok(outcome) : advanced;
+      }
+
       // One record, or a party and its ledgers: all are written in the one transaction, in order.
       const applied = await this.applyMaster(request.companyId, mastersVersion(loaded), {
         changes: changes.map((c) => ({ kind: c.kind, op: c.op, id: c.id, row: masterRecordToRow(c.kind, c.after) })),
@@ -499,12 +514,28 @@ export class PostgresBackend
   private async usageOf(companyId: CompanyId, id: string | undefined): Promise<MasterUsage> {
     if (id === undefined || !isUuid(id)) return NO_USAGE;
     const r = await this.db.query('select public.master_usage_json($1::uuid, $2::uuid) as u', [companyId, id]);
-    const u = (r.rows[0]?.['u'] ?? {}) as { ledger_has_entries?: boolean; voucher_type_in_use?: boolean; series_in_use?: boolean };
+    const u = (r.rows[0]?.['u'] ?? {}) as {
+      ledger_has_entries?: boolean;
+      voucher_type_in_use?: boolean;
+      series_in_use?: boolean;
+      series_next_value?: number | string | null;
+    };
     return {
       ledgersWithEntries: new Set(u.ledger_has_entries ? [id] : []),
       voucherTypesInUse: new Set(u.voucher_type_in_use ? [id] : []),
       seriesInUse: new Set(u.series_in_use ? [id] : []),
+      seriesNextValue: new Map(u.series_next_value === null || u.series_next_value === undefined ? [] : [[id, Number(u.series_next_value)]]),
     };
+  }
+
+  /** The current next number a numbering series would allocate — for the browser to show, and to default a manual override to a no-op. */
+  async seriesStatus(companyId: CompanyId, seriesId: string): Promise<Result<{ readonly seriesId: string; readonly nextValue: number }>> {
+    if (!isUuid(companyId) || !isUuid(seriesId)) return fail(issue(IssueCode.MasterNotFound, 'No numbering series with that id'));
+    const denied = await this.denyUnless(companyId, 'master.view');
+    if (denied) return denied;
+    const usage = await this.usageOf(companyId, seriesId);
+    const nextValue = usage.seriesNextValue.get(seriesId);
+    return nextValue === undefined ? fail(issue(IssueCode.MasterNotFound, 'No numbering series with that id')) : ok({ seriesId, nextValue });
   }
 
   private async applyMaster(companyId: CompanyId, expectedVersion: number, change: Row): Promise<Result<Row>> {

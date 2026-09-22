@@ -23,7 +23,7 @@ const users = { accountant: randomUUID(), clerk: randomUUID(), viewer: randomUUI
 
 const NEW_TABLES = ['parties', 'units', 'stock_groups', 'stock_items', 'warehouses', 'gst_rates', 'search_index'] as const;
 
-const run = (w: PgMasterWorld, op: 'create' | 'alter' | 'setActive', kind: string, id: string, data?: unknown, active?: boolean, actor = w.ownerId) =>
+const run = (w: PgMasterWorld, op: 'create' | 'alter' | 'setActive' | 'advanceSeries', kind: string, id: string, data?: unknown, active?: boolean, actor = w.ownerId) =>
   new PostgresBackend(db.pool, { actorId: actor }).execute({
     companyId: w.companyId,
     command: { op, kind, id, ...(data === undefined ? {} : { data }), ...(active === undefined ? {} : { active }) },
@@ -495,5 +495,88 @@ describe('Invoice / PDF Settings (company fields)', () => {
     expect(codesOf(res)).toEqual([IssueCode.PermissionDenied]);
     const after = await new PostgresBackend(db.pool, { actorId: a.ownerId }).load(a.companyId as never);
     expect(after.company.phone).toBe(before.company.phone);
+  });
+});
+
+describe('the manual next-number override (ADR-0021)', () => {
+  const nextValueOf = async (seriesId: string) =>
+    Number((await db.pool.query('select next_value::text v from public.numbering_series where id = $1', [seriesId])).rows[0].v);
+  const openingSeries = (w: PgMasterWorld) => w.seed.series.find((s) => s.voucherTypeId === w.uuid('type:opening'))!.id;
+  const advance = (w: PgMasterWorld, seriesId: string, nextValue: number, actor = w.ownerId) => run(w, 'advanceSeries', 'numberingSeries', seriesId, { nextValue }, undefined, actor);
+
+  it('owner and accountant may move it forward; clerk, viewer and outsider may not', async () => {
+    const w = await pgMasterWorldFactory(db)();
+    await addMember(db.pool, w.companyId, users.accountant, 'accountant');
+    await addMember(db.pool, w.companyId, users.clerk, 'clerk');
+    await addMember(db.pool, w.companyId, users.viewer, 'viewer');
+    const series = openingSeries(w);
+    mustOk(await advance(w, series, 50, w.ownerId));
+    expect(await nextValueOf(series)).toBe(50);
+    mustOk(await advance(w, series, 60, users.accountant));
+    expect(await nextValueOf(series)).toBe(60);
+    for (const [who, actor] of [['clerk', users.clerk], ['viewer', users.viewer], ['outsider', users.outsider]] as const) {
+      expect(codesOf(await advance(w, series, 70, actor)), who).toEqual([IssueCode.PermissionDenied]);
+      expect(await nextValueOf(series), who).toBe(60); // unchanged
+    }
+  });
+
+  it('a forward jump changes next_value, and the next posted voucher picks it up', async () => {
+    const w = await pgMasterWorldFactory(db)();
+    const series = openingSeries(w);
+    mustOk(await advance(w, series, 500));
+    const posted = mustOk(
+      await w.backend.post({
+        companyId: w.companyId,
+        draft: { id: randomUUID(), voucherTypeId: w.uuid('type:opening'), date: '2024-04-01', ledgerId: w.uuid('ledger:cash'), side: 'debit', amount: '1', offsetLedgerId: w.uuid('ledger:opening-difference') },
+      }),
+    );
+    expect(posted.voucher.number).toBe('OB/0500');
+    expect(await nextValueOf(series)).toBe(501); // posting advanced it the ordinary way, from the new base
+  });
+
+  it('works even when the series already has vouchers posted — unlike start_at, which locks once used', async () => {
+    const w = await pgMasterWorldFactory(db)();
+    const series = openingSeries(w);
+    mustOk(
+      await w.backend.post({
+        companyId: w.companyId,
+        draft: { id: randomUUID(), voucherTypeId: w.uuid('type:opening'), date: '2024-04-01', ledgerId: w.uuid('ledger:cash'), side: 'debit', amount: '1', offsetLedgerId: w.uuid('ledger:opening-difference') },
+      }),
+    );
+    expect(await nextValueOf(series)).toBe(2); // ordinary posting already moved it
+    mustOk(await advance(w, series, 900));
+    expect(await nextValueOf(series)).toBe(900);
+  });
+
+  it('the same value as the current one is a safe no-op replay: no audit row, next_value unchanged', async () => {
+    const w = await pgMasterWorldFactory(db)();
+    const series = openingSeries(w);
+    const before = await nextValueOf(series);
+    const countBefore = Number((await db.pool.query(`select count(*)::int n from public.audit_log where company_id = $1 and entity_id = $2`, [w.companyId, series])).rows[0].n);
+    const r = mustOk(await advance(w, series, before));
+    expect(r.replayed).toBe(true);
+    expect(await nextValueOf(series)).toBe(before);
+    const countAfter = Number((await db.pool.query(`select count(*)::int n from public.audit_log where company_id = $1 and entity_id = $2`, [w.companyId, series])).rows[0].n);
+    expect(countAfter).toBe(countBefore);
+  });
+
+  it('a backward jump is refused, and next_value is left exactly as it was', async () => {
+    const w = await pgMasterWorldFactory(db)();
+    const series = openingSeries(w);
+    mustOk(await advance(w, series, 100));
+    expect(codesOf(await advance(w, series, 40))).toEqual([IssueCode.SeriesNextBehind]);
+    expect(await nextValueOf(series)).toBe(100);
+  });
+
+  it('the audit row records the gap the jump created, before and after', async () => {
+    const w = await pgMasterWorldFactory(db)();
+    const series = openingSeries(w);
+    mustOk(await advance(w, series, 250));
+    const row = (
+      await db.pool.query(`select action, before, after from public.audit_log where company_id = $1 and entity_id = $2 order by id desc limit 1`, [w.companyId, series])
+    ).rows[0];
+    expect(row.action).toBe('series.advanceNext');
+    expect(row.before).toMatchObject({ next_value: 1 });
+    expect(row.after).toMatchObject({ next_value: 250, gap: 249 });
   });
 });
