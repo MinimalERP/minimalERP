@@ -20,6 +20,7 @@ import { BooksHost } from './books/books';
 import { createCloudFactory } from './books/cloud';
 import { indexedDbStore } from './books/idb';
 import { createLocalFactory, memoryStore } from './books/local';
+import { SaveTracker } from './books/saving';
 import { coreModule } from './modules/core';
 import { mastersModule } from './modules/masters';
 import { reportsModule } from './modules/reports';
@@ -51,11 +52,12 @@ function root(): HTMLElement {
 }
 
 /** Shows the application for an open (or not yet created) company. Called once. */
-function mountApp(books: BooksHost, account?: Account, localBooks?: LocalBooks): void {
+function mountApp(books: BooksHost, saving: SaveTracker, account?: Account, localBooks?: LocalBooks): void {
   const services = createServices({
     target: window,
     storage: safeStorage(),
     books,
+    saving,
     account,
     localBooks,
     modules: [coreModule, roadmapModule, mastersModule, vouchersModule, reportsModule],
@@ -74,14 +76,16 @@ function mountApp(books: BooksHost, account?: Account, localBooks?: LocalBooks):
 
 /** The books live in this browser. `localBooks` is given when the site also has online books to sign in to. */
 async function startLocal(localBooks?: LocalBooks): Promise<void> {
+  const saving = new SaveTracker();
   const books = new BooksHost(
     createLocalFactory({
       makeBackend: (masters) => new MemoryBackend(masters),
       store: indexedDbStore() ?? memoryStore(),
+      saving,
     }),
   );
   await books.restore();
-  mountApp(books, undefined, localBooks);
+  mountApp(books, saving, undefined, localBooks);
 }
 
 /** The address carries the invitation's tokens until the auth library has read them; after that they are only clutter (and the router reads the hash). */
@@ -111,9 +115,11 @@ async function startCloud(config: CloudConfig): Promise<void> {
   const enter = async (session: AuthSession): Promise<void> => {
     clearAuthHash();
     chooseOnlineBooks(storage); // signed in: the online books are the ones in use
+    const saving = new SaveTracker();
     const factory = createCloudFactory({
       backend: new SupabaseBooksBackend(client as unknown as SupabaseLike, { region: config.region }),
       drafts: indexedDbStore(`minimalerp-drafts-${session.userId}`) ?? memoryStore(), // scratch work, per person, on this device
+      saving,
     });
     const host = new BooksHost(factory);
     try {
@@ -127,7 +133,7 @@ async function startCloud(config: CloudConfig): Promise<void> {
     auth.onChange((now) => {
       if (!now) window.location.reload();
     });
-    mountApp(host, {
+    mountApp(host, saving, {
       email: session.email,
       signOut: async () => {
         await auth.signOut();

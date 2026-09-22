@@ -1,5 +1,6 @@
 import { ActionPanel } from './ActionPanel';
 import { GoToOverlay } from './GoToOverlay';
+import { SavingOverlay } from './SavingOverlay';
 import { ScreenHost } from './ScreenHost';
 import { StatusBar } from './StatusBar';
 import { TopBar } from './TopBar';
@@ -23,6 +24,7 @@ export function Shell() {
       </div>
       <StatusBar />
       {ui.gotoOpen && <GoToOverlay />}
+      <SavingOverlay />
     </div>
   );
 }

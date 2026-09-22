@@ -8,6 +8,7 @@ import {
 } from '@minimalerp/command';
 import { KeyboardManager, KeymapStore, ScopeStack, type StorageLike } from '@minimalerp/keyboard';
 import { BooksHost } from '../books/books';
+import { SaveTracker } from '../books/saving';
 import { GATEWAY, type ScreenRef, sameScreen } from './router';
 
 /** Who is signed in (online books only; the in-browser books have no account). */
@@ -119,6 +120,7 @@ export class UiState {
 
 export interface Services {
   readonly books: BooksHost;
+  readonly saving: SaveTracker;
   readonly scopes: ScopeStack;
   readonly registry: CommandRegistry<AppContext>;
   readonly keymapStore: KeymapStore;
@@ -136,6 +138,8 @@ export interface ServicesOptions {
   readonly storage?: StorageLike | undefined;
   /** Where the open company lives. Omitted (tests) = a host with no way to create one. */
   readonly books?: BooksHost | undefined;
+  /** Drives the saving overlay. Omitted (tests): its own, unshared with any \`Books\` instance. */
+  readonly saving?: SaveTracker | undefined;
   readonly account?: Account | undefined;
   readonly localBooks?: LocalBooks | undefined;
   readonly now?: (() => number) | undefined;
@@ -206,5 +210,6 @@ export function createServices(options: ServicesOptions): Services {
     dispatch: (commandId, info) => registry.dispatch(commandId, { scopes: info.scopes, modal: info.modal }),
   });
 
-  return { books, scopes, registry, keymapStore, keyboard, screens, search, recents, ui, app };
+  const saving = options.saving ?? new SaveTracker();
+  return { books, saving, scopes, registry, keymapStore, keyboard, screens, search, recents, ui, app };
 }

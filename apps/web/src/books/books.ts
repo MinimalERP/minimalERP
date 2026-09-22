@@ -33,6 +33,7 @@ import type {
   VoucherRepository,
 } from '@minimalerp/ports';
 import type { KeyValueStore } from './store';
+import { SaveTracker } from './saving';
 
 export { newCompanyIssues } from '@minimalerp/domain';
 export type { NewCompany };
@@ -89,6 +90,10 @@ export class Books {
     initial: Masters,
     /** Where half-entered vouchers are kept between visits (optional: without it they live only on screen). */
     private readonly draftStore?: KeyValueStore,
+    /** Drives the saving overlay (`shell/SavingOverlay`) for every post/alter/cancel/master change. Shared across the app session by
+     * whichever factory built this `Books` (so the overlay is the same object whether the company is closed and reopened, or a
+     * demo is loaded), or its own if nothing is shared — a save is tracked either way. */
+    readonly saving: SaveTracker = new SaveTracker(),
   ) {
     this.snapshot = initial;
   }
@@ -149,21 +154,27 @@ export class Books {
 
   /** Posts a new voucher (the draft's id is its idempotency key). */
   async post(draft: unknown): Promise<Result<PostOutcome>> {
-    const result = await this.backend.post({ companyId: this.companyId, draft });
-    if (result.ok && !result.value.replayed) await this.reloadAfterChange();
-    return result;
+    return this.saving.track(async () => {
+      const result = await this.backend.post({ companyId: this.companyId, draft });
+      if (result.ok && !result.value.replayed) await this.reloadAfterChange();
+      return result;
+    });
   }
 
   async alter(voucherId: string, expectedVersion: number, draft: unknown): Promise<Result<PostOutcome>> {
-    const result = await this.backend.alter({ companyId: this.companyId, voucherId: voucherId as VoucherId, expectedVersion, draft });
-    if (result.ok) await this.reloadAfterChange();
-    return result;
+    return this.saving.track(async () => {
+      const result = await this.backend.alter({ companyId: this.companyId, voucherId: voucherId as VoucherId, expectedVersion, draft });
+      if (result.ok) await this.reloadAfterChange();
+      return result;
+    });
   }
 
   async cancel(voucherId: string, expectedVersion: number): Promise<Result<Voucher>> {
-    const result = await this.backend.cancel({ companyId: this.companyId, voucherId: voucherId as VoucherId, expectedVersion });
-    if (result.ok) await this.reloadAfterChange();
-    return result;
+    return this.saving.track(async () => {
+      const result = await this.backend.cancel({ companyId: this.companyId, voucherId: voucherId as VoucherId, expectedVersion });
+      if (result.ok) await this.reloadAfterChange();
+      return result;
+    });
   }
 
   private async reloadAfterChange(): Promise<void> {
@@ -232,9 +243,11 @@ export class Books {
 
   /** Create, alter or (de)activate a master. On success the snapshot is already updated when this resolves. */
   async execute(command: unknown): Promise<Result<MasterOutcome>> {
-    const result = await this.backend.execute({ companyId: this.companyId, command });
-    if (result.ok && !result.value.replayed && this.bulkDepth === 0) await this.refresh();
-    return result;
+    return this.saving.track(async () => {
+      const result = await this.backend.execute({ companyId: this.companyId, command });
+      if (result.ok && !result.value.replayed && this.bulkDepth === 0) await this.refresh();
+      return result;
+    });
   }
 
   /**

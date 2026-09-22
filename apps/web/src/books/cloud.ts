@@ -1,5 +1,6 @@
 import { type CompanyId, type Result, IssueCode, fail, issue, ok } from '@minimalerp/domain';
 import { Books, type BooksBackend, type BooksFactory, type NewCompany, newCompanyIssues } from './books';
+import type { SaveTracker } from './saving';
 import type { KeyValueStore } from './store';
 
 /** What the factory needs from the online backend beyond the books themselves: which company is this account's, and making it. */
@@ -12,6 +13,8 @@ export interface CloudFactoryOptions {
   readonly backend: CloudBackend;
   /** Where half-entered vouchers wait between visits. They are the person's own scratch work, so they stay on this device. */
   readonly drafts?: KeyValueStore | undefined;
+  /** Shared for the account's session, so the saving overlay is the same object whenever the company is opened. */
+  readonly saving?: SaveTracker | undefined;
 }
 
 /**
@@ -19,9 +22,9 @@ export interface CloudFactoryOptions {
  * and every change goes to the server, which validates and commits it. There is nothing to discard here (the browser holds no copy),
  * and no sample company (this is someone's real books).
  */
-export function createCloudFactory({ backend, drafts }: CloudFactoryOptions): BooksFactory {
+export function createCloudFactory({ backend, drafts, saving }: CloudFactoryOptions): BooksFactory {
   const open = async (companyId: CompanyId): Promise<Books> => {
-    const books = new Books(backend, companyId, await backend.load(companyId), drafts);
+    const books = new Books(backend, companyId, await backend.load(companyId), drafts, saving);
     await books.loadData();
     return books;
   };

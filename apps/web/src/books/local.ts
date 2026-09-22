@@ -1,6 +1,7 @@
 import { type Masters, type Result, asCompanyId, ok } from '@minimalerp/domain';
 import type { KeyValueStore } from './store';
 import { Books, type BooksFactory, type LocalBackend, type NewCompany, type SavedCompany, newCompanyIssues, seedMasters } from './books';
+import type { SaveTracker } from './saving';
 
 export type { KeyValueStore };
 
@@ -27,6 +28,8 @@ export interface LocalFactoryOptions {
   readonly makeBackend: (masters: Masters) => LocalBackend;
   readonly store: KeyValueStore;
   readonly newIdSeed?: () => string;
+  /** Shared across every company this factory opens, so the saving overlay is the same object across a close/reopen. */
+  readonly saving?: SaveTracker | undefined;
 }
 
 /**
@@ -35,7 +38,7 @@ export interface LocalFactoryOptions {
  * exactly as it was. (The same `Books` API sits on Supabase later; nothing above this file knows the difference.)
  */
 export function createLocalFactory(options: LocalFactoryOptions): BooksFactory {
-  const { makeBackend, store } = options;
+  const { makeBackend, store, saving } = options;
   const newSeed = options.newIdSeed ?? (() => crypto.randomUUID());
 
   const open = async (saved: SavedCompany, log: readonly unknown[]): Promise<Result<Books>> => {
@@ -62,7 +65,7 @@ export function createLocalFactory(options: LocalFactoryOptions): BooksFactory {
     });
 
     const companyId = asCompanyId(masters.company.id);
-    const books = new Books(backend, companyId, await backend.load(companyId), store);
+    const books = new Books(backend, companyId, await backend.load(companyId), store, saving);
     await books.loadData();
     return ok(books);
   };
