@@ -21,6 +21,8 @@ export function useScreenTitle() {
         return 'Create Company';
       case 'company-reset':
         return 'Close Company';
+      case 'invoice-settings':
+        return 'Invoice / PDF Settings';
       case 'master-list':
         return PLURALS[ref.kind];
       case 'master':

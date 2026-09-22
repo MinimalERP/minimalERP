@@ -66,6 +66,15 @@ const commands: Command<AppContext>[] = [
     },
   },
   {
+    id: 'settings.invoicePdf',
+    title: 'Invoice / PDF Settings',
+    category: 'Settings',
+    keywords: ['print', 'bank details', 'terms', 'thank you', 'phone', 'email', 'stamp', 'signature'],
+    description: 'What a printed voucher carries beyond the transaction: phone, email, bank details, a thank-you note and terms',
+    when: NEEDS_COMPANY,
+    run: (app) => app.navigate({ type: 'invoice-settings' }),
+  },
+  {
     id: 'company.create',
     title: 'Create Company',
     category: 'Company',
@@ -181,8 +190,9 @@ const entry = (section: string, commandId: string, order: number): MenuEntry => 
 const menu: MenuEntry[] = [
   ...LISTS.filter((k) => k !== 'voucherType' && k !== 'numberingSeries').map((k, i) => entry('masters', `master.list.${k}`, i + 1)),
   entry('utilities', 'settings.company', 5),
-  entry('utilities', 'settings.voucherTypes', 6),
-  entry('utilities', 'settings.numbering', 7),
+  entry('utilities', 'settings.invoicePdf', 6),
+  entry('utilities', 'settings.voucherTypes', 7),
+  entry('utilities', 'settings.numbering', 8),
   entry('utilities', 'company.create', 2),
   entry('utilities', 'company.loadDemo', 3),
   entry('utilities', 'company.reset', 4),

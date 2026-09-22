@@ -9,6 +9,7 @@ import {
 import { KeyboardManager, KeymapStore, ScopeStack, type StorageLike } from '@minimalerp/keyboard';
 import { BooksHost } from '../books/books';
 import { SaveTracker } from '../books/saving';
+import { PrintCoordinator } from '../ui/printCoordinator';
 import { GATEWAY, type ScreenRef, sameScreen } from './router';
 
 /** Who is signed in (online books only; the in-browser books have no account). */
@@ -121,6 +122,7 @@ export class UiState {
 export interface Services {
   readonly books: BooksHost;
   readonly saving: SaveTracker;
+  readonly print: PrintCoordinator;
   readonly scopes: ScopeStack;
   readonly registry: CommandRegistry<AppContext>;
   readonly keymapStore: KeymapStore;
@@ -211,5 +213,6 @@ export function createServices(options: ServicesOptions): Services {
   });
 
   const saving = options.saving ?? new SaveTracker();
-  return { books, saving, scopes, registry, keymapStore, keyboard, screens, search, recents, ui, app };
+  const print = new PrintCoordinator();
+  return { books, saving, print, scopes, registry, keymapStore, keyboard, screens, search, recents, ui, app };
 }

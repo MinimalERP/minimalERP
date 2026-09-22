@@ -14,6 +14,7 @@ import { godownWithStock, hiddenItemReason } from '../vouchers/salesModel';
 import { defaultDate, fyOf } from '../vouchers/entryHelpers';
 import { formatAmount, formatDate, formatQuantity, parseDateInput } from '../vouchers/format';
 import {
+  type LineValue,
   type StockForm,
   type StockLineForm,
   blankStockForm,
@@ -25,6 +26,7 @@ import {
   trimPlaces,
 } from '../vouchers/stockModel';
 import type { CreatedMaster } from './MasterFormScreen';
+import type { StockDoc } from '../ui/PrintView';
 
 const SCOPE = 'screen:voucher';
 const MAX_OPTIONS = 8;
@@ -73,7 +75,7 @@ interface Props {
  * side per line: In (Debit — stock arrives) or Out (Credit — stock leaves). An Out takes its value from the stock, live.
  */
 export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props) {
-  const { app, keymapStore } = useServices();
+  const { app, keymapStore, print } = useServices();
   useSubscriptions(books, keymapStore);
   const masters = books.masters;
   const readOnly = mode === 'display';
@@ -142,6 +144,26 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
   // ---- the stock without this voucher (what its own lines are checked and shown against), and the engine's verdict ----
   const base = useMemo(() => books.stock.withChange({ remove: [form.id as never] }), [books.stock, form.id]);
   const preview = useMemo(() => previewStock(form, masters, books.stock), [form, masters, books.stock]);
+  /** The posted voucher as a plain movement document — every value comes from `preview.values`, the same figure the screen shows. */
+  const buildPrintDoc = (): StockDoc | undefined => {
+    if (!voucher || !type) return undefined;
+    const lines = form.lines
+      .map((l, i) => ({ l, value: preview.values.get(i) }))
+      .filter((x): x is { l: StockLineForm; value: LineValue } => x.l.itemId !== '' && x.value !== undefined)
+      .map(({ l, value }) => {
+        const item = masters.stockItem(l.itemId as never);
+        const decimals = item ? (masters.unit(item.unitId)?.decimals ?? 0) : 0;
+        const q = parseQty(l.qty.trim());
+        return {
+          direction: l.direction,
+          item: l.itemLabel,
+          warehouse: l.warehouseLabel,
+          qty: q !== undefined ? `${formatQuantity(q, decimals)} ${masters.unit(item?.unitId as never)?.symbol ?? ''}`.trim() : l.qty,
+          value: value.value,
+        };
+      });
+    return { kind: 'stock', docTitle: type.name, number: voucher.number, date: voucher.date, lines, narration: form.narration || undefined };
+  };
   const issueAt = (key: string): string | undefined => fieldErrors[key] || (showErrors ? preview.issues.find((i) => i.field === key)?.message : undefined);
   const general = showErrors ? preview.issues.filter((i) => i.field === 'general').map((i) => i.message) : [];
 
@@ -690,6 +712,17 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
       {!readOnly && mode === 'create' && <Only scope={SCOPE} command="voucher.acceptAndNew" run={acceptAndNew} />}
       {pickerOn && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
       {!readOnly && current.line !== undefined && form.lines.length > 1 && <Only scope={SCOPE} command="voucher.removeLine" run={removeLine} />}
+      {voucher && (
+        <Only
+          scope={SCOPE}
+          command="voucher.print"
+          run={() => {
+            const doc = buildPrintDoc();
+            if (doc) print.printVoucher(doc);
+            return true;
+          }}
+        />
+      )}
       {mode === 'display' && voucher?.status === 'posted' && (
         <Only scope={SCOPE} command="master.alter" run={() => (app.navigate({ type: 'voucher', mode: 'alter', id: voucher.id }), true)} />
       )}

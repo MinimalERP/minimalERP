@@ -1,5 +1,6 @@
 import type { Frame } from '@minimalerp/command';
 import { CompanyCreateScreen, CompanyResetScreen } from '../screens/CompanyScreens';
+import { InvoiceSettingsScreen } from '../screens/InvoiceSettingsScreen';
 import { KeymapSettingsScreen } from '../screens/KeymapSettingsScreen';
 import { MasterFormScreen } from '../screens/MasterFormScreen';
 import { MasterListScreen } from '../screens/MasterListScreen';
@@ -25,6 +26,8 @@ function ScreenBody({ frame }: { frame: Frame<ScreenRef> }) {
       return <CompanyCreateScreen frame={frame} />;
     case 'company-reset':
       return <CompanyResetScreen />;
+    case 'invoice-settings':
+      return <InvoiceSettingsScreen frame={frame} />;
     case 'master':
       return <MasterFormScreen frame={frame} kind={ref.kind} mode={ref.mode} id={ref.id} seed={ref.seed} inline={ref.inline} />;
     case 'master-list':

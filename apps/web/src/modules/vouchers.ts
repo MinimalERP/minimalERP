@@ -133,6 +133,7 @@ const commands: Command<AppContext>[] = [
   contextual('voucher.againstOrder', 'Deliver or receive against an order', { label: 'Against order', group: 'Actions', order: 12, on: ['voucher'] }),
   contextual('order.invoice', 'Create an invoice for the pending items of this order', { label: 'Invoice pending', group: 'Actions', order: 15, on: ['voucher'] }),
   contextual('voucher.removeLine', 'Remove this line', { label: 'Remove line', group: 'Actions', order: 14, on: ['voucher'] }),
+  contextual('voucher.print', 'Print', { label: 'Print', group: 'Actions', order: 16, on: ['voucher'] }),
   contextual('voucher.cancel', 'Cancel this voucher', { label: 'Cancel voucher', group: 'Change', order: 31, on: ['voucher'] }),
   contextual('order.close', 'Close this order', { label: 'Close order', group: 'Change', order: 32, on: ['voucher'] }),
   // What Go To results run for a voucher.
@@ -167,6 +168,7 @@ const bindings: DefaultBinding[] = [
   { commandId: 'voucher.partyDetails', chord: 'Alt+P', scope: 'screen:voucher' },
   { commandId: 'voucher.cancel', chord: 'Alt+X', scope: 'screen:voucher' },
   { commandId: 'voucher.removeLine', chord: 'Ctrl+Delete', scope: 'screen:voucher' },
+  { commandId: 'voucher.print', chord: 'Ctrl+P', scope: 'screen:voucher' },
 ];
 
 const GROUPS: Readonly<Record<ListKind, { group: string; order: number }>> = {

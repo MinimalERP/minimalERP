@@ -166,6 +166,23 @@ const optionalCode = () =>
       return t === '' ? undefined : t;
     });
 
+/** Like `optionalText`, but keeps the line breaks a person typed (terms, a note) instead of collapsing them to spaces. */
+const optionalMultiline = (max = 2000) =>
+  z
+    .string()
+    .optional()
+    .transform((s) => {
+      const t = (s ?? '')
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .map((line) => line.replace(/\s+/g, ' ').trim())
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      return t === '' ? undefined : t;
+    })
+    .refine((s) => s === undefined || s.length <= max, `At most ${max} characters`);
+
 const id = () => z.string().min(1, 'Required').max(128);
 const optionalId = () =>
   z
@@ -799,7 +816,21 @@ const seriesDef = define({
 
 const companyDef = define({
   kind: 'company',
-  schema: z.object({ name: required(), gstin: optionalCode(), stateCode: optionalText(2), address: optionalText(300), chargeGst: z.union([z.boolean(), z.enum(['yes', 'no'])]).optional().transform((v) => (v === undefined ? undefined : v === true || v === 'yes')) }),
+  schema: z.object({
+    name: required(),
+    gstin: optionalCode(),
+    stateCode: optionalText(2),
+    address: optionalText(300),
+    chargeGst: z.union([z.boolean(), z.enum(['yes', 'no'])]).optional().transform((v) => (v === undefined ? undefined : v === true || v === 'yes')),
+    phone: optionalText(30),
+    email: optionalText(120),
+    bankName: optionalText(120),
+    bankAccountNo: optionalText(40),
+    bankIfsc: optionalText(20),
+    bankBranch: optionalText(120),
+    invoiceNote: optionalText(300),
+    invoiceTerms: optionalMultiline(2000),
+  }),
   find: (m, cid) => (m.company.id === cid ? m.company : undefined),
   isActive: () => true,
   withActive: (r) => r,
@@ -822,6 +853,14 @@ const companyDef = define({
     stateCode: f.stateCode ?? (f.gstin && !gstinProblem(f.gstin) ? stateOfGstin(f.gstin) : undefined),
     address: f.address,
     chargeGst: f.chargeGst === true ? true : undefined,
+    phone: f.phone,
+    email: f.email,
+    bankName: f.bankName,
+    bankAccountNo: f.bankAccountNo,
+    bankIfsc: f.bankIfsc,
+    bankBranch: f.bankBranch,
+    invoiceNote: f.invoiceNote,
+    invoiceTerms: f.invoiceTerms,
   }),
   put: (m, company) => m.with({ company }),
 });

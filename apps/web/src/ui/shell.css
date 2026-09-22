@@ -239,6 +239,7 @@
 .field-input:focus { outline: none; border-color: var(--c-focus); box-shadow: 0 0 0 2px var(--c-focus); }
 .field-input[readonly] { background: transparent; border-color: transparent; padding-left: 0; }
 .field-input.invalid { border-color: var(--c-negative); }
+textarea.field-input { resize: vertical; min-height: 5em; }
 .field-error { color: var(--c-negative); font-size: var(--fs-sm); }
 .field-hint { color: var(--c-text-muted); font-size: var(--fs-sm); }
 .picker {

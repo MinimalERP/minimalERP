@@ -16,6 +16,18 @@ export interface Company {
    * the items and nothing else. It can be switched on in Company settings once the company's GSTIN and state are set.
    */
   readonly chargeGst?: boolean | undefined;
+
+  // ---- Invoice / PDF Settings (ADR-0022): fixed content a print carries, edited from its own screen, not Company Settings ----
+  readonly phone?: string | undefined;
+  readonly email?: string | undefined;
+  readonly bankName?: string | undefined;
+  readonly bankAccountNo?: string | undefined;
+  readonly bankIfsc?: string | undefined;
+  readonly bankBranch?: string | undefined;
+  /** A short line under the totals, e.g. "Thank you for your business." */
+  readonly invoiceNote?: string | undefined;
+  /** Terms and conditions, printed as the person typed it (line breaks kept). */
+  readonly invoiceTerms?: string | undefined;
 }
 
 /** The ledgers the GST and TDS postings find by reserved key (ADR-0019); their specs are in systemLedgers.ts. */

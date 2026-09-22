@@ -194,6 +194,7 @@ const commands: Command<AppContext>[] = [
   { id: 'grid.filter', title: 'Filter this column', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Filter', group: 'Report', order: 41, on: ['report'] } },
   { id: 'grid.clear', title: 'Clear filters', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Clear filters', group: 'Report', order: 42, on: ['report'] } },
   { id: 'report.types', title: 'Filter by voucher type', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Voucher types', group: 'Report', order: 43, on: ['report'] } },
+  { id: 'report.print', title: 'Print', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Print', group: 'Report', order: 47, on: ['report'] } },
 ];
 
 const bindings: DefaultBinding[] = [
@@ -204,6 +205,7 @@ const bindings: DefaultBinding[] = [
   { commandId: 'gst.exportJson', chord: 'Alt+B', scope: 'screen:report' },
   { commandId: 'gst.exportCsv', chord: 'Alt+M', scope: 'screen:report' },
   { commandId: 'gst.view', chord: 'Alt+V', scope: 'screen:report' },
+  { commandId: 'report.print', chord: 'Ctrl+P', scope: 'screen:report' },
 ];
 
 const menu: MenuEntry[] = [

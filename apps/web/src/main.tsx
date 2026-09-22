@@ -33,6 +33,7 @@ import { type Account, type LocalBooks, createServices } from './shell/services'
 import './ui/tokens.css';
 import './ui/shell.css';
 import './ui/auth.css';
+import './ui/print.css';
 
 /** localStorage can throw (blocked, private windows); everything still works without it, just unsaved. */
 function safeStorage(): Storage | undefined {

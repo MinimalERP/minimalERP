@@ -169,7 +169,11 @@ export function masterRecordToRow(kind: MasterKind, record: MasterRecord): Row {
     }
     case 'company': {
       const c = record as Masters['company'];
-      return { id: c.id, name: c.name, gstin: nul(c.gstin), state_code: nul(c.stateCode), address: nul(c.address), charge_gst: c.chargeGst === true };
+      return {
+        id: c.id, name: c.name, gstin: nul(c.gstin), state_code: nul(c.stateCode), address: nul(c.address), charge_gst: c.chargeGst === true,
+        phone: nul(c.phone), email: nul(c.email), bank_name: nul(c.bankName), bank_account_no: nul(c.bankAccountNo),
+        bank_ifsc: nul(c.bankIfsc), bank_branch: nul(c.bankBranch), invoice_note: nul(c.invoiceNote), invoice_terms: nul(c.invoiceTerms),
+      };
     }
   }
 }

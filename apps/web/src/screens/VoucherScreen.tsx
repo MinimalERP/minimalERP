@@ -19,6 +19,7 @@ import { StockVoucherEntry } from './StockVoucherScreen';
 import { useOtherVoucherHandlers } from '../vouchers/otherVoucher';
 import { amountToSettle, billsToOffer, defaultAllocations, settleableBills, unallocated } from '../vouchers/bills';
 import { formatAmount, formatBalance, formatCashBalance, formatDate, parseDateInput } from '../vouchers/format';
+import type { LedgerDoc } from '../ui/PrintView';
 import {
   type AllocForm,
   type FieldKey,
@@ -150,7 +151,7 @@ interface EntryProps {
 }
 
 function VoucherEntry({ frame, books, mode, typeId, voucher }: EntryProps) {
-  const { app, keymapStore } = useServices();
+  const { app, keymapStore, print } = useServices();
   useSubscriptions(books);
   const masters = books.masters;
   const readOnly = mode === 'display';
@@ -793,6 +794,21 @@ function VoucherEntry({ frame, books, mode, typeId, voucher }: EntryProps) {
   const cancelled = voucher?.status === 'cancelled';
   const accountBalance = form.accountId ? books.balanceOf(form.accountId) : undefined;
 
+  /** The posted voucher as a plain ledger/Dr-Cr document. Single-entry (Payment/Receipt/Contra) adds the account line implied by
+   * the voucher kind — `form.lines` carries only the particulars, since that account is never stored per line. */
+  const buildPrintDoc = (): LedgerDoc | undefined => {
+    if (!voucher || !type) return undefined;
+    const entryLines = form.lines.filter((l) => l.ledgerId !== '').map((l) => ({ ledger: l.label, side: l.side, amount: toMinor(l.amount) ?? 0n }));
+    const lines =
+      layout === 'single-entry' && form.accountId
+        ? [
+            { ledger: form.accountLabel, side: (isReceipt ? 'debit' : 'credit') as 'debit' | 'credit', amount: entryLines.reduce((s, l) => s + l.amount, 0n) },
+            ...entryLines,
+          ]
+        : entryLines;
+    return { kind: 'ledger', docTitle: type.name, number: voucher.number, date: voucher.date, lines, narration: form.narration || undefined };
+  };
+
   const pickerList = (key: string) =>
     isFocus(key) && pickerOn && !pickerDismissed && hits.length > 0 ? (
       <div class="picker" data-testid="picker">
@@ -1238,6 +1254,17 @@ function VoucherEntry({ frame, books, mode, typeId, voucher }: EntryProps) {
       {pickerOn && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
       {!readOnly && <Only scope={SCOPE} command="voucher.partyDetails" run={openPartyDetails} />}
       {!readOnly && current.line !== undefined && (form.lines.length > 1 || current.part !== undefined) && <Only scope={SCOPE} command="voucher.removeLine" run={removeLine} />}
+      {voucher && (
+        <Only
+          scope={SCOPE}
+          command="voucher.print"
+          run={() => {
+            const doc = buildPrintDoc();
+            if (doc) print.printVoucher(doc);
+            return true;
+          }}
+        />
+      )}
       {leave.dialog}
       {createAsking && (
         <ChooseOneDialog

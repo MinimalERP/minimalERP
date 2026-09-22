@@ -42,6 +42,7 @@ import { DataGrid } from '../ui/DataGrid';
 import { Kbd } from '../ui/Kbd';
 import { formatAmount, formatBalance, formatDate, formatQuantity, normalizeAmount, parseDateInput } from '../vouchers/format';
 import { FieldsDialog, LedgerDialog, MultiSelectDialog } from './ReportDialogs';
+import type { ReportDoc } from '../ui/PrintView';
 
 const SCOPE = 'screen:report';
 
@@ -130,7 +131,7 @@ function ReportBody({
   kind: string | undefined;
   groupFromAddress: string | undefined;
 }) {
-  const { books: host, app, keymapStore } = useServices();
+  const { books: host, app, keymapStore, print } = useServices();
   const books = host.current as NonNullable<typeof host.current>;
   useSubscriptions(books);
   const masters = books.masters;
@@ -377,6 +378,18 @@ function ReportBody({
       return c ? [{ key: id, text: describeFilter(c, f), clear: () => setQuery(withFilter(query, id, undefined)) }] : [];
     }),
   ];
+
+  /** Every row the screen shows (filtered, sorted) — not just what `DataGrid` currently has in its DOM (it windows a long
+   * report for speed); the same `text`/`value` each column already reads on screen decides what prints. */
+  const buildReportDoc = (): ReportDoc => ({
+    kind: 'report',
+    title,
+    period: asOnReport ? `As on ${formatDate(period.to)}` : `${formatDate(period.from)} → ${formatDate(period.to)}`,
+    filters: chips.map((c) => c.text),
+    columns: columns.map((c) => ({ label: c.label, align: c.align })),
+    rows: rows.map((r) => columns.map((c) => (c.text ? c.text(r) : String(c.value(r) ?? '')))),
+    rowCount: `${rows.length} shown of ${baseRows.length}`,
+  });
 
   // ---- totals of what is shown ----
   let shownDebit = 0n;
@@ -659,6 +672,7 @@ function ReportBody({
 
       {report === 'vouchers' && listKind && <Only scope={SCOPE} command={`list.new.${listKind}`} run={newVoucher} />}
       {(report === 'daybook' || report === 'ledger' || report === 'stock-item') && <Only scope={SCOPE} command="report.types" run={() => (setDialog('types'), true)} />}
+      <Only scope={SCOPE} command="report.print" run={() => (print.printReport(buildReportDoc()), true)} />
       {dialog === 'filter' && filterDialog()}
       {dialog === 'types' && (
         <MultiSelectDialog

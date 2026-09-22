@@ -432,3 +432,68 @@ describe('the Edge Function handler takes master commands', () => {
     expect(await res.json()).toMatchObject({ ok: false, issues: [{ code: 'PERMISSION_DENIED' }] });
   });
 });
+
+describe('Invoice / PDF Settings (company fields)', () => {
+  const alterCompany = (data: Record<string, unknown>, actor: string) =>
+    run(
+      a,
+      'alter',
+      'company',
+      a.companyId,
+      {
+        name: 'Acme Works',
+        gstin: undefined,
+        stateCode: undefined,
+        address: undefined,
+        chargeGst: undefined,
+        ...data,
+      },
+      undefined,
+      actor,
+    );
+
+  it('owner and accountant can set them; the fields round-trip through the real backend, unchanged fields untouched', async () => {
+    const set = await alterCompany(
+      {
+        phone: '022-4000 0000',
+        email: 'accounts@acme.test',
+        bankName: 'HDFC Bank',
+        bankAccountNo: '50200012345678',
+        bankIfsc: 'HDFC0000123',
+        bankBranch: 'Andheri East',
+        invoiceNote: 'Thank you for your business.',
+        invoiceTerms: 'Goods once sold will not be taken back.\n\nSubject to Mumbai jurisdiction.',
+      },
+      users.accountant,
+    );
+    expect(mustOk(set).replayed).toBe(false);
+
+    const loaded = await new PostgresBackend(db.pool, { actorId: a.ownerId }).load(a.companyId as never);
+    expect(loaded.company).toMatchObject({
+      name: 'Acme Works', // untouched by this alter, still present
+      phone: '022-4000 0000',
+      email: 'accounts@acme.test',
+      bankName: 'HDFC Bank',
+      bankAccountNo: '50200012345678',
+      bankIfsc: 'HDFC0000123',
+      bankBranch: 'Andheri East',
+      invoiceNote: 'Thank you for your business.',
+      invoiceTerms: 'Goods once sold will not be taken back.\n\nSubject to Mumbai jurisdiction.',
+    });
+  });
+
+  it('a field left blank stays blank — never defaulted to an empty string', async () => {
+    await alterCompany({ phone: '', bankName: 'Kept Bank' }, a.ownerId);
+    const loaded = await new PostgresBackend(db.pool, { actorId: a.ownerId }).load(a.companyId as never);
+    expect(loaded.company.phone).toBeUndefined();
+    expect(loaded.company.bankName).toBe('Kept Bank');
+  });
+
+  it('a clerk is refused with PERMISSION_DENIED, and nothing changes', async () => {
+    const before = await new PostgresBackend(db.pool, { actorId: a.ownerId }).load(a.companyId as never);
+    const res = await alterCompany({ phone: '999-999-9999' }, users.clerk);
+    expect(codesOf(res)).toEqual([IssueCode.PermissionDenied]);
+    const after = await new PostgresBackend(db.pool, { actorId: a.ownerId }).load(a.companyId as never);
+    expect(after.company.phone).toBe(before.company.phone);
+  });
+});

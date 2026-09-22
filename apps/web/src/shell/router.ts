@@ -12,6 +12,7 @@ export type ScreenRef =
   | { readonly type: 'settings-keyboard' }
   | { readonly type: 'company-new' }
   | { readonly type: 'company-reset' }
+  | { readonly type: 'invoice-settings' }
   /** A master record's form. `seed` pre-fills a new one (Alt+C from a field) and `inline` makes it hand its result back; neither is part of the address. */
   | {
       readonly type: 'master';
@@ -49,6 +50,8 @@ export function refToHash(ref: ScreenRef): string {
       return '#/company/new';
     case 'company-reset':
       return '#/company/reset';
+    case 'invoice-settings':
+      return '#/company/invoice-settings';
     case 'master':
       return ref.mode === 'create' || ref.id === undefined
         ? `#/master/${ref.kind}/create`
@@ -80,6 +83,7 @@ export function hashToRef(hash: string): ScreenRef | undefined {
   if (path === '/settings/keyboard') return { type: 'settings-keyboard' };
   if (path === '/company/new') return { type: 'company-new' };
   if (path === '/company/reset') return { type: 'company-reset' };
+  if (path === '/company/invoice-settings') return { type: 'invoice-settings' };
   const record = /^\/master\/([A-Za-z]+)\/(create|display|alter)(?:\/(.+))?$/.exec(path);
   if (record) {
     const [, kind = '', mode = '', rawId] = record;

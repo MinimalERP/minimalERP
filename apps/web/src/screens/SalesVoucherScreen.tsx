@@ -1,5 +1,5 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
-import { type Voucher, formatQty, formatRate, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type Money, type Voucher, formatQty, formatRate, parseQty, partyLedgerId } from '@minimalerp/domain';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { Only } from '../shell/Only';
@@ -44,6 +44,7 @@ import {
 import { useOtherVoucherHandlers } from '../vouchers/otherVoucher';
 import { PartyDetailsDialog } from './PartyDetailsDialog';
 import type { CreatedMaster } from './MasterFormScreen';
+import type { InvoiceDoc } from '../ui/PrintView';
 
 const SCOPE = 'screen:voucher';
 const MAX_OPTIONS = 8;
@@ -109,7 +110,7 @@ interface Props {
  * other in place (F8 / Shift+F8, F9 / Shift+F9) keeping the party, the reference and the lines. What differs between the four is in `docProfile`.
  */
 export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrder }: Props) {
-  const { app, keymapStore } = useServices();
+  const { app, keymapStore, print } = useServices();
   useSubscriptions(books, keymapStore);
   const masters = books.masters;
   const readOnly = mode === 'display';
@@ -192,6 +193,41 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
   // ---- the stock and the orders WITHOUT this voucher (what its own lines are checked and shown against), and the engine's verdict ----
   const base = useMemo(() => books.stock.withChange({ remove: [form.id as never] }), [books.stock, form.id]);
   const preview = useMemo(() => previewSales(form, kind, masters, books.stock, books.orders, undefined, books.vouchers), [form, kind, masters, books.stock, books.orders, books.vouchers]);
+  /** The posted voucher as a plain invoice/order document — every amount comes from `preview.amounts`/`total`/`gst`/`grand`,
+   * indexed exactly as `previewSales` computed them, so a printed figure can never disagree with what the screen showed. */
+  const buildPrintDoc = (): InvoiceDoc | undefined => {
+    if (!voucher || !type) return undefined;
+    const details = form.partyDetails;
+    const lines = form.lines
+      .map((l, i) => ({ l, amount: preview.amounts.get(i) }))
+      .filter((x): x is { l: SalesLineForm; amount: Money } => x.l.itemId !== '' && x.amount !== undefined)
+      .map(({ l, amount }) => {
+        const item = masters.stockItem(l.itemId as never);
+        const decimals = item ? (masters.unit(item.unitId)?.decimals ?? 0) : 0;
+        const q = parseQty(l.qty.trim());
+        return {
+          desc: l.itemLabel,
+          hsn: l.hsn,
+          qty: q !== undefined ? `${formatQuantity(q, decimals)} ${masters.unit(item?.unitId as never)?.symbol ?? ''}`.trim() : l.qty,
+          rate: l.rate,
+          amount,
+          gstRate: l.gstRate,
+        };
+      });
+    return {
+      kind: 'invoice',
+      docTitle: type.name,
+      number: voucher.number,
+      date: voucher.date,
+      poNo: form.reference || undefined,
+      party: { name: details?.mailingName ?? form.partyLabel, gstin: details?.gstin, billTo: details?.billTo, shipTo: details?.shipTo },
+      lines,
+      subtotal: preview.total,
+      gst: preview.gst,
+      grandTotal: preview.grand,
+      narration: form.narration || undefined,
+    };
+  };
   const issueAt = (key: string): string | undefined => fieldErrors[key] || (showErrors ? preview.issues.find((i) => i.field === key)?.message : undefined);
   const general = showErrors ? preview.issues.filter((i) => i.field === 'general').map((i) => i.message) : [];
   /** A posted order as the order book reads it now: its status and what each line has had delivered. */
@@ -945,6 +981,17 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
       {!readOnly && <Only scope={SCOPE} command="voucher.partyDetails" run={openPartyDetails} />}
       {!readOnly && p.invoice && <Only scope={SCOPE} command="voucher.againstOrder" run={againstOrder} />}
       {!readOnly && current.line !== undefined && form.lines.length > 1 && <Only scope={SCOPE} command="voucher.removeLine" run={removeLine} />}
+      {voucher && (
+        <Only
+          scope={SCOPE}
+          command="voucher.print"
+          run={() => {
+            const doc = buildPrintDoc();
+            if (doc) print.printVoucher(doc);
+            return true;
+          }}
+        />
+      )}
       {mode === 'display' && voucher?.status === 'posted' && (
         <Only scope={SCOPE} command="master.alter" run={() => (app.navigate({ type: 'voucher', mode: 'alter', id: voucher.id }), true)} />
       )}
