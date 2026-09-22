@@ -183,6 +183,10 @@ export class MemoryBackend
     if (!change.replayed) {
       // ---- apply: no failure points below this line ----
       this.masters = masters;
+      if (change.op === 'advanceSeries') {
+        const requested = Number((request.command as { data?: { nextValue?: unknown } } | null)?.data?.nextValue);
+        this.counters.set(change.id as SeriesId, requested);
+      }
       this.record({ type: 'master', command: request.command });
     }
     return ok({ kind: change.kind, op: change.op, id: change.id, name: masterRecordName(change.after), replayed: change.replayed, created: createdRecords(changes) });
@@ -426,7 +430,14 @@ export class MemoryBackend
       const series = this.masters.seriesFor(v.voucherTypeId, v.financialYearId);
       if (series) seriesInUse.add(series.id);
     }
-    return { ledgersWithEntries, voucherTypesInUse, seriesInUse };
+    const seriesNextValue = new Map(this.masters.series.map((s) => [s.id as string, this.counters.get(s.id) ?? s.startAt]));
+    return { ledgersWithEntries, voucherTypesInUse, seriesInUse, seriesNextValue };
+  }
+
+  /** The current next number a numbering series would allocate — for the browser to show, and to default a manual override to a no-op. */
+  async seriesStatus(_companyId: CompanyId, seriesId: string): Promise<Result<{ readonly seriesId: string; readonly nextValue: number }>> {
+    const nextValue = this.usage().seriesNextValue.get(seriesId);
+    return nextValue === undefined ? fail(issue(IssueCode.MasterNotFound, 'No numbering series with that id')) : ok({ seriesId, nextValue });
   }
 
   private recordRevision(voucher: Voucher): void {

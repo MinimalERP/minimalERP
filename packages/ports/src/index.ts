@@ -78,12 +78,20 @@ export interface MasterOutcome {
   readonly created: readonly { readonly kind: MasterKind; readonly id: string; readonly name: string }[];
 }
 
+/** A numbering series' running counter — the number it would allocate next. */
+export interface SeriesStatus {
+  readonly seriesId: string;
+  readonly nextValue: number;
+}
+
 /**
  * The single write path into master data, mirroring PostingGateway: validate, apply, audit — all or nothing.
  * Clients reload masters through MastersRepository afterwards.
  */
 export interface MasterGateway {
   execute(request: MasterRequest): Promise<Result<MasterOutcome>>;
+  /** For the Numbering Series master's display and the "Next number" override — the current next_value, read-only. */
+  seriesStatus(companyId: CompanyId, seriesId: string): Promise<Result<SeriesStatus>>;
 }
 
 export interface MastersRepository {

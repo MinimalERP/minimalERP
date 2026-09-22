@@ -66,6 +66,8 @@ export const IssueCode = {
   NatureLocked: 'NATURE_LOCKED',
   InUse: 'IN_USE',
   OutOfRange: 'OUT_OF_RANGE',
+  /** A numbering series' next number cannot be moved before what it already is — that number, or one before it, may already be issued. */
+  SeriesNextBehind: 'SERIES_NEXT_BEHIND',
   UnsupportedOperation: 'UNSUPPORTED_OPERATION',
   OpeningInvalid: 'OPENING_INVALID',
   AllocationInvalid: 'ALLOCATION_INVALID',

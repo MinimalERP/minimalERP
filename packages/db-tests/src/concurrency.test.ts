@@ -236,3 +236,41 @@ describe('a storm of mixed operations', () => {
     expect(seq).toEqual(seq.map((_, i) => i + 1));
   });
 });
+
+describe('the manual next-number override races safely against posting (ADR-0021)', () => {
+  it('concurrent posts and a manual override serialise through the same row lock: no deadlock, no duplicate number', async () => {
+    const w = await make();
+    const seriesId = (
+      await db.pool.query(
+        `select id from public.numbering_series where company_id = $1 and voucher_type_id = $2 and financial_year_id = $3`,
+        [w.companyId, w.types.payment, w.fy2425.id],
+      )
+    ).rows[0].id as string;
+    const advance = (nextValue: number) =>
+      new PostgresBackend(db.pool, { actorId: w.ownerId }).execute({
+        companyId: w.companyId,
+        command: { op: 'advanceSeries', kind: 'numberingSeries', id: seriesId, data: { nextValue } },
+      });
+
+    const targets = [200, 250, 300];
+    const [postResults, advanceResults] = await Promise.all([
+      Promise.all(range(15).map((i) => service(w).post({ companyId: w.companyId, draft: pay(w, `race${i}`).voucher }))),
+      Promise.all(targets.map(advance)),
+    ]);
+
+    // Every operation resolved with a known outcome — a rejection here would mean a deadlock or a serialisation failure.
+    expect(okOf(postResults)).toBe(15); // posting is never refused by a concurrent override
+    for (const r of advanceResults) if (!r.ok) expect(codes(r)).toEqual([IssueCode.SeriesNextBehind]); // only ever a legitimate business refusal
+
+    const numbers = postResults.map((r) => (r.ok ? seqOf(r.value.voucher.number) : -1));
+    expect(new Set(numbers).size).toBe(15); // no two posts ever raced to the same number, whatever the interleaving
+
+    // Both kinds of change only ever move the counter forward under the same `for update` lock, so the sequence of
+    // values it passed through is strictly non-decreasing — the final value is exactly the larger of what the last
+    // post would have issued next, and the highest override that actually landed.
+    const finalNext = Number((await db.pool.query('select next_value::text v from public.numbering_series where id = $1', [seriesId])).rows[0].v);
+    const highestIssued = Math.max(...numbers);
+    const highestAdvanced = Math.max(0, ...targets.filter((_, i) => advanceResults[i]?.ok));
+    expect(finalNext).toBe(Math.max(highestIssued + 1, highestAdvanced));
+  });
+});

@@ -88,6 +88,7 @@ const body = z.discriminatedUnion('action', [
     voucherId: z.string().optional(),
   }),
   z.object({ action: z.literal('stock'), companyId, itemIds: z.array(z.string()).optional() }),
+  z.object({ action: z.literal('series-status'), companyId, seriesId: z.string().min(1) }),
 ]);
 
 /**
@@ -258,6 +259,9 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
           });
           return json(200, { ok: true, value: { movements: movements.map(stockMovementToWire) } });
         }
+        // seriesStatus checks master.view itself (the same answer to "not permitted" and "no such series" either refuses).
+        case 'series-status':
+          return asResponse(await gateway.seriesStatus(cmd.companyId as never, cmd.seriesId), (status) => status);
       }
     } catch (error) {
       deps.onError?.(error, requestId);
