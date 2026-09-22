@@ -95,6 +95,7 @@
 .list-row.selected { background: var(--c-focus-bg); border-left-color: var(--c-focus); }
 .row-title { font-weight: 600; }
 .row-title mark { background: none; color: var(--c-accent); text-decoration: underline; text-underline-offset: 2px; }
+.row-title .mnemonic { color: var(--c-negative); text-decoration: underline; text-underline-offset: 2px; }
 .row-desc { color: var(--c-text-muted); font-size: var(--fs-sm); flex: 1; min-width: 0; }
 .row-meta { margin-left: auto; display: flex; align-items: center; gap: var(--sp-3); flex-shrink: 0; }
 .row-kind { color: var(--c-text-muted); font-size: var(--fs-sm); min-width: 6.5em; }

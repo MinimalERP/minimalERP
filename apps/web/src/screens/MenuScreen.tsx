@@ -1,8 +1,60 @@
 import type { Frame } from '@minimalerp/command';
+import { useEffect } from 'preact/hooks';
 import { Kbd } from '../ui/Kbd';
 import { ListView } from '../ui/ListView';
 import { useFrameState, useListNavigation, useServices, useSubscriptions } from '../shell/hooks';
 import type { ScreenRef } from '../shell/router';
+
+interface Mnemonic {
+  /** The letter a bare keypress answers to (always upper-case). */
+  readonly char: string;
+  /** Where in the row's title that letter sits, so it can be picked out in a different colour. */
+  readonly index: number;
+}
+
+/**
+ * The Gateway's four sections keep the same letter always — chosen by hand, not derived, because
+ * "Utilities & Settings" would otherwise mnemonic to its own first letter (U), not the S the section
+ * is actually called by.
+ */
+const GATEWAY_MNEMONIC: Readonly<Record<string, string>> = { masters: 'M', transactions: 'T', reports: 'R', utilities: 'Settings' };
+
+function gatewayMnemonic(id: string, title: string): Mnemonic | undefined {
+  const marker = GATEWAY_MNEMONIC[id] ?? title.slice(0, 1);
+  const index = title.indexOf(marker);
+  return index === -1 ? undefined : { char: marker.slice(0, 1).toUpperCase(), index };
+}
+
+/**
+ * One letter per row, so a bare keypress can jump straight to it — the same idea as Tally's Gateway.
+ * Each row claims the first of its own letters nothing before it already claimed; a row whose every
+ * letter is taken gets none (still reachable by arrow keys, just not by a single keypress).
+ */
+function assignMnemonics(titles: readonly string[]): (Mnemonic | undefined)[] {
+  const used = new Set<string>();
+  return titles.map((title) => {
+    for (let i = 0; i < title.length; i++) {
+      const ch = title[i] as string;
+      if (!/[a-zA-Z]/.test(ch)) continue;
+      const upper = ch.toUpperCase();
+      if (used.has(upper)) continue;
+      used.add(upper);
+      return { char: upper, index: i };
+    }
+    return undefined;
+  });
+}
+
+function TitleWithMnemonic({ title, mnemonic }: { title: string; mnemonic: Mnemonic | undefined }) {
+  if (!mnemonic) return <>{title}</>;
+  return (
+    <>
+      {title.slice(0, mnemonic.index)}
+      <span class="mnemonic">{title.slice(mnemonic.index, mnemonic.index + 1)}</span>
+      {title.slice(mnemonic.index + 1)}
+    </>
+  );
+}
 
 interface Row {
   readonly key: string;
@@ -44,6 +96,29 @@ export function MenuScreen({ frame, menuId }: { frame: Frame<ScreenRef>; menuId:
         open: () => void registry.run(c.id),
       }));
 
+  const mnemonics: (Mnemonic | undefined)[] = isGateway
+    ? rows.map((r) => gatewayMnemonic(r.key, r.title))
+    : assignMnemonics(rows.map((r) => r.title));
+  const mnemonicByKey = new Map(rows.map((r, i) => [r.key, mnemonics[i]]));
+
+  // A bare letter jumps straight to the row it marks — its own thing, apart from the app's configurable
+  // shortcuts, and safe here only because this screen is a pure list: no text field ever has focus on it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.altKey || e.metaKey || e.repeat || e.isComposing) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (e.key.length !== 1 || !/[a-zA-Z]/.test(e.key)) return;
+      const letter = e.key.toUpperCase();
+      const i = mnemonics.findIndex((m) => m?.char === letter);
+      if (i === -1) return;
+      e.preventDefault();
+      rows[i]?.open();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [rows, mnemonics]);
+
   const safeIndex = Math.min(index, Math.max(0, rows.length - 1));
   // Rows are one flat list for the keyboard (one cursor); a grouped section draws a heading and a list per group.
   const groups: { title: string; start: number; rows: Row[] }[] = [];
@@ -63,7 +138,7 @@ export function MenuScreen({ frame, menuId }: { frame: Frame<ScreenRef>; menuId:
       <h1 id="menu-title">{isGateway ? 'Gateway' : (section?.title ?? menuId)}</h1>
       <p class="lede">
         {isGateway
-          ? 'Choose where to go. Press Alt+G at any time to search everything.'
+          ? 'Choose where to go: type a red letter to jump straight in, or press Alt+G at any time to search everything.'
           : (section?.description ?? '')}
       </p>
       {rows.length === 0 ? (
@@ -83,7 +158,9 @@ export function MenuScreen({ frame, menuId }: { frame: Frame<ScreenRef>; menuId:
               }}
               renderItem={(r) => (
                 <>
-                  <span class="row-title">{r.title}</span>
+                  <span class="row-title">
+                    <TitleWithMnemonic title={r.title} mnemonic={mnemonicByKey.get(r.key)} />
+                  </span>
                   {r.description && <span class="row-desc">{r.description}</span>}
                   <span class="row-meta">
                     {r.badge && <span class="badge">{r.badge}</span>}
