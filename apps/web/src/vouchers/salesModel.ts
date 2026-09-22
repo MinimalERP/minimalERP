@@ -69,6 +69,8 @@ export interface SalesForm {
   partyLabel: string;
   /** The customer's own reference: their PO number. */
   reference: string;
+  /** Sales Invoice: the E-way Bill number for this movement of goods, if one was generated. */
+  ewayBillNo: string;
   /** Who it is billed and shipped to: filled from the party when it is chosen (Alt+P changes it for this voucher). */
   partyDetails: PartyDetails | undefined;
   /** Invoice: the ledger sales (or, on a purchase, purchases) are booked to. */
@@ -125,6 +127,7 @@ export const blankSalesForm = (
   partyId: '',
   partyLabel: '',
   reference: '',
+  ewayBillNo: '',
   partyDetails: undefined,
   salesLedgerId: extra.salesLedger?.id ?? '',
   salesLedgerLabel: extra.salesLedger?.label ?? '',
@@ -148,7 +151,13 @@ const isEmptyLine = (l: SalesLineForm): boolean => l.itemId === '' && l.itemLabe
  * is not "entered".)
  */
 export const isBlankSales = (form: SalesForm): boolean =>
-  form.partyId === '' && form.partyLabel.trim() === '' && form.reference.trim() === '' && form.billNo.trim() === '' && form.narration.trim() === '' && form.lines.every(isEmptyLine);
+  form.partyId === '' &&
+  form.partyLabel.trim() === '' &&
+  form.reference.trim() === '' &&
+  form.ewayBillNo.trim() === '' &&
+  form.billNo.trim() === '' &&
+  form.narration.trim() === '' &&
+  form.lines.every(isEmptyLine);
 
 // ---- dates -------------------------------------------------------------------------------------------------------
 
@@ -299,7 +308,7 @@ export function formToSalesDraft(form: SalesForm, kind: SalesKind, masters?: Mas
     draft: p.order
       ? { ...base, ...(form.closed ? { closed: true } : {}) }
       : p.side === 'sales'
-        ? { ...base, salesLedgerId: form.salesLedgerId, dueDate: form.due, ...(gst ? { gst } : {}) }
+        ? { ...base, salesLedgerId: form.salesLedgerId, dueDate: form.due, ...(gst ? { gst } : {}), ...(form.ewayBillNo.trim() !== '' ? { ewayBillNo: form.ewayBillNo.trim() } : {}) }
         : { ...base, purchaseLedgerId: form.salesLedgerId, billNo: form.billNo.trim(), dueDate: form.due, ...(gst ? { gst } : {}) },
     kept,
   };
@@ -311,6 +320,7 @@ export type SalesFieldKey =
   | 'date'
   | 'party'
   | 'ref'
+  | 'eway'
   | 'sledger'
   | 'billno'
   | 'due'
@@ -351,6 +361,7 @@ const HEADER: Readonly<Record<string, SalesFieldKey>> = {
   partyId: 'party',
   partyDetails: 'party',
   reference: 'ref',
+  ewayBillNo: 'eway',
   salesLedgerId: 'sledger',
   purchaseLedgerId: 'sledger',
   billNo: 'billno',
@@ -474,6 +485,7 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     narration?: string;
     partyId?: string;
     reference?: string;
+    ewayBillNo?: string;
     partyDetails?: PartyDetails;
     salesLedgerId?: string;
     purchaseLedgerId?: string;
@@ -508,6 +520,7 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     partyId: c.partyId ?? '',
     partyLabel: c.partyId ? (masters.party(c.partyId as never)?.name ?? '') : '',
     reference: c.reference ?? '',
+    ewayBillNo: c.ewayBillNo ?? '',
     partyDetails: c.partyDetails,
     salesLedgerId: c.salesLedgerId ?? c.purchaseLedgerId ?? '',
     salesLedgerLabel: (c.salesLedgerId ?? c.purchaseLedgerId) ? (masters.ledger((c.salesLedgerId ?? c.purchaseLedgerId) as never)?.name ?? '') : '',

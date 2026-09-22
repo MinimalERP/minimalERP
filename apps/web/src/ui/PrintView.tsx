@@ -53,8 +53,12 @@ export interface InvoiceDoc {
   readonly docTitle: string;
   readonly number: string;
   readonly date: string;
+  /** What the number row is labelled — "No." unless the screen names something more specific ("Invoice No." for a Sales Invoice). */
+  readonly numberLabel?: string | undefined;
   /** The customer's own reference (Sales) — shown as "PO No." only when present. */
   readonly poNo?: string | undefined;
+  /** The E-way Bill number for this invoice's movement of goods (Sales) — shown only when present. */
+  readonly ewayBillNo?: string | undefined;
   readonly party: PrintParty;
   readonly lines: readonly {
     readonly desc: string;
@@ -109,7 +113,25 @@ function AddressBlock({ label, address }: { label: string; address: PrintAddress
   );
 }
 
-function CompanyHead({ company, docTitle, copyLabel, number, date, poNo }: { company: PrintCompany; docTitle: string; copyLabel: string | undefined; number: string; date: string; poNo?: string | undefined }) {
+function CompanyHead({
+  company,
+  docTitle,
+  copyLabel,
+  numberLabel = 'No.',
+  number,
+  date,
+  poNo,
+  ewayBillNo,
+}: {
+  company: PrintCompany;
+  docTitle: string;
+  copyLabel: string | undefined;
+  numberLabel?: string | undefined;
+  number: string;
+  date: string;
+  poNo?: string | undefined;
+  ewayBillNo?: string | undefined;
+}) {
   return (
     <div class="inv-head">
       <div class="inv-company">
@@ -130,7 +152,7 @@ function CompanyHead({ company, docTitle, copyLabel, number, date, poNo }: { com
         <table>
           <tbody>
             <tr>
-              <td>No.</td>
+              <td>{numberLabel}</td>
               <td>{number}</td>
             </tr>
             <tr>
@@ -141,6 +163,12 @@ function CompanyHead({ company, docTitle, copyLabel, number, date, poNo }: { com
               <tr>
                 <td>PO No.</td>
                 <td>{poNo}</td>
+              </tr>
+            )}
+            {ewayBillNo && (
+              <tr>
+                <td>E-way Bill No.</td>
+                <td>{ewayBillNo}</td>
               </tr>
             )}
           </tbody>
@@ -225,7 +253,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
   const sameAsBilling = !doc.party.shipTo;
   return (
     <>
-      <CompanyHead company={company} docTitle={doc.docTitle} copyLabel={copyLabel} number={doc.number} date={doc.date} poNo={doc.poNo} />
+      <CompanyHead company={company} docTitle={doc.docTitle} copyLabel={copyLabel} numberLabel={doc.numberLabel} number={doc.number} date={doc.date} poNo={doc.poNo} ewayBillNo={doc.ewayBillNo} />
       <div class="inv-parties">
         <AddressBlock label="Bill To" address={{ name: doc.party.name, ...doc.party.billTo }} />
         <AddressBlock label="Ship To" address={sameAsBilling ? { name: doc.party.name, ...doc.party.billTo } : { name: doc.party.name, ...doc.party.shipTo }} />

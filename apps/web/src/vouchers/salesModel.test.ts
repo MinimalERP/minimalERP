@@ -59,6 +59,7 @@ describe('the sales form', () => {
     expect(isBlankSales(form)).toBe(true);
     expect(hasNoLines(form)).toBe(true);
     expect(isBlankSales({ ...form, reference: 'PO-1' })).toBe(false);
+    expect(isBlankSales({ ...form, ewayBillNo: 'EWB-1' })).toBe(false);
     expect(isBlankSales({ ...form, lines: [{ ...blankSalesLine('k1'), qty: '1' }] })).toBe(false);
   });
 
@@ -84,8 +85,9 @@ describe('the sales form', () => {
       { id: 'c', itemId: 'i1', qty: '5', rate: '9', dueDate: '2026-05-20' },
     ]);
     expect(order.draft['closed']).toBeUndefined();
-    const invoice = formToSalesDraft({ ...form, salesLedgerId: 'sl', due: '2026-06-01' }, 'sales');
-    expect(invoice.draft).toMatchObject({ salesLedgerId: 'sl', dueDate: '2026-06-01' });
+    const invoice = formToSalesDraft({ ...form, salesLedgerId: 'sl', due: '2026-06-01', ewayBillNo: ' EWB-4471 ' }, 'sales');
+    expect(invoice.draft).toMatchObject({ salesLedgerId: 'sl', dueDate: '2026-06-01', ewayBillNo: 'EWB-4471' });
+    expect(formToSalesDraft({ ...form, salesLedgerId: 'sl', due: '2026-06-01' }, 'purchase').draft['ewayBillNo']).toBeUndefined();
     expect(invoice.draft['lines']).toEqual([
       { itemId: 'i1', qty: '5', rate: '9', warehouseId: 'w1' },
       { itemId: 'i1', qty: '5', rate: '9', warehouseId: 'w1', orderRef: { orderId: 'o1', lineId: 'l1' } },

@@ -49,7 +49,7 @@ import type { InvoiceDoc } from '../ui/PrintView';
 const SCOPE = 'screen:voucher';
 const MAX_OPTIONS = 8;
 
-type Kind = 'date' | 'party' | 'ref' | 'sledger' | 'billno' | 'due' | 'item' | 'wh' | 'ord' | 'ldue' | 'qty' | 'rate' | 'gst' | 'narration';
+type Kind = 'date' | 'party' | 'ref' | 'eway' | 'sledger' | 'billno' | 'due' | 'item' | 'wh' | 'ord' | 'ldue' | 'qty' | 'rate' | 'gst' | 'narration';
 interface Field {
   readonly key: string;
   readonly kind: Kind;
@@ -75,6 +75,7 @@ function fieldsOf(form: SalesForm, kind: SalesKind, gstOn = false): Field[] {
     { key: 'ref', kind: 'ref' },
   ];
   if (p.invoice) {
+    if (p.side === 'sales') out.push({ key: 'eway', kind: 'eway' });
     out.push({ key: 'sledger', kind: 'sledger' });
     if (p.side === 'purchase') out.push({ key: 'billno', kind: 'billno' });
     out.push({ key: 'due', kind: 'due' });
@@ -216,10 +217,12 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
       });
     return {
       kind: 'invoice',
-      docTitle: type.name,
+      docTitle: kind === 'sales' && masters.company.chargeGst === true ? 'Tax Invoice' : type.name,
+      numberLabel: kind === 'sales' ? 'Invoice No.' : undefined,
       number: voucher.number,
       date: voucher.date,
       poNo: form.reference || undefined,
+      ewayBillNo: kind === 'sales' ? form.ewayBillNo || undefined : undefined,
       party: { name: details?.mailingName ?? form.partyLabel, gstin: details?.gstin, billTo: details?.billTo, shipTo: details?.shipTo },
       lines,
       subtotal: preview.total,
@@ -1102,6 +1105,27 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
           )}
           {refOptions.length === 0 || readOnly ? errorOf('ref') : null}
         </div>
+        {p.side === 'sales' && p.invoice && (
+          <>
+            <label class="vlabel" for="v-eway">
+              E-way Bill No.
+            </label>
+            <div class={isFocus('eway') ? 'vfield active' : 'vfield'}>
+              <input
+                id="v-eway"
+                data-vf="eway"
+                class={cls('vcell', 'eway')}
+                type="text"
+                aria-label="E-way Bill number"
+                readOnly={readOnly}
+                autocomplete="off"
+                value={form.ewayBillNo}
+                onFocus={() => !isFocus('eway') && go('eway')}
+                onInput={(e) => update((f) => ({ ...f, ewayBillNo: (e.target as HTMLInputElement).value }))}
+              />
+            </div>
+          </>
+        )}
         {p.invoice && (
           <>
             <label class="vlabel" for="v-sledger">

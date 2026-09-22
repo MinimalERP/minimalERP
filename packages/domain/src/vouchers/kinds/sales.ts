@@ -31,6 +31,8 @@ export const salesDraftSchema = z.object({
   salesLedgerId: ledgerIdSchema,
   /** When the customer's bill falls due (the date plus the party's credit days, unless someone chose otherwise). */
   dueDate: localDateSchema,
+  /** The E-way Bill number for this invoice's movement of goods, if one was generated. Sales-Invoice-only: not part of `documentShape`. */
+  ewayBillNo: z.string().trim().max(30).optional(),
   /** The GST of the invoice (only when the company charges GST and a line has a rate): where the supply is from and to, and the tax the lines come to. */
   gst: gstHeaderSchema.optional(),
   lines: z.array(invoiceLineSchema),
