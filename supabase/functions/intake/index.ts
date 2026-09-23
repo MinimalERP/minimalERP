@@ -11,7 +11,8 @@
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_URL   provided by Supabase
 //   GEMINI_API_KEY    an API key from Google AI Studio (free tier works)   supabase secrets set GEMINI_API_KEY=…
 //   GEMINI_MODEL      the model(s) to read with, in order, comma-separated: a busy one hands over to the next
-//                     supabase secrets set GEMINI_MODEL=gemini-flash-latest,gemini-3.8-flash,…
+//                     supabase secrets set GEMINI_MODEL=gemini-3.6-flash,gemini-3.8-flash,…
+//                     (the free tier allows ~20 readings a day PER MODEL; an alias like gemini-flash-latest shares its model's quota)
 
 import { createClient } from '@supabase/supabase-js';
 import postgres from 'postgres';
@@ -43,8 +44,8 @@ Deno.serve(
     gatewayFor: (actorId: string, requestId: string) => new PostgresBackend(db, { actorId, requestId }),
     reader:
       apiKey && model
-        ? // The Gmail panel asks for a background reading: up to ~2 minutes of trying the models in turn, inside the function's time.
-          new GeminiReader({ apiKey, model, timeoutMs: 40_000, rounds: 4, retryDelayMs: 10_000, deadlineMs: 100_000 })
+        ? // A background reading: the models in turn, round after round 8 s apart, for up to ~100 s (the function may run ~150 s).
+          new GeminiReader({ apiKey, model, timeoutMs: 40_000, rounds: 10, retryDelayMs: 8_000, deadlineMs: 100_000 })
         : { read: async () => ({ ok: false, issues: [{ code: 'READER_NOT_SET_UP', message: 'Gemini is not set up: GEMINI_API_KEY and GEMINI_MODEL are needed' }] }) },
     // the reading continues after the panel has its answer
     defer: (work: Promise<unknown>) => (globalThis as unknown as { EdgeRuntime: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime.waitUntil(work),
