@@ -478,3 +478,53 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 .linkish { font: inherit; padding: 0; border: 0; background: none; color: var(--c-accent); text-decoration: underline; cursor: pointer; }
 .data-grid tr.gst-heading td { font-weight: 700; background: var(--c-surface-alt); }
 .data-grid tr.gst-review td { color: var(--c-warning); }
+
+/* ---- the voucher window on a phone ----
+   The desktop worksheet is fixed-width columns beside a flexible Particulars column; on a phone the fixed columns alone are
+   wider than the screen and Particulars shrinks to nothing. Below 640px each line becomes a small card instead: the item or
+   ledger on its own row, the figures wrapped under it, each with a caption (the column headings are hidden). Only here —
+   anything wider is the worksheet exactly as above. */
+@media (max-width: 640px) {
+  .shell { grid-template-columns: minmax(0, 1fr); } /* a long breadcrumb ("New Stock Journal Voucher") shortens with … instead of widening the page */
+  .vhead { flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); }
+  .vhead .vspacer { display: none; }
+  .vtag { min-width: 0; }
+  .vsale, .vaccount { grid-template-columns: max-content minmax(0, 1fr); }
+  .vaccount .account-bal { grid-column: 1 / -1; }
+
+  .vhdr { display: none; }
+  .vrow { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: var(--sp-2); row-gap: 2px; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--c-surface-alt); }
+  .vrow > * { order: 4; flex: 1 1 5.5em; min-width: 0; }
+  .vrow > .vc-side { order: 0; flex: 0 0 3.2em; }
+  .vrow > .vc-ledger { order: 1; flex: 1 1 0; font-weight: 600; }
+  .vrow > .vc-x { order: 2; flex: 0 0 1.8em; }
+  .vrow::after { content: ''; order: 3; flex-basis: 100%; height: 0; } /* the figures start on a row of their own */
+  .vrow > .bill-panel { order: 5; flex-basis: 100%; }
+  .vrow > .vc-godown, .vrow > .vc-order, .vrow > .vc-due { flex: 1 1 calc(50% - var(--sp-2)); } /* the words get half a row each, the figures share the next */
+  .vrow > .vc-qty, .vrow > .vc-rate, .vrow > .vc-gst, .vrow > .vc-value, .vrow > .vc-amount, .vrow > .vc-fill { flex: 1 1 4em; }
+  .vrow > .vc-amount:empty { display: none; } /* a journal line has one of Debit / Credit */
+  .vrow > .vc-value, .vrow > .vc-amount, .vrow > .vc-fill { text-align: right; font-weight: 700; }
+  .vrow > .vc-value, .vrow > .vc-fill { padding-right: var(--sp-3); }
+
+  .vrow > .vc-godown::before, .vrow > .vc-order::before, .vrow > .vc-due::before, .vrow > .vc-qty::before, .vrow > .vc-rate::before,
+  .vrow > .vc-gst::before, .vrow > .vc-value::before, .vrow > .vc-amount::before, .vrow > .vc-fill::before {
+    display: block; font-size: var(--fs-sm); font-weight: 400; line-height: 1.3; color: var(--c-text-muted); padding: 0 var(--sp-3);
+  }
+  .vrow > .vc-godown::before { content: 'Godown'; }
+  .vrow > .vc-order::before { content: 'Order'; }
+  .vrow > .vc-due::before { content: 'Due date'; }
+  .vrow > .vc-qty::before { content: 'Qty'; text-align: right; }
+  .vrow > .vc-rate::before { content: 'Rate'; text-align: right; }
+  .vrow > .vc-gst::before { content: 'GST %'; text-align: right; }
+  .vrow > .vc-value::before, .vrow > .vc-amount::before { content: 'Amount'; padding: 0; }
+  .vrow > .vc-fill::before { content: 'Filled'; padding: 0; }
+  .vrow > .vc-value { line-height: var(--row-h); }
+  .vrow > .vc-value::before, .vrow > .vc-fill::before { line-height: 1.3; }
+
+  .vtot { display: flex; flex-wrap: wrap; justify-content: space-between; column-gap: var(--sp-3); }
+  .vtot > :empty { display: none; }
+
+  .bill-line, .bill-line.with-due, .bill-line.with-tds { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+  .bill-line > * { flex: 1 1 7em; min-width: 0; }
+  .bill-line > :last-child { flex: 0 0 1.8em; }
+}

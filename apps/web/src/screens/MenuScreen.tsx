@@ -1,7 +1,7 @@
 import type { Frame } from '@minimalerp/command';
-import { useEffect } from 'preact/hooks';
 import { Kbd } from '../ui/Kbd';
 import { ListView } from '../ui/ListView';
+import { useLetterKeys } from '../ui/useLetterKeys';
 import { useFrameState, useListNavigation, useServices, useSubscriptions } from '../shell/hooks';
 import type { ScreenRef } from '../shell/router';
 
@@ -101,23 +101,16 @@ export function MenuScreen({ frame, menuId }: { frame: Frame<ScreenRef>; menuId:
     : assignMnemonics(rows.map((r) => r.title));
   const mnemonicByKey = new Map(rows.map((r, i) => [r.key, mnemonics[i]]));
 
-  // A bare letter jumps straight to the row it marks — its own thing, apart from the app's configurable
-  // shortcuts, and safe here only because this screen is a pure list: no text field ever has focus on it.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.altKey || e.metaKey || e.repeat || e.isComposing) return;
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
-      if (e.key.length !== 1 || !/[a-zA-Z]/.test(e.key)) return;
-      const letter = e.key.toUpperCase();
+  // A bare letter jumps straight to the row it marks — safe here only because this screen is a pure list: no text field ever has focus on it.
+  useLetterKeys(
+    (letter) => {
       const i = mnemonics.findIndex((m) => m?.char === letter);
-      if (i === -1) return;
-      e.preventDefault();
+      if (i === -1) return false;
       rows[i]?.open();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [rows, mnemonics]);
+      return true;
+    },
+    [rows, mnemonics],
+  );
 
   const safeIndex = Math.min(index, Math.max(0, rows.length - 1));
   // Rows are one flat list for the keyboard (one cursor); a grouped section draws a heading and a list per group.
