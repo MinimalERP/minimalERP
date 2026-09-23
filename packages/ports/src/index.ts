@@ -185,6 +185,14 @@ export interface InboxSubmission {
  * The AI Inbox. Accepting is not here: it is an ordinary post (PostingGateway) of the voucher a person completed, under the item's id —
  * posting it removes the item. Rejecting throws the proposal away.
  */
+/**
+ * Sending a document to the AI Inbox from the ERP itself (Upload: a PDF from WhatsApp or a portal, a photo of a paper bill) — the same
+ * reading and matching as the Gmail panel. Answered at once; the proposal appears when the reading is done.
+ */
+export interface DocumentSender {
+  sendDocument(companyId: CompanyId, s: { readonly kind: IntakeKind; readonly document: IntakeDocument; readonly name?: string | undefined }): Promise<Result<{ readonly id: string }>>;
+}
+
 export interface InboxGateway {
   inbox(companyId: CompanyId): Promise<Result<readonly InboxItem[]>>;
   rejectInbox(companyId: CompanyId, id: string, reason?: string): Promise<Result<void>>;

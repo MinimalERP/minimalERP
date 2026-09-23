@@ -96,8 +96,8 @@ export class SupabasePostingGateway implements PostingGateway, MasterGateway {
   }
 
   /** Sends a command and unwraps the { ok, value | issues } envelope. */
-  protected async call(body: Record<string, unknown>): Promise<Result<unknown>> {
-    const { data, error } = await this.client.functions.invoke(FUNCTION, {
+  protected async call(body: Record<string, unknown>, fn: string = FUNCTION): Promise<Result<unknown>> {
+    const { data, error } = await this.client.functions.invoke(fn, {
       body: bigintSafe(this.prepare(body)) as Record<string, unknown>,
       ...(this.options.region ? { headers: { 'x-region': this.options.region } } : {}),
     });

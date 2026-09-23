@@ -36,6 +36,7 @@ import {
   type LocalDate,
 } from '@minimalerp/domain';
 import type {
+  DocumentSender,
   InboxGateway,
   InboxItem,
   AlterRequest,
@@ -117,7 +118,8 @@ export class MemoryBackend
     JournalRepository,
     StockRepository,
     OrderRepository,
-    InboxGateway
+    InboxGateway,
+    DocumentSender
 {
   private readonly vouchers = new Map<VoucherId, Voucher>();
   private readonly journalByVoucher = new Map<VoucherId, readonly JournalLine[]>();
@@ -150,6 +152,13 @@ export class MemoryBackend
     const wrongCompany = this.checkCompany(companyId);
     if (wrongCompany) return wrongCompany;
     return ok([...this.inboxItems.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+  }
+
+  /** Books kept in this browser have no server to read documents with. */
+  async sendDocument(companyId: CompanyId): Promise<Result<{ readonly id: string }>> {
+    const wrongCompany = this.checkCompany(companyId);
+    if (wrongCompany) return wrongCompany;
+    return fail(issue(IssueCode.UnsupportedOperation, 'Reading documents needs the online books: sign in to the company online'));
   }
 
   async rejectInbox(companyId: CompanyId, id: string): Promise<Result<void>> {

@@ -135,6 +135,7 @@ const inboxCommand: Command<AppContext> = {
 const commands: Command<AppContext>[] = [
   inboxCommand,
   contextual('inbox.reject', 'Reject this proposal', { label: 'Reject', group: 'Change', order: 31, on: ['inbox'] }),
+  contextual('inbox.upload', 'Upload a document (PDF or photo) to be read', { label: 'Upload document', group: 'Actions', order: 5, on: ['inbox'] }),
   ...newCommands,
   ...salesCommands,
   stockJournalCommand,
@@ -182,6 +183,7 @@ const bindings: DefaultBinding[] = [
   { commandId: 'voucher.partyDetails', chord: 'Alt+P', scope: 'screen:voucher' },
   { commandId: 'voucher.cancel', chord: 'Alt+X', scope: 'screen:voucher' },
   { commandId: 'inbox.reject', chord: 'Alt+X', scope: 'screen:inbox' },
+  { commandId: 'inbox.upload', chord: 'Alt+U', scope: 'screen:inbox' },
   { commandId: 'voucher.removeLine', chord: 'Ctrl+Delete', scope: 'screen:voucher' },
   { commandId: 'voucher.print', chord: 'Ctrl+P', scope: 'screen:voucher' },
 ];

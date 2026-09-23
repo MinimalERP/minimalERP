@@ -11,6 +11,7 @@ import {
   type VoucherId,
   type VoucherWire,
   type BaseKind,
+  type IntakeKind,
   buildMasters,
   defaultVoucherKinds,
   journalLineFromWire,
@@ -19,7 +20,7 @@ import {
   stockMovementFromWire,
   voucherFromWire,
 } from '@minimalerp/domain';
-import type { InboxGateway, InboxItem, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
+import type { DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
 
 /** What arrives with a change's own answer: the parts of the books the browser is about to reload. */
@@ -63,7 +64,7 @@ export interface CompanySummary {
  */
 export class SupabaseBooksBackend
   extends SupabasePostingGateway
-  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway
+  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender
 {
   private readonly kinds = defaultVoucherKinds();
   /** The masters of the last `load`, for turning stored vouchers back into what the screens hold (see `readable`). */
@@ -139,6 +140,12 @@ export class SupabaseBooksBackend
       });
     }
     return ok(items);
+  }
+
+  /** Upload: the `intake` function reads it in the background (it answers at once). */
+  async sendDocument(companyId: CompanyId, s: { readonly kind: IntakeKind; readonly document: IntakeDocument; readonly name?: string | undefined }): Promise<Result<{ readonly id: string }>> {
+    const r = await this.call({ companyId, kind: s.kind, document: s.document, background: true, ...(s.name ? { mail: { subject: `Uploaded: ${s.name}`.slice(0, 200) } } : {}) }, 'intake');
+    return r.ok ? ok({ id: String((r.value as { id?: unknown }).id ?? '') }) : r;
   }
 
   async rejectInbox(companyId: CompanyId, id: string, reason?: string): Promise<Result<void>> {

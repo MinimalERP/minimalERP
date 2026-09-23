@@ -57,6 +57,11 @@ They set four constraints:
    - Due customer order lines are listed each with due date, customer PO, customer, item, pending quantity and order number, late ones marked.
    - The same lines go to a "Due items" sheet tab; the other figures go to a "Daily" tab.
 
+## Later additions
+- **Upload** (Alt+U) in the AI Inbox, for documents that do not come by mail (WhatsApp, portals, a photo of a paper bill): the browser sends
+  the file to `intake` under the person's own sign-in (owner and accountant hold `inbox.submit`), read in the background like a mail.
+- Gemini on the free tier: `GEMINI_MODEL` is a list; a busy (429/500/503) or slow model hands over to the next; `intake` answers at once and
+  reads in the background by default (an add-on button may run ~30 s), leaving a "could not be read — send it again" item if all stay busy.
+
 ## Not done (yet)
-- An **Upload** button in the AI Inbox (for documents that do not come by mail). `intake` already accepts the owner's and accountant's own sign-in; only the screen's button is missing.
 - An end-to-end browser test of the AI Inbox. The model, the database and the handlers are tested; the screen was typechecked and linted.

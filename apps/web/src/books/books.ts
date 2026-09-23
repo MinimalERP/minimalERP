@@ -1,5 +1,6 @@
 import {
   type CompanyId,
+  type IntakeKind,
   type JournalLine,
   type LocalDate,
   type MasterKind,
@@ -23,6 +24,7 @@ import {
   localDate,
 } from '@minimalerp/domain';
 import type {
+  DocumentSender,
   InboxGateway,
   InboxItem,
   JournalRepository,
@@ -41,7 +43,7 @@ export { newCompanyIssues } from '@minimalerp/domain';
 export type { NewCompany };
 
 /** Everything the screens need from a backend: master commands, posting, and reading masters back. Adapters provide it. */
-export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway {}
+export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender {}
 
 /** A backend whose state can be saved as a log of changes and rebuilt from it (the in-browser demo backend). */
 export interface LocalBackend extends BooksBackend {
@@ -257,6 +259,11 @@ export class Books {
   /** The proposals waiting, oldest first. Always asked of the backend (another person may have accepted one a moment ago). */
   inbox(): Promise<Result<readonly InboxItem[]>> {
     return this.backend.inbox(this.companyId);
+  }
+
+  /** Upload: sends a file to be read into a proposal (it appears in the inbox a little later). */
+  sendDocument(kind: IntakeKind, document: { mimeType: string; base64: string }, name?: string): Promise<Result<{ readonly id: string }>> {
+    return this.backend.sendDocument(this.companyId, { kind, document, name });
   }
 
   /** Throws a proposal away. (Accepting one is posting the voucher made from it under its id — `post`.) */
