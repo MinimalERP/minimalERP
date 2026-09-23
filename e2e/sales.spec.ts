@@ -28,16 +28,23 @@ async function openRegister(page: Page): Promise<void> {
   await expect(heading(page)).toHaveText('Sales Order Register');
 }
 
+/** Enter, then wait for the cursor to have moved on — so the next thing typed lands in the next cell, never the one just left. */
+async function enterNext(page: Page): Promise<void> {
+  const from = await page.evaluate(() => document.activeElement?.getAttribute('data-vf') ?? '');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('data-vf') ?? '')).not.toBe(from);
+}
+
 /** One order line, the way a person types it: item, due date, quantity, rate — then Enter starts the next line. */
 async function orderLine(page: Page, item: string, due: string, qty: string, rate: string): Promise<void> {
   await page.keyboard.type(item);
-  await page.keyboard.press('Enter');
+  await enterNext(page);
   await page.keyboard.type(due);
-  await page.keyboard.press('Enter');
+  await enterNext(page);
   await page.keyboard.type(qty);
-  await page.keyboard.press('Enter');
+  await enterNext(page);
   await page.keyboard.type(rate);
-  await page.keyboard.press('Enter');
+  await enterNext(page);
 }
 
 /** The register row of a PO and item (the register is on screen). */
@@ -161,6 +168,7 @@ test.describe('the Sales Invoice window', () => {
     await app.keyboard.press('Enter'); // Sharma has no open order: nothing to fill
     await expect(app.getByLabel('Customer PO or reference')).toHaveValue('');
     await app.keyboard.press('Enter'); // PO
+    await app.keyboard.press('Enter'); // E-way Bill No.
     await app.keyboard.press('Enter'); // sales ledger
     await app.keyboard.press('Enter'); // bill due (the date + Sharma's 45 days)
     await app.keyboard.type('machine oil');
@@ -252,7 +260,7 @@ test.describe('the Sales Invoice window', () => {
     await app.keyboard.press('F8');
     await app.keyboard.type('sharma');
     await app.keyboard.press('Enter');
-    for (let i = 0; i < 3; i++) await app.keyboard.press('Enter'); // PO, sales ledger, bill due
+    for (let i = 0; i < 4; i++) await app.keyboard.press('Enter'); // PO, E-way Bill No., sales ledger, bill due
     await app.keyboard.type('fabricated');
     await app.keyboard.press('Enter');
     await app.keyboard.press('Enter'); // godown (the main one is offered when nothing holds it… the frames are in the Finished Goods Store)
@@ -380,7 +388,7 @@ test.describe('from an order to an invoice, and between the two documents', () =
     await app.keyboard.type('sharma');
     await app.keyboard.press('Enter');
     await app.keyboard.type('PO-77');
-    await app.keyboard.press('Enter');
+    await enterNext(app);
     await orderLine(app, 'machine oil', '20-12', '4', '250');
     await panel(app).locator('[data-command="voucher.switch.sales"]').click();
     await expect(heading(app)).toHaveText('New Sales Voucher');

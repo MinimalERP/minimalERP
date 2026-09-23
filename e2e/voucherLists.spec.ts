@@ -26,7 +26,7 @@ async function openList(page: Page, row: string): Promise<void> {
 async function fillInvoice(page: Page): Promise<void> {
   await page.keyboard.type('sharma');
   await page.keyboard.press('Enter');
-  for (let i = 0; i < 3; i++) await page.keyboard.press('Enter'); // PO, sales ledger, bill due
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Enter'); // PO, E-way Bill No., sales ledger, bill due
   await page.keyboard.type('machine oil');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter'); // godown

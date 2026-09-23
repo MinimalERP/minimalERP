@@ -43,6 +43,7 @@ async function sale(page: Page, customer: string, item: string, qty: string, rat
   await expect(page.locator('[data-vf="party"]')).toBeFocused();
   await page.keyboard.type(customer);
   await page.keyboard.press('Enter'); // → PO
+  await page.keyboard.press('Enter'); // → E-way Bill No.
   await page.keyboard.press('Enter'); // → sales ledger
   await page.keyboard.press('Enter'); // → bill due
   await page.keyboard.press('Enter'); // → item
@@ -83,10 +84,7 @@ test.describe('GST on invoices', () => {
     await expect(banner(app)).toContainText('saved.');
 
     await app.keyboard.type('sharma'); // Sharma Traders is in Delhi: the tax goes to the Centre whole
-    await app.keyboard.press('Enter');
-    await app.keyboard.press('Enter');
-    await app.keyboard.press('Enter');
-    await app.keyboard.press('Enter');
+    for (let i = 0; i < 5; i++) await app.keyboard.press('Enter'); // → PO, E-way Bill No., sales ledger, bill due, item
     await app.keyboard.type('machine oil');
     await app.keyboard.press('Enter');
     await app.keyboard.press('Enter');
@@ -301,7 +299,7 @@ async function twoInvoicesOf1500(page: Page): Promise<void> {
   for (let n = 0; n < 2; n++) {
     await expect(page.locator('[data-vf="party"]')).toBeFocused(); // a fresh window each time (Alt+N saves and starts the next)
     await page.keyboard.type('kumar');
-    for (let i = 0; i < 4; i++) await page.keyboard.press('Enter');
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Enter'); // → PO, E-way Bill No., sales ledger, bill due, item
     await page.keyboard.type('machine oil');
     for (let i = 0; i < 3; i++) await page.keyboard.press('Enter');
     await expect(page.locator('[data-vf="l0.qty"]')).toBeFocused();

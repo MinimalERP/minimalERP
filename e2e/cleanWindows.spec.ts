@@ -30,6 +30,7 @@ test.describe('a new window opens clean, every time', () => {
     await app.keyboard.type('sharma');
     await app.keyboard.press('Enter');
     await app.keyboard.press('Enter'); // PO / ref
+    await app.keyboard.press('Enter'); // E-way Bill No.
     await app.keyboard.press('Enter'); // sales ledger
     await app.keyboard.press('Enter'); // bill due
     await app.keyboard.type('machine oil');
@@ -153,6 +154,7 @@ test.describe('an invoice is a regular invoice until an order is chosen', () => 
     await expect(app.getByTestId('voucher-banner')).toHaveCount(0);
     // an over-the-counter line for the same customer, not against its order
     await app.keyboard.press('Enter'); // PO / ref (left empty)
+    await app.keyboard.press('Enter'); // E-way Bill No.
     await app.keyboard.press('Enter'); // sales ledger
     await app.keyboard.press('Enter'); // bill due
     await app.keyboard.type('machine oil');
