@@ -1,5 +1,5 @@
 import { createContext } from 'preact';
-import { useContext, useEffect, useReducer, useRef, useState } from 'preact/hooks';
+import { useContext, useLayoutEffect, useReducer, useRef, useState } from 'preact/hooks';
 import type { Frame } from '@minimalerp/command';
 import { moveIndex } from '@minimalerp/keyboard';
 import type { ScopeLayer } from '@minimalerp/keyboard';
@@ -21,8 +21,9 @@ interface Subscribable {
 /** Re-renders when any of the stores change. Read the values you need during render. */
 export function useSubscriptions(...stores: Subscribable[]): void {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const offs = stores.map((s) => s.subscribe(() => rerender(0)));
+    rerender(0); // a store may have changed between this render and the subscription (another component's scope or handler arriving): read it again
     return () => offs.forEach((off) => off());
   }, stores);
 }
@@ -33,7 +34,8 @@ export function useSubscriptions(...stores: Subscribable[]): void {
  */
 export function useScope(id: string, layer: ScopeLayer, modal = false): void {
   const { scopes } = useServices();
-  useEffect(() => scopes.push({ id, layer, modal }), [scopes, id, layer, modal]);
+  // Layout, like the focus effects: a screen's keys are live the moment it is on screen, before the next keydown is handled.
+  useLayoutEffect(() => scopes.push({ id, layer, modal }), [scopes, id, layer, modal]);
 }
 
 /** Supplies this component's behaviour for a contextual command (like "move down") while mounted. */
@@ -41,7 +43,7 @@ export function useCommandHandler(scopeId: string, commandId: string, handler: (
   const { registry } = useServices();
   const latest = useRef(handler);
   latest.current = handler; // always call the freshest closure without re-registering
-  useEffect(
+  useLayoutEffect(
     () => registry.pushHandler(scopeId, commandId, (args) => latest.current(args)),
     [registry, scopeId, commandId],
   );

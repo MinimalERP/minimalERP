@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Kbd } from '../ui/Kbd';
 import { useCommandHandler, useScope, useServices, useSubscriptions } from './hooks';
 
@@ -31,7 +31,7 @@ export function ConfirmLeaveDialog({ title = 'Close and leave?', message = 'What
     noRef.current?.focus();
     return () => before?.focus?.();
   }, []);
-  useEffect(() => (choice === 'yes' ? yesRef : noRef).current?.focus(), [choice]);
+  useLayoutEffect(() => (choice === 'yes' ? yesRef : noRef).current?.focus(), [choice]);
 
   const toggle = () => (setChoice((c) => (c === 'no' ? 'yes' : 'no')), true);
   useCommandHandler(SCOPE, 'field.next', toggle);
