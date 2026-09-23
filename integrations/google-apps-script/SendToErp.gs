@@ -53,18 +53,24 @@ function onSend(e) {
   var already = sentBefore_(messageId);
   if (already && e.parameters.confirmed !== 'yes') return confirmCard_(e, already);
 
+  var t0 = Date.now();
+  var lap = function (what) { console.log(what + ' after ' + (Date.now() - t0) + ' ms'); };
   GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
   var message = GmailApp.getMessageById(messageId);
-  var source = (e.formInput && e.formInput.source) || BODY_;
+  var files = readableAttachments_(message);
+  lap('mail opened, ' + files.length + ' readable attachment(s)');
+  // what was chosen on the card — carried through the "send again?" card too; nothing chosen: the first PDF/image, else the text
+  var source = (e.formInput && e.formInput.source) || e.parameters.source || (files.length > 0 ? '0' : BODY_);
   var document;
   if (source === BODY_) {
     document = { text: message.getPlainBody().slice(0, 200000) };
   } else {
-    var f = readableAttachments_(message)[Number(source)];
+    var f = files[Number(source)];
     if (!f) return notify_('That attachment cannot be read: send a PDF or an image.');
     if (f.size > MAX_BYTES_) return notify_('That file is larger than 10 MB.');
     document = { mimeType: f.blob.getContentType(), base64: Utilities.base64Encode(f.blob.getBytes()) };
   }
+  lap('document ready (' + (source === BODY_ ? 'mail text' : files[Number(source)].name) + ')');
 
   // background: the ERP answers at once and reads the document afterwards (Gmail gives this button only ~30 seconds)
   var answer = erpCall_('intake', {
@@ -74,6 +80,7 @@ function onSend(e) {
     document: document,
     mail: { subject: message.getSubject().slice(0, 200), from: message.getFrom().slice(0, 200) },
   });
+  lap('ERP answered ' + (answer.ok ? 'ok' : JSON.stringify(answer.issues)));
   if (!answer.ok) return resultCard_('Not sent', (answer.issues || []).map(function (i) { return i.message; }), true);
 
   remember_(messageId, label);
@@ -103,7 +110,8 @@ function resultCard_(title, lines, failed) {
 }
 
 function confirmCard_(e, already) {
-  var params = { kind: e.parameters.kind, label: e.parameters.label, confirmed: 'yes' };
+  var chosen = (e.formInput && e.formInput.source) || e.parameters.source || '';
+  var params = { kind: e.parameters.kind, label: e.parameters.label, confirmed: 'yes', source: chosen };
   var section = CardService.newCardSection()
     .addWidget(CardService.newTextParagraph().setText('This mail was already sent as ' + escape_(already.label) + ' on ' + already.at + '. Send it again?'))
     .addWidget(CardService.newTextButton().setText('Send again').setOnClickAction(CardService.newAction().setFunctionName('onSend').setParameters(params)));
