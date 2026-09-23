@@ -6,6 +6,7 @@ import { ScreenHost } from './ScreenHost';
 import { StatusBar } from './StatusBar';
 import { TopBar } from './TopBar';
 import { useScope, useServices, useSubscriptions } from './hooks';
+import { KeyboardKeys } from '../ui/KeyboardKeys';
 
 /**
  * The frame around every screen: top bar, the current screen (with its action panel on the right at the third level),
@@ -24,6 +25,7 @@ export function Shell() {
         <ActionPanel />
       </div>
       <StatusBar />
+      <KeyboardKeys />
       {ui.gotoOpen && <GoToOverlay />}
       <SavingOverlay />
       <PrintHost />

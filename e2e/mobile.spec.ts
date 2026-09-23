@@ -65,3 +65,42 @@ test('on a desktop the voucher window is still the worksheet: column headings sh
   await expect(row).toHaveCSS('display', 'grid');
   expect(Math.abs((await box(row.locator('.vc-ledger'))).y - (await box(row.locator('.vc-value'))).y)).toBeLessThan(2);
 });
+
+test.describe('Esc and Enter above the on-screen keyboard', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  test('with the keyboard open they float over it; a tap is the key itself, and the field keeps the focus', async ({ page }) => {
+    // Playwright opens no on-screen keyboard: stand one in, taking the lower 394px of the screen.
+    await page.addInitScript(() => {
+      const fake = new EventTarget() as EventTarget & { height: number; offsetTop: number; width: number };
+      Object.assign(fake, { height: 450, offsetTop: 0, width: 390 });
+      Object.defineProperty(window, 'visualViewport', { get: () => fake });
+    });
+    await page.goto('/');
+    await expect(page.locator('.shell')).toBeVisible();
+    await loadDemo(page);
+
+    const keys = page.getByTestId('keyboard-keys');
+    await expect(keys).toBeVisible();
+    const strip = await box(keys);
+    expect(strip.y + strip.height).toBeLessThanOrEqual(451); // sitting on the keyboard, not under it
+
+    await page.keyboard.press('F8');
+    await expect(heading(page)).toHaveText('New Sales Voucher');
+    await page.keyboard.type('sharma');
+    await keys.getByRole('button', { name: 'Enter' }).tap();
+    await expect(page.getByLabel('Customer PO or reference')).toBeFocused(); // Enter took the customer and moved on
+    await expect(page.locator('[data-vf="party"]')).toHaveValue('Sharma Traders');
+
+    await keys.getByRole('button', { name: 'Esc' }).tap();
+    await expect(page.locator('[data-vf="party"]')).toBeFocused(); // Esc steps back a field, as the key does
+  });
+});
+
+test('a desktop never shows the floating keys', async ({ app }) => {
+  await app.setViewportSize({ width: 1366, height: 768 });
+  await loadDemo(app);
+  await app.keyboard.press('F8');
+  await expect(heading(app)).toHaveText('New Sales Voucher');
+  await expect(app.getByTestId('keyboard-keys')).toHaveCount(0);
+});

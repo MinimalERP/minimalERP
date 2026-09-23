@@ -186,6 +186,18 @@
   min-height: calc(var(--row-h) + 6px);
 }
 .statusbar .hint { display: inline-flex; align-items: center; gap: var(--sp-2); }
+/* Esc and Enter floating just above a phone's on-screen keyboard (ui/KeyboardKeys.tsx) — drawn only while that keyboard is open */
+.kbd-keys {
+  position: fixed; left: 0; right: 0; z-index: 60;
+  display: flex; justify-content: space-between; align-items: center; padding: 0 var(--sp-3);
+  background: var(--c-surface-alt); border-top: 1px solid var(--c-border); box-shadow: 0 -2px 8px #00000026;
+}
+.kbd-key {
+  min-width: 5.5em; min-height: 40px; display: inline-flex; align-items: center; justify-content: center;
+  font: inherit; color: var(--c-text); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius);
+  cursor: pointer; touch-action: manipulation;
+}
+.kbd-key:active { border-color: var(--c-focus); background: var(--c-focus-bg); }
 
 /* ---- planned screen / settings ---- */
 .callout {
