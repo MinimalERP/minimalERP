@@ -257,3 +257,26 @@ test.describe('the voucher window is a compact worksheet', () => {
     expect(await bills.evaluate((el) => getComputedStyle(el).borderLeftStyle)).not.toBe('dashed');
   });
 });
+
+test.describe('Stock Journal on every side panel', () => {
+  test('from a report its button opens a new Stock Journal; from a half-entered voucher it opens on top, and Esc comes back to it', async ({ app }) => {
+    await loadDemo(app);
+    await goTo(app, 'day book');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText('Day Book');
+    await panel(app).locator('[data-command="voucher.new.stockJournal"]').click();
+    await expect(heading(app)).toHaveText('New Stock Journal Voucher');
+
+    await goTo(app, 'gateway');
+    await app.keyboard.press('Enter');
+    await app.keyboard.press('F8');
+    await expect(heading(app)).toHaveText('New Sales Voucher');
+    await app.keyboard.type('sharma');
+    await app.keyboard.press('Enter');
+    await panel(app).locator('[data-command="voucher.new.stockJournal"]').click();
+    await expect(heading(app)).toHaveText('New Stock Journal Voucher');
+    await app.keyboard.press('Escape'); // nothing entered in the stock journal: it closes
+    await expect(heading(app)).toHaveText('New Sales Voucher');
+    await expect(app.locator('[data-vf="party"]')).toHaveValue('Sharma Traders'); // the invoice underneath, as it was left
+  });
+});

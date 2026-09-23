@@ -46,8 +46,8 @@
 /* ---- action panel (third-level screens): the screen's own actions, down the right edge ---- */
 .actionpanel {
   flex: none; width: 17rem; min-height: 0; overflow: auto;
-  display: flex; flex-direction: column; gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-3);
+  display: flex; flex-direction: column; gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
   background: var(--c-surface); border-left: 1px solid var(--c-border);
 }
 /* the same button as Go To (top right): name, then its key caps */
@@ -57,10 +57,10 @@
   font: inherit; text-align: left; color: var(--c-text);
   background: var(--c-surface-alt);
   border: 1px solid var(--c-border); border-radius: var(--radius);
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-1) var(--sp-3);
   cursor: pointer;
 }
-.action.gap { margin-top: var(--sp-4); }
+.action.gap { margin-top: var(--sp-3); }
 .action:hover:not(:disabled) { border-color: var(--c-accent); }
 .action:disabled { color: var(--c-text-muted); background: transparent; border-color: transparent; cursor: default; opacity: .65; }
 .action-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -79,14 +79,14 @@
 .confirm-actions .button.chosen, .confirm-actions .button:focus { outline: none; border-color: var(--c-focus); box-shadow: 0 0 0 2px var(--c-focus); }
 .screen { max-width: 880px; margin: 0 auto; }
 .screen h1 { font-size: var(--fs-xl); margin: 0 0 var(--sp-2); }
-.screen .lede { color: var(--c-text-muted); margin: 0 0 var(--sp-4); }
+.screen .lede { color: var(--c-text-muted); margin: 0 0 var(--sp-3); }
 
 /* ---- lists (menus, results, shortcut editor) ---- */
 .list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--c-border); background: var(--c-surface); }
 .list-row {
   display: flex; align-items: baseline; gap: var(--sp-4);
-  min-height: calc(var(--row-h) + 8px);
-  padding: var(--sp-3) var(--sp-4);
+  min-height: calc(var(--row-h) + 4px);
+  padding: var(--sp-2) var(--sp-4);
   border-left: 4px solid transparent;
   border-bottom: 1px solid var(--c-surface-alt);
   cursor: pointer;
@@ -99,7 +99,7 @@
 .row-desc { color: var(--c-text-muted); font-size: var(--fs-sm); flex: 1; min-width: 0; }
 .row-meta { margin-left: auto; display: flex; align-items: center; gap: var(--sp-3); flex-shrink: 0; }
 .row-kind { color: var(--c-text-muted); font-size: var(--fs-sm); min-width: 6.5em; }
-.menu-group { margin-bottom: var(--sp-4); }
+.menu-group { margin-bottom: var(--sp-3); }
 .menu-group-title { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--c-text-muted); }
 .empty { padding: var(--sp-5); color: var(--c-text-muted); text-align: center; }
 

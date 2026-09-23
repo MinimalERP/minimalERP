@@ -97,6 +97,8 @@ const stockJournalCommand: Command<AppContext> = {
   keywords: STOCK_JOURNAL_KEYWORDS,
   description: 'Move stock between godowns or convert it — no accounting effect',
   run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: 'stockJournal' }),
+  // on every side panel, apart from the voucher types: stock can be adjusted from wherever the person is
+  panel: { label: 'Stock Journal', group: 'Stock', order: 19, on: ['voucher', 'report', 'master', 'master-list'] },
 };
 
 const switchCommands: Command<AppContext>[] = [...ENTRY_KINDS, ...SALES_KINDS].map((kind, i) => {
