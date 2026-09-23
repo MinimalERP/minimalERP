@@ -47,7 +47,9 @@ const handler = () =>
 const send = async (body: unknown, user: string | null = bot) => {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (user) headers['authorization'] = `Bearer ${user}`;
-  const res = await handler()(new Request('http://localhost/functions/v1/intake', { method: 'POST', headers, body: JSON.stringify(body) }));
+  // these tests wait for the reading unless they ask for the background (the default, tested below)
+  const payload = typeof body === 'object' && body !== null && !('background' in body) ? { ...body, background: false } : body;
+  const res = await handler()(new Request('http://localhost/functions/v1/intake', { method: 'POST', headers, body: JSON.stringify(payload) }));
   return { status: res.status, body: (await res.json()) as { ok: boolean; value?: { id: string; party?: string; notes: string[] }; issues?: { code: string }[] } };
 };
 
@@ -116,7 +118,10 @@ describe('sending a document to the ERP', () => {
 describe('in the background (what the Gmail panel uses: it may wait only ~30 s)', () => {
   it('answers at once; the proposal arrives when the reading is done', async () => {
     nextReading = { partyName: 'Acme Ltd', poNumber: 'PO-BG-1', lines: [{ code: 'BLT-M8', qty: '5', rate: '4.5' }] };
-    const r = await send({ kind: 'salesOrder', document: pdf, mail: { subject: 'PO BG 1' }, background: true });
+    // no `background` at all: the default (an older add-on sends none)
+    const headers = { 'content-type': 'application/json', authorization: `Bearer ${bot}` };
+    const res = await handler()(new Request('http://localhost/functions/v1/intake', { method: 'POST', headers, body: JSON.stringify({ kind: 'salesOrder', document: pdf, mail: { subject: 'PO BG 1' } }) }));
+    const r = { body: (await res.json()) as { ok: boolean; value?: { id: string } } };
     expect(r.body).toEqual({ ok: true, value: { id: expect.any(String), kind: 'salesOrder', background: true } });
     await Promise.all(deferred.splice(0));
     const item = mustOk(await w.backend.inbox(w.companyId)).find((i) => i.id === r.body.value?.id);

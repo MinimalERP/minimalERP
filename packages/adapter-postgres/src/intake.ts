@@ -25,9 +25,10 @@ import { z } from 'zod';
  *
  *   POST { kind, document: { mimeType, base64 } | { text }, mail?: { subject?, from? }, companyId?, background? }
  *   200  { ok: true, value: { id, kind, party?, notes } }        what was queued, for the add-on to say
- *   200  { ok: true, value: { id, kind, background: true } }     with `background`: answered at once, read afterwards (Gmail gives an
+ *   200  { ok: true, value: { id, kind, background: true } }     the default: answered at once, read afterwards (Gmail gives an
  *                                                                add-on ~30 s; a busy reader may need longer). A reading that still
  *                                                                fails leaves an inbox item saying so ("send it again").
+ *                                                                `background: false` waits for the reading and answers with it.
  *   200  { ok: false, issues }                                   refused (permission, unreadable document, the reader busy…)
  *   400 malformed · 401 not signed in · 405 wrong method · 413 too large · 500 unexpected
  * `companyId` may be left out by a sign-in that belongs to one company (the add-on's).
@@ -141,7 +142,8 @@ export function createIntakeHandler(deps: IntakeHandlerDeps): (request: Request)
         return ok({ id, ...(party ? { party } : {}), notes: proposal.notes.map((n) => n.message) });
       };
 
-      if (cmd.background && deps.defer) {
+      // Background unless the caller asks to wait (`background: false`): an add-on button may take ~30 s at most, and a busy Gemini longer.
+      if ((cmd.background ?? true) && deps.defer) {
         deps.defer(work(true).catch((error: unknown) => deps.onError?.(error, requestId)));
         return json(200, { ok: true, value: { id, kind: cmd.kind, background: true } });
       }
