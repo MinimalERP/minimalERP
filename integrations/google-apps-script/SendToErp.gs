@@ -66,7 +66,9 @@ function onSend(e) {
     document = { mimeType: f.blob.getContentType(), base64: Utilities.base64Encode(f.blob.getBytes()) };
   }
 
+  // background: the ERP answers at once and reads the document afterwards (Gmail gives this button only ~30 seconds)
   var answer = erpCall_('intake', {
+    background: true,
     kind: kind,
     companyId: companyId_(),
     document: document,
@@ -76,6 +78,9 @@ function onSend(e) {
 
   remember_(messageId, label);
   var v = answer.value;
+  if (v.background) {
+    return resultCard_('Sent to the ERP', ['It is being read now and will be in the AI Inbox (Transactions › AI Inbox) as a ' + label + ' in about a minute.', 'If Gemini is too busy, a line there will say so: then send the mail again.'], false);
+  }
   var lines = ['Waiting in the AI Inbox as a ' + label + (v.party ? ' for ' + v.party : '') + '.'];
   if (v.notes && v.notes.length) lines.push('To check when you open it:');
   return resultCard_('Sent to the ERP', lines.concat(v.notes || []), false);

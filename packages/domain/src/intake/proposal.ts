@@ -29,6 +29,8 @@ export const PROPOSAL_NOTE_CODES = [
   'AMOUNT_MISSING',
   'BANK_UNMATCHED',
   'NO_LINES',
+  /** The document could not be read at all (the reader was busy): the item only says so — send the mail again. */
+  'READ_FAILED',
 ] as const;
 export type ProposalNoteCode = (typeof PROPOSAL_NOTE_CODES)[number];
 

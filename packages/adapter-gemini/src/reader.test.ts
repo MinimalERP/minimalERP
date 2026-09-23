@@ -51,9 +51,9 @@ describe('reading a document with Gemini', () => {
 
   it('the free tier being used up is an answer the person can act on', async () => {
     const { f } = fakeFetch(429, { error: { code: 429, status: 'RESOURCE_EXHAUSTED' } });
-    const r = await new GeminiReader({ apiKey: 'k', model: 'm', fetch: f }).read({ kind: 'purchase', ownCompany: 'X', document: pdf });
+    const r = await new GeminiReader({ apiKey: 'k', model: 'm', fetch: f, retryDelayMs: 1 }).read({ kind: 'purchase', ownCompany: 'X', document: pdf });
     expect(r.ok ? undefined : r.issues[0]?.code).toBe('READER_BUSY');
-    expect(r.ok ? '' : r.issues[0]?.message).toContain('try again in a minute');
+    expect(r.ok ? '' : r.issues[0]?.message).toContain('try again');
   });
 
   it('a bad key or a model the key cannot use says the setup needs checking', async () => {
@@ -100,6 +100,59 @@ describe('reading a document with Gemini', () => {
     const down = await new GeminiReader({ apiKey: 'k', model: 'm', fetch: f, retryDelayMs: 1 }).read({ kind: 'purchase', ownCompany: 'X', document: pdf });
     expect(down.ok ? undefined : down.issues[0]?.code).toBe('READER_UNAVAILABLE');
     expect(sent.length).toBe(2);
+  });
+
+  it('a busy model hands over to the next one in the list at once; the first that answers reads the document', async () => {
+    const asked: string[] = [];
+    const f = (async (url: string) => {
+      const model = /models\/([^:]+):/.exec(url)?.[1] ?? '';
+      asked.push(model);
+      if (model === 'flash-a') return new Response('{}', { status: 503 });
+      if (model === 'flash-b') return new Response('{}', { status: 429 });
+      return new Response(JSON.stringify(answer({ partyName: 'Acme Ltd' })), { status: 200 });
+    }) as unknown as typeof fetch;
+    const r = await new GeminiReader({ apiKey: 'k', model: 'flash-a, flash-b ,flash-c', fetch: f, retryDelayMs: 1 }).read({ kind: 'salesOrder', ownCompany: 'X', document: pdf });
+    expect(r.ok).toBe(true);
+    expect(asked).toEqual(['flash-a', 'flash-b', 'flash-c']);
+  });
+
+  it('a model that is too slow is left for the next one', async () => {
+    const asked: string[] = [];
+    const f = ((url: string, init: RequestInit) => {
+      const model = /models\/([^:]+):/.exec(url)?.[1] ?? '';
+      asked.push(model);
+      if (model === 'slow')
+        return new Promise((_, reject) => init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+      return Promise.resolve(new Response(JSON.stringify(answer({ partyName: 'Acme Ltd' })), { status: 200 }));
+    }) as unknown as typeof fetch;
+    const r = await new GeminiReader({ apiKey: 'k', model: 'slow,quick', fetch: f, timeoutMs: 20, retryDelayMs: 1 }).read({ kind: 'salesOrder', ownCompany: 'X', document: pdf });
+    expect(r.ok).toBe(true);
+    expect(asked).toEqual(['slow', 'quick']);
+  });
+
+  it('keeps trying round after round while every model is busy, and stops at the deadline', async () => {
+    let calls = 0;
+    const f = (async () => {
+      calls++;
+      return new Response('{}', { status: 503 });
+    }) as unknown as typeof fetch;
+    const r = await new GeminiReader({ apiKey: 'k', model: 'a,b', fetch: f, rounds: 3, retryDelayMs: 1 }).read({ kind: 'salesOrder', ownCompany: 'X', document: pdf });
+    expect(r.ok).toBe(false);
+    expect(calls).toBe(6);
+    calls = 0;
+    await new GeminiReader({ apiKey: 'k', model: 'a,b', fetch: f, rounds: 50, retryDelayMs: 5, deadlineMs: 30 }).read({ kind: 'salesOrder', ownCompany: 'X', document: pdf });
+    expect(calls).toBeLessThan(30);
+  });
+
+  it('a model that is not there (404) is a setup problem, not a reason to try another', async () => {
+    const asked: string[] = [];
+    const f = (async (url: string) => {
+      asked.push(url);
+      return new Response('{}', { status: 404 });
+    }) as unknown as typeof fetch;
+    const r = await new GeminiReader({ apiKey: 'k', model: 'gone,other', fetch: f, retryDelayMs: 1 }).read({ kind: 'salesOrder', ownCompany: 'X', document: pdf });
+    expect(r.ok ? undefined : r.issues[0]?.code).toBe('READER_NOT_SET_UP');
+    expect(asked.length).toBe(1);
   });
 
   it('a network failure is "try again", not an exception', async () => {

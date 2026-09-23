@@ -19,8 +19,12 @@ const KIND_TITLES: Readonly<Record<InboxItem['kind'], string>> = {
 };
 
 /** What the row says about the document: the lines it has and what it comes to, or the amount paid. */
+/** A document the reader could not read at all (Gemini stayed busy): there is nothing to open, only "send it again". */
+const unread = (item: InboxItem): boolean => item.proposal.notes.some((n) => n.code === 'READ_FAILED');
+
 function summaryOf(item: InboxItem): string {
   const p = item.proposal;
+  if (unread(item)) return 'could not be read';
   if (p.kind === 'receipt' || p.kind === 'payment') return p.amount ? `₹ ${p.amount}` : 'amount not read';
   if (p.lines.length === 0) return p.fromOrderId ? 'against an open order' : 'no lines read';
   return `${p.lines.length} line${p.lines.length === 1 ? '' : 's'}`;
@@ -62,6 +66,10 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
     const item = rows[i];
     if (!item) return;
     setConfirmReject(undefined);
+    if (unread(item)) {
+      setNotice(item.proposal.notes[0]?.message);
+      return;
+    }
     void app.navigateForResult<{ id: string; number: string; typeName: string }>({ type: 'voucher', mode: 'create', typeKey: item.kind, fromInbox: item }).then((made) => {
       if (made) frame.state.set('notice', `${made.typeName} ${made.number} saved from the AI Inbox.`);
     });
@@ -132,7 +140,7 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
             renderItem={(r) => (
               <>
                 <span class="row-title">
-                  {KIND_TITLES[r.kind]} · {r.proposal.party.name ?? 'party not read'}
+                  {KIND_TITLES[r.kind]} · {unread(r) ? 'not read — send it again' : (r.proposal.party.name ?? 'party not read')}
                 </span>
                 <span class="row-desc">
                   {[r.mailSubject, r.mailFrom, formatDate(r.proposal.date)].filter(Boolean).join(' · ')}

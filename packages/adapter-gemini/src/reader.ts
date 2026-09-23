@@ -4,16 +4,24 @@ import type { DocumentReader, IntakeDocument } from '@minimalerp/ports';
 export interface GeminiOptions {
   /** An API key from Google AI Studio (aistudio.google.com). Free-tier keys work. Kept in a server secret, never in the browser or the add-on. */
   readonly apiKey: string;
-  /** The model to read with: one on the key's tier that takes PDFs and images. Configurable because Google renames them. */
+  /**
+   * The model(s) to read with, in order of preference: one name, or several separated by commas ("gemini-3.5-flash,gemini-3.8-flash").
+   * When one is overloaded (500 / 503) or its free quota is used up (429), the next is tried at once — on the free tier each model has
+   * its own quota, and which one is busy changes by the minute. Configurable because Google renames them.
+   */
   readonly model: string;
   /** For tests. */
   readonly fetch?: typeof fetch;
   /** Default https://generativelanguage.googleapis.com/v1beta */
   readonly baseUrl?: string;
-  /** How long to wait for an answer, in ms (default 60 s: a many-page PDF takes a while). */
+  /** How long to wait for one model's answer, in ms (default 45 s). A model that takes longer counts as busy: the next one is asked. */
   readonly timeoutMs?: number;
-  /** The pause before the one retry of an overloaded (500 / 503) answer, in ms (default 2 s). */
+  /** How many times the whole list is tried when every model is busy (default 2). */
+  readonly rounds?: number;
+  /** The pause between rounds, in ms (default 2 s). */
   readonly retryDelayMs?: number;
+  /** Stop trying after this long in all, in ms (default: no limit beyond the rounds). Keeps a background reading inside the function's time. */
+  readonly deadlineMs?: number;
 }
 
 /** What goes to Gemini with the document (and nothing else: no ids, no masters — the matching happens on our side). */
@@ -46,13 +54,13 @@ export class GeminiReader implements DocumentReader {
       generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: extractionResponseSchema },
     };
     const base = this.options.baseUrl ?? 'https://generativelanguage.googleapis.com/v1beta';
-    const url = `${base}/models/${encodeURIComponent(this.options.model)}:generateContent`;
+    const models = this.options.model.split(',').map((m) => m.trim()).filter((m) => m !== '');
     const doFetch = this.options.fetch ?? fetch;
-    const once = async (): Promise<Response | Result<unknown>> => {
+    const once = async (model: string): Promise<Response | Result<unknown>> => {
       const abort = new AbortController();
-      const timer = setTimeout(() => abort.abort(), this.options.timeoutMs ?? 60_000);
+      const timer = setTimeout(() => abort.abort(), this.options.timeoutMs ?? 45_000);
       try {
-        return await doFetch(url, {
+        return await doFetch(`${base}/models/${encodeURIComponent(model)}:generateContent`, {
           method: 'POST',
           // the key travels in a header, never in the URL (URLs end up in logs)
           headers: { 'content-type': 'application/json', 'x-goog-api-key': this.options.apiKey },
@@ -66,23 +74,36 @@ export class GeminiReader implements DocumentReader {
         clearTimeout(timer);
       }
     };
-    // Gemini (the free tier especially) answers 500 / 503 "overloaded" now and then: one quiet retry after a short pause saves the person a click.
-    let first = await once();
-    if (first instanceof Response && (first.status === 500 || first.status === 503)) {
-      await new Promise((r) => setTimeout(r, this.options.retryDelayMs ?? 2_000));
-      first = await once();
+    /** Overloaded, its quota used up, too slow or unreachable: another model (or a moment later) may well answer. */
+    const busy = (r: Response | Result<unknown>) => (r instanceof Response ? r.status === 429 || r.status === 500 || r.status === 503 : !r.ok && r.issues[0]?.code === 'READER_UNAVAILABLE');
+
+    // Each model in turn; if every one was busy, another round after a pause — within the rounds and the deadline.
+    const started = Date.now();
+    const deadline = this.options.deadlineMs;
+    const inTime = () => deadline === undefined || Date.now() - started < deadline;
+    let last: Response | Result<unknown> = fail(problem('READER_NOT_SET_UP', 'No Gemini model is set up'));
+    rounds: for (let round = 0; round < (this.options.rounds ?? 2); round++) {
+      if (round > 0) {
+        if (!inTime()) break;
+        await new Promise((r) => setTimeout(r, this.options.retryDelayMs ?? 2_000));
+      }
+      for (const model of models) {
+        if (!inTime()) break rounds;
+        last = await once(model);
+        if (!busy(last)) break rounds;
+      }
     }
-    if (!(first instanceof Response)) return first;
-    const response = first;
+    if (!(last instanceof Response)) return last;
+    const response = last;
 
     if (response.status === 429) {
-      return fail(problem('READER_BUSY', 'Gemini’s free limit was reached for now: try again in a minute'));
+      return fail(problem('READER_BUSY', 'Gemini’s free limit was reached for now: try again in a few minutes'));
     }
-    if (response.status === 400 || response.status === 401 || response.status === 403) {
+    if (response.status === 400 || response.status === 401 || response.status === 403 || response.status === 404) {
       // a bad or restricted key, or a model this key cannot use: the owner has to fix the setup, the person can only report it
       return fail(problem('READER_NOT_SET_UP', `Gemini refused the request (${response.status}): the API key or model needs checking`));
     }
-    if (!response.ok) return fail(problem('READER_UNAVAILABLE', `Gemini is not answering (${response.status}): try again in a minute`));
+    if (!response.ok) return fail(problem('READER_UNAVAILABLE', `Gemini is busy (${response.status}): try again in a minute`));
 
     let payload: unknown;
     try {

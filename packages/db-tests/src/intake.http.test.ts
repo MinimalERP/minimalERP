@@ -30,8 +30,11 @@ const reader: DocumentReader = {
   },
 };
 
+/** What the handler left running after it answered (the Edge Function keeps it alive with EdgeRuntime.waitUntil). */
+const deferred: Promise<unknown>[] = [];
 const handler = () =>
   createIntakeHandler({
+    defer: (work) => void deferred.push(work),
     authenticate: async (req) => {
       const m = /^Bearer (.+)$/.exec(req.headers.get('authorization') ?? '');
       return m?.[1] ? { userId: m[1] } : undefined;
@@ -107,6 +110,28 @@ describe('sending a document to the ERP', () => {
     nextReading = 'just some words';
     const r = await send({ kind: 'purchase', document: pdf });
     expect(r.body.issues?.[0]?.code).toBe('DOCUMENT_UNREADABLE');
+  });
+});
+
+describe('in the background (what the Gmail panel uses: it may wait only ~30 s)', () => {
+  it('answers at once; the proposal arrives when the reading is done', async () => {
+    nextReading = { partyName: 'Acme Ltd', poNumber: 'PO-BG-1', lines: [{ code: 'BLT-M8', qty: '5', rate: '4.5' }] };
+    const r = await send({ kind: 'salesOrder', document: pdf, mail: { subject: 'PO BG 1' }, background: true });
+    expect(r.body).toEqual({ ok: true, value: { id: expect.any(String), kind: 'salesOrder', background: true } });
+    await Promise.all(deferred.splice(0));
+    const item = mustOk(await w.backend.inbox(w.companyId)).find((i) => i.id === r.body.value?.id);
+    expect(item?.proposal.reference).toBe('PO-BG-1');
+  });
+
+  it('a reading that still fails (Gemini busy) leaves an item that says so — the person learns to send it again', async () => {
+    readerRefuses = { code: 'READER_UNAVAILABLE', message: 'Gemini is busy (503): try again in a minute' };
+    const r = await send({ kind: 'purchase', document: pdf, mail: { subject: 'Bill 77' }, background: true });
+    await Promise.all(deferred.splice(0));
+    readerRefuses = undefined;
+    const item = mustOk(await w.backend.inbox(w.companyId)).find((i) => i.id === r.body.value?.id);
+    expect(item?.mailSubject).toBe('Bill 77');
+    expect(item?.proposal).toMatchObject({ kind: 'purchase', lines: [], party: {} });
+    expect(item?.proposal.notes).toEqual([{ code: 'READ_FAILED', message: expect.stringContaining('Send the mail again') }]);
   });
 });
 

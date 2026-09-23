@@ -2,13 +2,16 @@ import {
   type CompanyId,
   type Issue,
   type Masters,
+  type Proposal,
   type Result,
   type Voucher,
   INTAKE_KINDS,
   IssueCode,
   extractionSchema,
+  fail,
   issue,
   localDate,
+  ok,
   orderBookOf,
   proposeFromExtraction,
 } from '@minimalerp/domain';
@@ -20,8 +23,11 @@ import { z } from 'zod';
  * Upload button in the AI Inbox). This reads it, matches what it says against the company's masters, and puts the PROPOSAL in the inbox —
  * nothing is posted. The document is held only for this request: it goes to the reader, and is gone; it is never logged or stored.
  *
- *   POST { kind, document: { mimeType, base64 } | { text }, mail?: { subject?, from? }, companyId? }
+ *   POST { kind, document: { mimeType, base64 } | { text }, mail?: { subject?, from? }, companyId?, background? }
  *   200  { ok: true, value: { id, kind, party?, notes } }        what was queued, for the add-on to say
+ *   200  { ok: true, value: { id, kind, background: true } }     with `background`: answered at once, read afterwards (Gmail gives an
+ *                                                                add-on ~30 s; a busy reader may need longer). A reading that still
+ *                                                                fails leaves an inbox item saying so ("send it again").
  *   200  { ok: false, issues }                                   refused (permission, unreadable document, the reader busy…)
  *   400 malformed · 401 not signed in · 405 wrong method · 413 too large · 500 unexpected
  * `companyId` may be left out by a sign-in that belongs to one company (the add-on's).
@@ -44,6 +50,8 @@ export interface IntakeHandlerDeps {
   today?(): string;
   /** Unexpected errors, for the host's log. Never the document. */
   onError?(error: unknown, requestId: string): void;
+  /** Keeps work running after the answer is sent (Supabase: EdgeRuntime.waitUntil). Without it `background` is ignored. */
+  defer?(work: Promise<unknown>): void;
   allowOrigin?: string;
 }
 
@@ -58,6 +66,7 @@ const body = z.object({
     z.object({ text: z.string().max(200_000) }),
   ]),
   mail: z.object({ subject: z.string().max(1000).optional(), from: z.string().max(1000).optional() }).optional(),
+  background: z.boolean().optional(),
 });
 
 const indiaToday = (): string => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
@@ -99,33 +108,45 @@ export function createIntakeHandler(deps: IntakeHandlerDeps): (request: Request)
       }
 
       const masters = await gateway.load(companyId as CompanyId);
-      const read = await deps.reader.read({
-        kind: cmd.kind,
-        ownCompany: masters.company.name,
-        document: 'text' in cmd.document ? { text: cmd.document.text } : { mimeType: cmd.document.mimeType, base64: cmd.document.base64 },
-      });
-      if (!read.ok) return json(200, read);
-      const extraction = extractionSchema.safeParse(read.value);
-      if (!extraction.success) return refuse(200, 'DOCUMENT_UNREADABLE', 'The reading did not come back in the expected shape: try again');
-
-      const vouchers = await gateway.list(companyId as CompanyId);
-      const proposal = proposeFromExtraction(cmd.kind, extraction.data, {
-        masters,
-        vouchers,
-        orders: orderBookOf(vouchers, masters),
-        today: localDate((deps.today ?? indiaToday)()),
-      });
       const id = crypto.randomUUID();
-      const queued = await gateway.submitInbox({
-        companyId: companyId as CompanyId,
-        id,
-        proposal,
-        mailSubject: cmd.mail?.subject?.slice(0, 200),
-        mailFrom: cmd.mail?.from?.slice(0, 200),
-      });
-      if (!queued.ok) return json(200, queued);
-      const party = proposal.party.partyId ? masters.party(proposal.party.partyId as never)?.name : proposal.party.name;
-      return json(200, { ok: true, value: { id, kind: cmd.kind, ...(party ? { party } : {}), notes: proposal.notes.map((n) => n.message) } });
+      const mailSubject = cmd.mail?.subject?.slice(0, 200);
+      const mailFrom = cmd.mail?.from?.slice(0, 200);
+      const today = localDate((deps.today ?? indiaToday)());
+      const document = 'text' in cmd.document ? { text: cmd.document.text } : { mimeType: cmd.document.mimeType, base64: cmd.document.base64 };
+
+      /** Read, match, queue. In the background a failed reading is queued too, as an item that says so — the person sent something and must learn it did not arrive. */
+      const work = async (background: boolean): Promise<Result<{ id: string; party?: string; notes: string[] }>> => {
+        const read = await deps.reader.read({ kind: cmd.kind, ownCompany: masters.company.name, document });
+        const extraction = read.ok ? extractionSchema.safeParse(read.value) : undefined;
+        if (!read.ok || !extraction?.success) {
+          const why = read.ok ? 'the reading did not come back in the expected shape' : (read.issues[0]?.message ?? 'the reader did not answer');
+          if (background) {
+            const failed: Proposal = {
+              kind: cmd.kind,
+              date: today,
+              party: {},
+              lines: [],
+              bills: [],
+              notes: [{ code: 'READ_FAILED', message: `This document could not be read (${why}). Send the mail again from Gmail, and reject this line (Alt+X).`.slice(0, 300) }],
+            };
+            await gateway.submitInbox({ companyId: companyId as CompanyId, id, proposal: failed, mailSubject, mailFrom });
+          }
+          return read.ok ? fail(issue('DOCUMENT_UNREADABLE' as never, 'The reading did not come back in the expected shape: try again')) : read;
+        }
+        const vouchers = await gateway.list(companyId as CompanyId);
+        const proposal = proposeFromExtraction(cmd.kind, extraction.data, { masters, vouchers, orders: orderBookOf(vouchers, masters), today });
+        const queued = await gateway.submitInbox({ companyId: companyId as CompanyId, id, proposal, mailSubject, mailFrom });
+        if (!queued.ok) return queued;
+        const party = proposal.party.partyId ? masters.party(proposal.party.partyId as never)?.name : proposal.party.name;
+        return ok({ id, ...(party ? { party } : {}), notes: proposal.notes.map((n) => n.message) });
+      };
+
+      if (cmd.background && deps.defer) {
+        deps.defer(work(true).catch((error: unknown) => deps.onError?.(error, requestId)));
+        return json(200, { ok: true, value: { id, kind: cmd.kind, background: true } });
+      }
+      const done = await work(false);
+      return json(200, done.ok ? { ok: true, value: { kind: cmd.kind, ...done.value } } : done);
     } catch (error) {
       deps.onError?.(error, requestId);
       return refuse(500, 'INTERNAL', `Something went wrong (request ${requestId})`);
