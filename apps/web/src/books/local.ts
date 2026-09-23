@@ -40,6 +40,10 @@ export interface LocalFactoryOptions {
 export function createLocalFactory(options: LocalFactoryOptions): BooksFactory {
   const { makeBackend, store, saving } = options;
   const newSeed = options.newIdSeed ?? (() => crypto.randomUUID());
+  // Save after every change. Writes are queued so a slow one never overtakes a later one — and so closing the company can wait for them:
+  // a save still queued when the company is deleted would otherwise run afterwards and write it straight back.
+  let saves: Promise<unknown> = Promise.resolve();
+  let generation = 0; // which company is open; a closed one's queued saves are dropped
 
   const open = async (saved: SavedCompany, log: readonly unknown[]): Promise<Result<Books>> => {
     // A company gets the GST / TDS system ledgers from its seed. One saved BEFORE they existed may have made a ledger of the same name by hand, which
@@ -56,11 +60,10 @@ export function createLocalFactory(options: LocalFactoryOptions): BooksFactory {
     }
     if (!replayed.ok) return replayed;
 
-    // Save after every change. Writes are queued so a slow one never overtakes a later one.
-    let queue: Promise<unknown> = Promise.resolve();
+    const mine = ++generation;
     backend.onChange(() => {
-      queue = queue
-        .then(() => store.set(KEY, { version: 1, company: saved, log: backend.changes() } satisfies Stored))
+      saves = saves
+        .then(() => (mine === generation ? store.set(KEY, { version: 1, company: saved, log: backend.changes() } satisfies Stored) : undefined))
         .catch((error: unknown) => console.error('Could not save the company', error));
     });
 
@@ -99,6 +102,8 @@ export function createLocalFactory(options: LocalFactoryOptions): BooksFactory {
     },
 
     async discard() {
+      generation++;
+      await saves;
       await store.delete(KEY);
     },
   };

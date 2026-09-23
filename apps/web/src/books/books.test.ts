@@ -92,6 +92,22 @@ describe('the company is remembered', () => {
     await after.restore();
     expect(after.current).toBeUndefined();
   });
+
+  it('a save still queued when the company is closed does not bring it back', async () => {
+    // A slow disk: every write waits, so the saves of a burst of changes are still queued when Close Company runs.
+    const store = memoryStore();
+    const set = store.set;
+    const slow = { ...store, set: async (key: string, value: unknown) => new Promise<void>((r) => setTimeout(() => void set(key, value).then(r), 20)) };
+    const host = new BooksHost(createLocalFactory({ makeBackend: (masters) => new MemoryBackend(masters) as unknown as LocalBackend, store: slow, newIdSeed: () => 'seed-1' }));
+    const created = await host.create(acme);
+    if (!created.ok) throw new Error(JSON.stringify(created.issues));
+    const groupId = created.value.masters.groups.all.find((g) => g.name === 'Bank Accounts')?.id as string;
+    for (let i = 1; i <= 3; i++) await created.value.execute({ op: 'create', kind: 'ledger', id: `00000000-0000-4000-8000-00000000000${i}`, data: { name: `Bank ${i}`, groupId } });
+
+    await host.close();
+    await new Promise((r) => setTimeout(r, 100)); // long enough for any write left behind to land
+    expect(store.data.has('company')).toBe(false);
+  });
 });
 
 describe('the GST / TDS system ledgers of a company saved before they existed', () => {
