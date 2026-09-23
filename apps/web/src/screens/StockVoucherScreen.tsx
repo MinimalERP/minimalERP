@@ -1,6 +1,6 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
 import { type Voucher, formatRate, parseQty, parseRate, rateOf, valueOf } from '@minimalerp/domain';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { Only } from '../shell/Only';
 import { WindowClose } from '../shell/WindowClose';
@@ -168,7 +168,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
   const general = showErrors ? preview.issues.filter((i) => i.field === 'general').map((i) => i.message) : [];
 
   // ---- focus ----
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (idle) return;
     const el = rootRef.current?.querySelector<HTMLInputElement>(`[data-vf="${current.key}"]`);
     el?.focus();

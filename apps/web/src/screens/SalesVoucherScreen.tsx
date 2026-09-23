@@ -1,6 +1,6 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
 import { type Money, type Voucher, formatQty, formatRate, parseQty, partyLedgerId } from '@minimalerp/domain';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { Only } from '../shell/Only';
 import { WindowClose } from '../shell/WindowClose';
@@ -239,7 +239,7 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
   const orderState = voucher && p.order ? books.orders.state(voucher.id as never) : undefined;
 
   // ---- focus ----
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (idle || partyOpen) return; // idle: a blank click deactivated the field. A dialog has the focus; the field gets it back when it closes
     const el = rootRef.current?.querySelector<HTMLInputElement>(`[data-vf="${current.key}"]`);
     el?.focus();

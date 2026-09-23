@@ -1,7 +1,7 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
 import { type Issue, type MasterKind, type MasterRecord, findMaster, isMasterActive, partyLedgerId } from '@minimalerp/domain';
 import { Fragment } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import {
   FORMS,
   type FieldSpec,
@@ -141,7 +141,7 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
   const pickIndex = Math.min(pick.index, Math.max(0, hits.length - 1));
 
   // ---- focus ----
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = formRef.current?.querySelector<HTMLInputElement>(`[data-field="${current?.key ?? ''}"]`);
     el?.focus();
     if (el && el.type === 'text') el.select();

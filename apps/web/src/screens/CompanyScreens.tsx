@@ -1,6 +1,6 @@
 import type { Frame } from '@minimalerp/command';
 import type { Issue } from '@minimalerp/domain';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { NewCompany } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
@@ -41,7 +41,7 @@ export function CompanyCreateScreen({ frame }: { frame: Frame<ScreenRef> }) {
   const formRef = useRef<HTMLFormElement>(null);
 
   const at = Math.min(focus, FIELDS.length - 1);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = formRef.current?.querySelector<HTMLInputElement>(`[data-field="${FIELDS[at]?.key}"]`);
     el?.focus();
     el?.select();

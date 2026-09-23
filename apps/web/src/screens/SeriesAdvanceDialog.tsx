@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { useCommandHandler, useScope, useServices, useSubscriptions } from '../shell/hooks';
 import { Kbd } from '../ui/Kbd';
 
@@ -19,7 +19,7 @@ export function SeriesAdvanceDialog({ current, onDone }: { readonly current: num
   const [error, setError] = useState<string | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
   }, []);

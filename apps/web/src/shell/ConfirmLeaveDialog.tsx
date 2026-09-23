@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Kbd } from '../ui/Kbd';
 import { useCommandHandler, useScope, useServices, useSubscriptions } from './hooks';
 
@@ -26,7 +26,7 @@ export function ConfirmLeaveDialog({ title = 'Close and leave?', message = 'What
   const yesRef = useRef<HTMLButtonElement>(null);
 
   // Take focus off the field underneath (typing must not reach it) and give it back when the question is closed.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const before = document.activeElement as HTMLElement | null;
     noRef.current?.focus();
     return () => before?.focus?.();

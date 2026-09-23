@@ -8,7 +8,7 @@ import {
   partyDetailsProblems,
   partyToData,
 } from '@minimalerp/domain';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { useCommandHandler, useScope, useServices, useSubscriptions } from '../shell/hooks';
 import { Hint } from '../shell/Hint';
@@ -181,7 +181,7 @@ export function PartyDetailsDialog({ books, ledgerIds, value, onDone }: Props) {
   const at = Math.max(0, fields.findIndex((f) => f.key === focus));
   const current = fields[at] as FieldDef;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = rootRef.current?.querySelector<HTMLInputElement>(`[data-pd="${current.key}"]`);
     el?.focus();
     if (el && el.type === 'text') el.select();

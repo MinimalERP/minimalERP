@@ -1,6 +1,6 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
 import { type OpenBill, type Voucher, type VoucherKindRegistry, defaultVoucherKinds, formatMoney, partyLedgerId } from '@minimalerp/domain';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
 import { Only } from '../shell/Only';
@@ -238,7 +238,7 @@ function VoucherEntry({ frame, books, mode, typeId, voucher }: EntryProps) {
   const general = showErrors ? preview.issues.filter((i) => i.field === 'general').map((i) => i.message) : [];
 
   // ---- focus ----
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (idle || partyOpen || createAsking) return; // idle: a blank click deactivated the field. A dialog is asking: it has the focus; the field gets it back when the dialog closes
     const el = rootRef.current?.querySelector<HTMLInputElement>(`[data-vf="${current.key}"]`);
     el?.focus();

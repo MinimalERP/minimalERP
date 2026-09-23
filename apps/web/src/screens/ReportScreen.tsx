@@ -18,7 +18,7 @@ import {
   statementView,
   withFilter,
 } from '@minimalerp/domain';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { describeFilter, dayBookColumns, ledgerColumns } from '../reports/definitions';
 import { type TbRow, bookGroupIds, tbColumns, tbRows } from '../reports/booksReports';
 import { type OutstandingBillRow, type PartyRow, billColumns, billRows, outstandingRowClass, partyColumns, partyRows, partyTotals } from '../reports/outstandingReports';
@@ -151,7 +151,7 @@ function ReportBody({
   const [row, setRow] = useFrameState<number>(frame, 'row', 0);
   const [dialog, setDialog] = useState<Dialog>(report === 'ledger' && !ledgerFromAddress ? 'ledger' : undefined);
   const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (dialog === undefined) inputRef.current?.focus();
   }, [dialog]);
 

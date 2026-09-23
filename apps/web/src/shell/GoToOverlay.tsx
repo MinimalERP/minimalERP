@@ -1,5 +1,5 @@
 import { type SearchHit, highlightSegments } from '@minimalerp/command';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Kbd } from '../ui/Kbd';
 import { Hint } from './Hint';
 import { ListView } from '../ui/ListView';
@@ -27,7 +27,7 @@ export function GoToOverlay() {
   const inflight = useRef<AbortController | undefined>(undefined);
 
   // Take focus on open; give it back to whatever had it on close.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const before = document.activeElement as HTMLElement | null;
     inputRef.current?.focus();
     return () => before?.focus?.();

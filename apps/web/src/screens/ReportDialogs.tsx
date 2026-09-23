@@ -1,5 +1,5 @@
 import { type EntityDoc, searchEntities } from '@minimalerp/command';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { useCommandHandler, useScope } from '../shell/hooks';
 import { Hint } from '../shell/Hint';
 import { ListView } from '../ui/ListView';
@@ -100,7 +100,7 @@ export function FieldsDialog(props: { title: string; fields: readonly InputField
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [at, setAt] = useState(0);
   const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = root.current?.querySelector<HTMLInputElement>(`[data-rf="${props.fields[at]?.key}"]`);
     el?.focus();
     el?.select();

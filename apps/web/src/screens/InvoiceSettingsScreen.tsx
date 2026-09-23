@@ -1,6 +1,6 @@
 import type { Frame } from '@minimalerp/command';
 import type { Issue } from '@minimalerp/domain';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
 import { useLeaveGuard } from '../shell/useLeaveGuard';
 import type { ScreenRef } from '../shell/router';
@@ -52,7 +52,7 @@ export function InvoiceSettingsScreen({ frame }: { frame: Frame<ScreenRef> }) {
   const formRef = useRef<HTMLFormElement>(null);
 
   const at = Math.min(focus, FIELDS.length - 1);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = formRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-field="${FIELDS[at]?.key}"]`);
     el?.focus();
     if (el instanceof HTMLInputElement) el.select();
