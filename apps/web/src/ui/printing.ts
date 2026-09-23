@@ -1,4 +1,4 @@
-import type { Masters } from '@minimalerp/domain';
+import { GST_STATE_NAMES, type Masters } from '@minimalerp/domain';
 import type { ChoiceOption } from '../screens/ReportDialogs';
 import type { PrintCompany } from './PrintView';
 
@@ -25,4 +25,11 @@ export function printCompanyOf(masters: Masters): PrintCompany {
     invoiceNote: c.invoiceNote,
     invoiceTerms: c.invoiceTerms,
   };
+}
+
+/** A GST state code as the invoice prints it — "Maharashtra (27)", the bare code if unnamed, nothing if absent. */
+export function placeOfSupplyText(stateCode: string | undefined): string | undefined {
+  if (!stateCode) return undefined;
+  const name = GST_STATE_NAMES[stateCode];
+  return name ? `${name} (${stateCode})` : stateCode;
 }

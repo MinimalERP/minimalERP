@@ -45,6 +45,7 @@ import { useOtherVoucherHandlers } from '../vouchers/otherVoucher';
 import { PartyDetailsDialog } from './PartyDetailsDialog';
 import type { CreatedMaster } from './MasterFormScreen';
 import type { InvoiceDoc } from '../ui/PrintView';
+import { placeOfSupplyText } from '../ui/printing';
 
 const SCOPE = 'screen:voucher';
 const MAX_OPTIONS = 8;
@@ -223,6 +224,7 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
       date: voucher.date,
       poNo: form.reference || undefined,
       ewayBillNo: kind === 'sales' ? form.ewayBillNo || undefined : undefined,
+      placeOfSupply: placeOfSupplyText(details?.shipTo?.stateCode ?? details?.billTo?.stateCode ?? details?.placeOfSupply),
       party: { name: details?.mailingName ?? form.partyLabel, gstin: details?.gstin, billTo: details?.billTo, shipTo: details?.shipTo },
       lines,
       subtotal: preview.total,

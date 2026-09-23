@@ -59,6 +59,8 @@ export interface InvoiceDoc {
   readonly poNo?: string | undefined;
   /** The E-way Bill number for this invoice's movement of goods (Sales) — shown only when present. */
   readonly ewayBillNo?: string | undefined;
+  /** The state of the delivery address, as it prints ("Maharashtra (27)") — shown only when known. */
+  readonly placeOfSupply?: string | undefined;
   readonly party: PrintParty;
   readonly lines: readonly {
     readonly desc: string;
@@ -99,7 +101,7 @@ export type PrintDoc = LedgerDoc | InvoiceDoc | StockDoc | ReportDoc;
 
 const words = (s: string | undefined): string[] | undefined => (s && s.trim() !== '' ? s.split('\n') : undefined);
 
-function AddressBlock({ label, address }: { label: string; address: PrintAddress | undefined }) {
+function AddressBlock({ label, address, gstin }: { label: string; address: PrintAddress | undefined; gstin?: string | undefined }) {
   if (!address) return null;
   const bits = [address.lines, [address.stateCode, address.pincode].filter(Boolean).join(' – '), address.country].filter((s) => s && s.trim() !== '');
   return (
@@ -109,7 +111,16 @@ function AddressBlock({ label, address }: { label: string; address: PrintAddress
       {bits.map((b, i) => (
         <div key={i}>{b}</div>
       ))}
+      {gstin && <div>GSTIN: {gstin}</div>}
     </div>
+  );
+}
+
+function Narration({ text }: { text: string }) {
+  return (
+    <p class="inv-narration">
+      <span class="label">Narration:</span> {text}
+    </p>
   );
 }
 
@@ -243,7 +254,7 @@ function LedgerBody({ doc, company, copyLabel }: { doc: LedgerDoc; company: Prin
           ))}
         </tbody>
       </table>
-      {doc.narration && <p class="inv-narration">{doc.narration}</p>}
+      {doc.narration && <Narration text={doc.narration} />}
       <BankAndSign company={company} />
     </>
   );
@@ -255,9 +266,14 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
     <>
       <CompanyHead company={company} docTitle={doc.docTitle} copyLabel={copyLabel} numberLabel={doc.numberLabel} number={doc.number} date={doc.date} poNo={doc.poNo} ewayBillNo={doc.ewayBillNo} />
       <div class="inv-parties">
-        <AddressBlock label="Bill To" address={{ name: doc.party.name, ...doc.party.billTo }} />
+        <AddressBlock label="Bill To" address={{ name: doc.party.name, ...doc.party.billTo }} gstin={doc.party.gstin} />
         <AddressBlock label="Ship To" address={sameAsBilling ? { name: doc.party.name, ...doc.party.billTo } : { name: doc.party.name, ...doc.party.shipTo }} />
       </div>
+      {doc.placeOfSupply && (
+        <div class="inv-pos">
+          <span class="label">Place of Supply:</span> {doc.placeOfSupply}
+        </div>
+      )}
       <table class="items">
         <thead>
           <tr>
@@ -320,7 +336,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
           </tbody>
         </table>
       </div>
-      {doc.narration && <p class="inv-narration">{doc.narration}</p>}
+      {doc.narration && <Narration text={doc.narration} />}
       <BankAndSign company={company} />
     </>
   );
@@ -354,7 +370,7 @@ function StockBody({ doc, company, copyLabel }: { doc: StockDoc; company: PrintC
           ))}
         </tbody>
       </table>
-      {doc.narration && <p class="inv-narration">{doc.narration}</p>}
+      {doc.narration && <Narration text={doc.narration} />}
     </>
   );
 }
@@ -445,7 +461,7 @@ export function PrintView({ doc, company, copies }: { doc: PrintDoc; company: Pr
   return (
     <div class="print-root" id="print-root">
       {copies.map((label, i) => (
-        <div key={`${label}-${i}`} class="paper print-copy">
+        <div key={`${label}-${i}`} class={doc.kind === 'report' ? 'paper print-copy' : 'paper print-copy bordered'}>
           {doc.kind === 'ledger' && <LedgerBody doc={doc} company={company} copyLabel={label} />}
           {doc.kind === 'invoice' && <InvoiceBody doc={doc} company={company} copyLabel={label} />}
           {doc.kind === 'stock' && <StockBody doc={doc} company={company} copyLabel={label} />}

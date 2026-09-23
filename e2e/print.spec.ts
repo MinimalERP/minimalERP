@@ -79,6 +79,7 @@ test.describe('Print', () => {
     await expect(printCopies(app).nth(2)).toContainText('TRIPLICATE');
     await expect(printCopies(app).first()).toContainText('PAY/');
     await expect(printCopies(app).first()).toContainText('Salaries & Wages');
+    await expect(printCopies(app).first().locator('.inv-narration')).toHaveText('Narration: Wages'); // captioned
     await expect.poll(() => printedCount(app)).toBe(1);
   });
 
@@ -111,6 +112,28 @@ test.describe('Print', () => {
     await expect(printCopies(app).first()).toContainText('Sharma Traders');
     await expect(printCopies(app).first()).toContainText('Machine Oil');
     await expect.poll(() => printedCount(app)).toBe(1);
+  });
+
+  test("a Sales invoice prints the customer's GSTIN, the Place of Supply and a full-page border — exactly one A4 page per copy", async ({ app }) => {
+    await openDayBook(app);
+    await app.keyboard.type('sharma');
+    await expect(dayBookRows(app).first()).toBeVisible();
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toContainText('Display');
+    await app.keyboard.press('Control+p');
+    await app.keyboard.press('ArrowDown'); // 2 copies
+    await app.keyboard.press('Enter');
+
+    const first = printCopies(app).first();
+    await expect(first.locator('.inv-parties > div').first()).toContainText('GSTIN: 07AAACR5055K1Z');
+    await expect(first.locator('.inv-pos')).toHaveText('Place of Supply: Delhi (07)');
+
+    await app.emulateMedia({ media: 'print' });
+    await expect(first).toHaveCSS('border-top-style', 'solid');
+    // The frame is a full page however few lines there are, and never spills a blank page: 2 copies -> 2 pages.
+    const pdf = await app.pdf({ preferCSSPageSize: true });
+    expect(pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g)).toHaveLength(2);
+    await app.emulateMedia({ media: 'screen' });
   });
 
   test('Invoice / PDF Settings: fill in bank details, they persist and show on the next invoice printed; a field left blank is left off', async ({ app }) => {
