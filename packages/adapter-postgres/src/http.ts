@@ -7,7 +7,12 @@ import {
   fail,
   issue,
   canonicalId,
+  dailyDigest,
+  digestHtml,
+  digestSheetRows,
+  dueItemRows,
   journalLineToWire,
+  orderBookOf,
   localDate,
   newCompanyIssues,
   normalizeName,
@@ -16,7 +21,7 @@ import {
   stockMovementToWire,
   voucherToWire,
 } from '@minimalerp/domain';
-import type { JournalRepository, MasterGateway, PostOutcome, PostingGateway, StockRepository, VoucherRepository } from '@minimalerp/ports';
+import type { InboxGateway, JournalRepository, MasterGateway, MastersRepository, PostOutcome, PostingGateway, StockRepository, VoucherRepository } from '@minimalerp/ports';
 import { z } from 'zod';
 
 /**
@@ -33,6 +38,9 @@ import { z } from 'zod';
  *         { action: 'company-create', company }          seed a company for the caller (one per account), who becomes its owner
  *         { action: 'load', companyId }                  the masters as JSON ({ core, ledgers }; the browser rebuilds them with buildMasters)
  *         { action: 'vouchers' | 'voucher' | 'lines' | 'stock', companyId, … }   reads, each checked against the caller's permission
+ *         { action: 'inbox', companyId }                 the AI Inbox: the proposals waiting (ADR-0023)
+ *         { action: 'inbox-reject', companyId, id, reason? }   throw a proposal away (accepting one is an ordinary 'post' under its id)
+ *         { action: 'digest', companyId?, asOn? }        the daily report: { asOn, subject, html, sheetRows, dueItemRows }
  *   200   { ok: true,  value: { voucher, journal?, replayed? } }   money as decimal strings
  *   200   { ok: false, issues: [{ code, message, path? }] }        a business-rule refusal
  *   400 malformed request · 401 not signed in · 405 wrong method · 500 unexpected failure
@@ -89,13 +97,17 @@ const body = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('stock'), companyId, itemIds: z.array(z.string()).optional() }),
   z.object({ action: z.literal('series-status'), companyId, seriesId: z.string().min(1) }),
+  z.object({ action: z.literal('inbox'), companyId }),
+  // the daily report: for the company given, or the caller's only one (the add-on's sign-in); `asOn` defaults to today in India
+  z.object({ action: z.literal('digest'), companyId: companyId.optional(), asOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }),
+  z.object({ action: z.literal('inbox-reject'), companyId, id: z.string().min(1), reason: z.string().max(200).optional() }),
 ]);
 
 /**
  * What the handler needs from the server-side backend beyond posting: the reads the browser cannot do itself, and company creation.
  * The reads run as the service role (they bypass row-level security), so the handler asks `can` before every one of them.
  */
-export interface BooksServer extends PostingGateway, MasterGateway, VoucherRepository, JournalRepository, StockRepository {
+export interface BooksServer extends PostingGateway, MasterGateway, MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway {
   companiesOf(): Promise<readonly { readonly id: string; readonly name: string }[]>;
   can(companyId: string, permission: string): Promise<boolean>;
   loadJson(companyId: string): Promise<{ readonly core: unknown; readonly ledgers: unknown } | undefined>;
@@ -262,6 +274,31 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
         // seriesStatus checks master.view itself (the same answer to "not permitted" and "no such series" either refuses).
         case 'series-status':
           return asResponse(await gateway.seriesStatus(cmd.companyId as never, cmd.seriesId), (status) => status);
+        // Both check their own permission (voucher.view; posting the item's kind to reject it).
+        case 'inbox':
+          return asResponse(await gateway.inbox(cmd.companyId as never), (items) => ({ items }));
+        case 'inbox-reject':
+          return asResponse(await gateway.rejectInbox(cmd.companyId as never, cmd.id, cmd.reason), () => ({}));
+        case 'digest': {
+          const company = cmd.companyId ?? (await gateway.companiesOf())[0]?.id;
+          const denied = company ? await refuse(gateway, company, 'report.view') : { ok: false as const, issues: [issue(IssueCode.PermissionDenied, 'Not permitted: report.view')] };
+          if (denied || !company) return json(200, denied);
+          const id = company as CompanyId;
+          const [masters, vouchers, lines, inbox] = await Promise.all([gateway.load(id), gateway.list(id), gateway.lines({ companyId: id }), gateway.inbox(id)]);
+          const d = dailyDigest({
+            vouchers,
+            lines,
+            masters,
+            orders: orderBookOf(vouchers, masters),
+            asOn: localDate(cmd.asOn ?? new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10)),
+            inboxWaiting: inbox.ok ? inbox.value.length : 0,
+          });
+          const late = d.orders.overdueLines > 0 ? ` · ${d.orders.overdueLines} item${d.orders.overdueLines === 1 ? '' : 's'} late` : '';
+          return json(200, {
+            ok: true,
+            value: { asOn: d.asOn, subject: `${d.company} — daily report ${d.asOn.slice(8, 10)}-${d.asOn.slice(5, 7)}-${d.asOn.slice(0, 4)}${late}`, html: digestHtml(d), sheetRows: digestSheetRows(d), dueItemRows: dueItemRows(d) },
+          });
+        }
       }
     } catch (error) {
       deps.onError?.(error, requestId);

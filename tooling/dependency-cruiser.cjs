@@ -36,28 +36,28 @@ module.exports = {
       severity: 'error',
       comment: 'keyboard and command know nothing about accounting, adapters or the app.',
       from: { path: '^packages/(keyboard|command)/src' },
-      to: { path: '^(packages/(domain|ports|adapter-memory|adapter-supabase|adapter-postgres|testkit|db-tests)|apps)/' },
+      to: { path: '^(packages/(domain|ports|adapter-memory|adapter-supabase|adapter-postgres|adapter-gemini|testkit|db-tests)|apps)/' },
     },
     {
       name: 'ports-depend-only-on-domain',
       severity: 'error',
       comment: 'ports are interfaces over domain types; they never reach adapters, UI layers or the app.',
       from: { path: '^packages/ports/src' },
-      to: { path: '^(packages/(adapter-memory|adapter-supabase|adapter-postgres|command|keyboard|testkit|db-tests)|apps)/' },
+      to: { path: '^(packages/(adapter-memory|adapter-supabase|adapter-postgres|adapter-gemini|command|keyboard|testkit|db-tests)|apps)/' },
     },
     {
       name: 'adapter-memory-is-independent',
       severity: 'error',
       comment: 'Adapters implement ports. They do not know each other, the app, or the UI layers.',
       from: { path: '^packages/adapter-memory/src' },
-      to: { path: '^(packages/(adapter-supabase|adapter-postgres|command|keyboard|testkit|db-tests)|apps)/' },
+      to: { path: '^(packages/(adapter-supabase|adapter-postgres|adapter-gemini|command|keyboard|testkit|db-tests)|apps)/' },
     },
     {
       name: 'adapter-supabase-is-independent',
       severity: 'error',
       comment: 'Adapters implement ports. They do not know each other, the app, or the UI layers.',
       from: { path: '^packages/adapter-supabase/src' },
-      to: { path: '^(packages/(adapter-memory|adapter-postgres|command|keyboard|testkit|db-tests)|apps)/' },
+      to: { path: '^(packages/(adapter-memory|adapter-postgres|adapter-gemini|command|keyboard|testkit|db-tests)|apps)/' },
     },
     {
       name: 'adapter-postgres-is-independent',
@@ -66,7 +66,16 @@ module.exports = {
         'The server-side Postgres adapter implements ports only. It knows no other adapter, no UI layer, no app. ' +
         'It is bundled into the Edge Function, so anything it imports ships to production.',
       from: { path: '^packages/adapter-postgres/src' },
-      to: { path: '^(packages/(adapter-memory|adapter-supabase|command|keyboard|testkit|db-tests)|apps)/' },
+      to: { path: '^(packages/(adapter-memory|adapter-supabase|adapter-gemini|command|keyboard|testkit|db-tests)|apps)/' },
+    },
+    {
+      name: 'adapter-gemini-is-independent',
+      severity: 'error',
+      comment:
+        'The Gemini reader implements one port (DocumentReader) with fetch. It knows no other adapter, no UI layer, no app. ' +
+        'It is bundled into the intake Edge Function.',
+      from: { path: '^packages/adapter-gemini/src' },
+      to: { path: '^(packages/(adapter-memory|adapter-supabase|adapter-postgres|command|keyboard|testkit|db-tests)|apps)/' },
     },
     {
       name: 'nothing-depends-on-db-tests',

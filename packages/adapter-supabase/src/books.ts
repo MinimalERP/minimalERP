@@ -15,10 +15,11 @@ import {
   defaultVoucherKinds,
   journalLineFromWire,
   ok,
+  proposalSchema,
   stockMovementFromWire,
   voucherFromWire,
 } from '@minimalerp/domain';
-import type { JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
+import type { InboxGateway, InboxItem, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
 
 /** What arrives with a change's own answer: the parts of the books the browser is about to reload. */
@@ -60,7 +61,10 @@ export interface CompanySummary {
  * The port's reads return plain values, so a request that cannot be answered (offline, refused) throws; the callers already treat a
  * failed load as "could not open the books".
  */
-export class SupabaseBooksBackend extends SupabasePostingGateway implements MastersRepository, VoucherRepository, JournalRepository, StockRepository {
+export class SupabaseBooksBackend
+  extends SupabasePostingGateway
+  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway
+{
   private readonly kinds = defaultVoucherKinds();
   /** The masters of the last `load`, for turning stored vouchers back into what the screens hold (see `readable`). */
   private latest: Masters | undefined;
@@ -113,6 +117,33 @@ export class SupabaseBooksBackend extends SupabasePostingGateway implements Mast
     const delivered = query.itemIds === undefined ? this.take(query.companyId, 'movements') : undefined;
     const wire = delivered ?? ((await this.read({ action: 'stock', ...query })) as { movements: StockMovementWire[] }).movements;
     return wire.map(stockMovementFromWire);
+  }
+
+  // ---- the AI Inbox (ADR-0023): always asked fresh, never delivered with a change ----
+
+  async inbox(companyId: CompanyId): Promise<Result<readonly InboxItem[]>> {
+    const r = await this.call({ action: 'inbox', companyId });
+    if (!r.ok) return r;
+    const items: InboxItem[] = [];
+    for (const raw of (r.value as { items?: unknown[] }).items ?? []) {
+      const item = raw as { id?: unknown; proposal?: unknown; mailSubject?: unknown; mailFrom?: unknown; createdAt?: unknown };
+      const proposal = proposalSchema.safeParse(item.proposal);
+      if (typeof item.id !== 'string' || !proposal.success) continue;
+      items.push({
+        id: item.id,
+        kind: proposal.data.kind,
+        proposal: proposal.data,
+        ...(typeof item.mailSubject === 'string' ? { mailSubject: item.mailSubject } : {}),
+        ...(typeof item.mailFrom === 'string' ? { mailFrom: item.mailFrom } : {}),
+        createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
+      });
+    }
+    return ok(items);
+  }
+
+  async rejectInbox(companyId: CompanyId, id: string, reason?: string): Promise<Result<void>> {
+    const r = await this.call({ action: 'inbox-reject', companyId, id, ...(reason ? { reason } : {}) });
+    return r.ok ? ok(undefined) : r;
   }
 
   /** A change (and the opening of a company) asks for the parts of the books it touches to come with its answer. */

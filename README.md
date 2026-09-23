@@ -51,11 +51,13 @@ brings you back to the same row. **F10** opens a Stock Journal (stock moving bet
 | `packages/ports` | Interfaces (repositories, gateways). |
 | `packages/adapter-memory` | In-memory ports: the reference implementation and test oracle. |
 | `packages/adapter-postgres` | Server-side posting service over PostgreSQL (runs in the Edge Function). |
+| `packages/adapter-gemini` | Reads a sent document with Gemini (the `intake` function; ADR-0023). |
 | `packages/adapter-supabase` | Browser adapter: calls the Edge Function, reads under RLS. |
 | `packages/db-tests` | Integration tests against a real PostgreSQL. A leaf: nothing imports it. |
 | `packages/command` | Command Registry, Universal Search (Go To) service and providers, recents/favourites, screen stack. |
 | `packages/keyboard` | Chords, keymap (+ persisted overrides), scope stack, the one KeyboardManager, list/form/grid navigators. |
 | `packages/testkit` | Demo company, scenario builders, property-test generators, and cross-package behaviour tests. |
+| `integrations/google-apps-script` | The Gmail "Send to ERP" panel and the daily report mail (ADR-0023). Setup in its README. |
 | `supabase/` | Migrations and the `post-voucher` Edge Function. See `supabase/README.md`. |
 
 Layering is enforced by `pnpm boundaries` and ESLint; `tooling/guards.test.ts` proves the guards fail when violated.

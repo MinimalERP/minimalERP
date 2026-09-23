@@ -13,7 +13,9 @@ migrations/                      forward-only, timestamp-named SQL. Never edit a
   2026092100…_vouchers_phase5    bill_allocations (mirrored from the voucher by a trigger), party GST registration + address book
   2026092000…_masters_phase4     parties, units, stock groups/items, warehouses, GST rates; master_apply, company_seed,
                                  search_index + search_entities; backstop triggers (ADR-0011)
-functions/post-voucher/          the Edge Function (Deno): auth + DB glue around handler.bundle.js
+functions/post-voucher/          the Edge Function (Deno): auth + DB glue around handler.bundle.js (also the daily report: action `digest`)
+functions/intake/                the AI Inbox's way in (ADR-0023): reads a sent document with Gemini, queues a proposal. Needs the secrets
+                                 GEMINI_API_KEY and GEMINI_MODEL; see integrations/google-apps-script/README.md
 tests/support/                   supabase_prelude.sql — TEST ONLY, emulates the Supabase platform
 ```
 
@@ -45,6 +47,8 @@ The project is linked (`supabase/.temp/linked-project.json`, git-ignored). Note:
 supabase db push --project-ref <ref>                                    # applies migrations/ (forward-only)
 pnpm build:functions
 supabase functions deploy post-voucher --project-ref <ref>              # the function serves the writes AND the reads/company actions
+supabase functions deploy intake --project-ref <ref>                    # the AI Inbox (ADR-0023)
+supabase secrets set GEMINI_API_KEY=<key> GEMINI_MODEL=<model> --project-ref <ref>
 ```
 `supabase/config.toml` is created by `supabase init` (needs the Supabase CLI). The function needs no secrets set by hand:
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_DB_URL` are provided by the platform.

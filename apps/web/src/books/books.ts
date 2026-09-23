@@ -23,6 +23,8 @@ import {
   localDate,
 } from '@minimalerp/domain';
 import type {
+  InboxGateway,
+  InboxItem,
   JournalRepository,
   MasterGateway,
   MasterOutcome,
@@ -39,7 +41,7 @@ export { newCompanyIssues } from '@minimalerp/domain';
 export type { NewCompany };
 
 /** Everything the screens need from a backend: master commands, posting, and reading masters back. Adapters provide it. */
-export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository {}
+export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway {}
 
 /** A backend whose state can be saved as a log of changes and rebuilt from it (the in-browser demo backend). */
 export interface LocalBackend extends BooksBackend {
@@ -248,6 +250,18 @@ export class Books {
       if (result.ok && !result.value.replayed && this.bulkDepth === 0) await this.refresh();
       return result;
     });
+  }
+
+  // ---- the AI Inbox (ADR-0023): proposals made from documents a person sent from Gmail ----
+
+  /** The proposals waiting, oldest first. Always asked of the backend (another person may have accepted one a moment ago). */
+  inbox(): Promise<Result<readonly InboxItem[]>> {
+    return this.backend.inbox(this.companyId);
+  }
+
+  /** Throws a proposal away. (Accepting one is posting the voucher made from it under its id — `post`.) */
+  rejectInbox(id: string, reason?: string): Promise<Result<void>> {
+    return this.saving.track(() => this.backend.rejectInbox(this.companyId, id, reason));
   }
 
   /** A numbering series' current next number — for the Numbering Series display, and to default the override to a no-op. */

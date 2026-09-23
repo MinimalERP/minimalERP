@@ -86,12 +86,12 @@ export async function seedCompany(pool: pg.Pool, data: DemoData, ownerId: string
   await pool.query(SEED_SQL, [JSON.stringify(seedPayload(data, ownerId))]);
 }
 
-/** Adds a signed-up user to a company with the given role (owner | accountant | clerk | viewer). */
+/** Adds a signed-up user to a company with the given role (owner | accountant | clerk | viewer | automation). */
 export async function addMember(
   pool: pg.Pool,
   companyId: string,
   userId: string,
-  role: 'owner' | 'accountant' | 'clerk' | 'viewer',
+  role: 'owner' | 'accountant' | 'clerk' | 'viewer' | 'automation',
 ): Promise<void> {
   await pool.query(`insert into auth.users (id, email) values ($1, $2) on conflict do nothing`, [userId, `${userId}@example.test`]);
   await pool.query(`insert into public.company_members (company_id, user_id, role) values ($1, $2, $3)`, [companyId, userId, role]);

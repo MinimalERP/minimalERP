@@ -31,6 +31,7 @@ import {
   parseMoney,
   parseQty,
   planVoucher,
+  proposalSchema,
   prepareAlteration,
   prepareCancellation,
   prepareMasterCommand,
@@ -40,6 +41,9 @@ import {
 import type {
   AlterRequest,
   CancelRequest,
+  InboxGateway,
+  InboxItem,
+  InboxSubmission,
   JournalQuery,
   JournalRepository,
   MasterGateway,
@@ -104,7 +108,15 @@ const text = (v: unknown): string => {
 // string to a `jsonb` parameter works with node-postgres but is double-encoded by postgres.js (used by the
 // Deno Edge Function), and dates are coerced through JS Date. Text in, cast in the database: same on every driver.
 export class PostgresBackend
-  implements PostingGateway, MasterGateway, MastersRepository, VoucherRepository, JournalRepository, StockRepository, OrderRepository
+  implements
+    PostingGateway,
+    MasterGateway,
+    MastersRepository,
+    VoucherRepository,
+    JournalRepository,
+    StockRepository,
+    OrderRepository,
+    InboxGateway
 {
   private readonly registry: VoucherKindRegistry;
 
@@ -536,6 +548,67 @@ export class PostgresBackend
     const usage = await this.usageOf(companyId, seriesId);
     const nextValue = usage.seriesNextValue.get(seriesId);
     return nextValue === undefined ? fail(issue(IssueCode.MasterNotFound, 'No numbering series with that id')) : ok({ seriesId, nextValue });
+  }
+
+  // ---- the AI Inbox (ADR-0023) ----
+
+  /** The proposals waiting in a company's inbox, oldest first. A row whose proposal no longer reads is left out (never shown half-read). */
+  async inbox(companyId: CompanyId): Promise<Result<readonly InboxItem[]>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    const denied = await this.denyUnless(companyId, 'voucher.view');
+    if (denied) return denied;
+    const r = await this.db.query(
+      `select id, kind, proposal, mail_subject, mail_from, to_char(created_at at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at
+         from public.inbox_items where company_id = $1::uuid order by created_at, id`,
+      [companyId],
+    );
+    const items: InboxItem[] = [];
+    for (const row of r.rows) {
+      const proposal = proposalSchema.safeParse(row['proposal']);
+      if (!proposal.success) continue;
+      items.push({
+        id: text(row['id']),
+        kind: proposal.data.kind,
+        proposal: proposal.data,
+        ...(typeof row['mail_subject'] === 'string' ? { mailSubject: row['mail_subject'] } : {}),
+        ...(typeof row['mail_from'] === 'string' ? { mailFrom: row['mail_from'] } : {}),
+        createdAt: text(row['created_at']),
+      });
+    }
+    return ok(items);
+  }
+
+  /** Puts a proposal in the inbox (the `intake` function, after reading a document). The same id twice is one submission. */
+  async submitInbox(s: InboxSubmission): Promise<Result<{ readonly id: string }>> {
+    if (!isUuid(s.companyId)) return fail(companyMismatch(s.companyId));
+    if (!isUuid(s.id)) return fail(issue(IssueCode.SchemaInvalid, 'Inbox id must be a UUID', 'id'));
+    const proposal = proposalSchema.safeParse(s.proposal);
+    if (!proposal.success) return fail(issue(IssueCode.SchemaInvalid, 'The proposal is not in the expected shape', 'proposal'));
+    const r = await this.rpc('select public.inbox_submit($1::uuid, $2::uuid, $3, $4::uuid, $5, $6::text::jsonb, $7, $8) as r', [
+      this.options.actorId,
+      s.companyId,
+      this.options.requestId ?? null,
+      s.id,
+      proposal.data.kind,
+      JSON.stringify(proposal.data),
+      s.mailSubject ?? null,
+      s.mailFrom ?? null,
+    ]);
+    return r.ok ? ok({ id: s.id }) : r;
+  }
+
+  /** Throws a proposal away. One already accepted or rejected is not an error: the inbox simply no longer has it. */
+  async rejectInbox(companyId: CompanyId, id: string, reason?: string): Promise<Result<void>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    if (!isUuid(id)) return ok(undefined);
+    const r = await this.rpc('select public.inbox_discard($1::uuid, $2::uuid, $3, $4::uuid, $5) as r', [
+      this.options.actorId,
+      companyId,
+      this.options.requestId ?? null,
+      id,
+      reason ?? null,
+    ]);
+    return r.ok ? ok(undefined) : r;
   }
 
   private async applyMaster(companyId: CompanyId, expectedVersion: number, change: Row): Promise<Result<Row>> {

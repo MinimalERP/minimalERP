@@ -10,8 +10,10 @@ import type {
   LedgerId,
   LocalDate,
   Masters,
+  IntakeKind,
   OrderLink,
   PostingPlan,
+  Proposal,
   Result,
   StockItemId,
   StockMovement,
@@ -157,4 +159,44 @@ export interface AuthGateway {
   setPassword(password: string): Promise<Result<AuthSession>>;
   signOut(): Promise<void>;
   onChange(listener: (session: AuthSession | undefined) => void): () => void;
+}
+
+/** One proposal waiting in the AI Inbox (ADR-0023): what a sent document was read as, and one line of the mail it came in. */
+export interface InboxItem {
+  readonly id: string;
+  readonly kind: IntakeKind;
+  readonly proposal: Proposal;
+  readonly mailSubject?: string | undefined;
+  readonly mailFrom?: string | undefined;
+  /** ISO timestamp. */
+  readonly createdAt: string;
+}
+
+export interface InboxSubmission {
+  readonly companyId: CompanyId;
+  /** A fresh UUID: it becomes the voucher's id when the proposal is accepted, so it can only ever be posted once. */
+  readonly id: string;
+  readonly proposal: Proposal;
+  readonly mailSubject?: string | undefined;
+  readonly mailFrom?: string | undefined;
+}
+
+/**
+ * The AI Inbox. Accepting is not here: it is an ordinary post (PostingGateway) of the voucher a person completed, under the item's id —
+ * posting it removes the item. Rejecting throws the proposal away.
+ */
+export interface InboxGateway {
+  inbox(companyId: CompanyId): Promise<Result<readonly InboxItem[]>>;
+  rejectInbox(companyId: CompanyId, id: string, reason?: string): Promise<Result<void>>;
+}
+
+/** A document a person chose to send to the ERP: a PDF or an image (base64), or the text of a mail. Never stored — read, then gone. */
+export type IntakeDocument = { readonly mimeType: string; readonly base64: string } | { readonly text: string };
+
+/**
+ * Reads a document into the extraction shape (`extractionSchema` in the domain) — the raw answer, which the caller parses. Failures a person
+ * should see (the reader is busy, the document could not be read) come back as issues, never thrown.
+ */
+export interface DocumentReader {
+  read(input: { readonly kind: IntakeKind; readonly ownCompany: string; readonly document: IntakeDocument }): Promise<Result<unknown>>;
 }

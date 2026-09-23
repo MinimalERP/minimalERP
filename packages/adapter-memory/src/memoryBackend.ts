@@ -36,6 +36,8 @@ import {
   type LocalDate,
 } from '@minimalerp/domain';
 import type {
+  InboxGateway,
+  InboxItem,
   AlterRequest,
   CancelRequest,
   JournalQuery,
@@ -107,7 +109,15 @@ const canonical = (value: unknown): string =>
  * which is what makes each operation atomic here.
  */
 export class MemoryBackend
-  implements PostingGateway, MasterGateway, MastersRepository, VoucherRepository, JournalRepository, StockRepository, OrderRepository
+  implements
+    PostingGateway,
+    MasterGateway,
+    MastersRepository,
+    VoucherRepository,
+    JournalRepository,
+    StockRepository,
+    OrderRepository,
+    InboxGateway
 {
   private readonly vouchers = new Map<VoucherId, Voucher>();
   private readonly journalByVoucher = new Map<VoucherId, readonly JournalLine[]>();
@@ -119,6 +129,8 @@ export class MemoryBackend
   private readonly revisions = new Map<VoucherId, RevisionRecord[]>();
   private readonly log: BackendLogEntry[] = [];
   private readonly listeners = new Set<(entry: BackendLogEntry) => void>();
+  /** The AI Inbox. Books kept in this browser have no add-on sending documents, so it stays empty unless a test puts proposals in. */
+  private readonly inboxItems = new Map<string, InboxItem>();
 
   constructor(
     private masters: Masters,
@@ -126,6 +138,26 @@ export class MemoryBackend
   ) {}
 
   // ---- seeding hooks and the change log ----
+
+  /** Puts a proposal in the inbox, as the `intake` function does online (tests, and the e2e suite). */
+  putInbox(item: InboxItem): void {
+    this.inboxItems.set(item.id, item);
+  }
+
+  // ---- the AI Inbox (ADR-0023) ----
+
+  async inbox(companyId: CompanyId): Promise<Result<readonly InboxItem[]>> {
+    const wrongCompany = this.checkCompany(companyId);
+    if (wrongCompany) return wrongCompany;
+    return ok([...this.inboxItems.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+  }
+
+  async rejectInbox(companyId: CompanyId, id: string): Promise<Result<void>> {
+    const wrongCompany = this.checkCompany(companyId);
+    if (wrongCompany) return wrongCompany;
+    this.inboxItems.delete(id);
+    return ok(undefined);
+  }
 
   setMasters(masters: Masters): void {
     this.masters = masters;
@@ -344,6 +376,7 @@ export class MemoryBackend
     this.journalByVoucher.set(voucher.id, prepared.value.plan.journal);
     this.setStock(voucher.id, prepared.value.plan.stock);
     this.setLinks(voucher.id, prepared.value.plan.links);
+    this.inboxItems.delete(voucher.id); // an accepted proposal is posted under its own id: it leaves the inbox with the post
     this.record({ type: 'post', draft: request.draft });
     return ok({ voucher, plan: prepared.value.plan, replayed: false });
   }

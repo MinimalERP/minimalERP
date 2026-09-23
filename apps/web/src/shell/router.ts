@@ -1,5 +1,6 @@
 import type { ScreenStack } from '@minimalerp/command';
 import type { MasterKind } from '@minimalerp/domain';
+import type { InboxItem } from '@minimalerp/ports';
 import { isMasterKindName } from '../books/forms';
 
 /**
@@ -24,7 +25,17 @@ export type ScreenRef =
     }
   | { readonly type: 'master-list'; readonly kind: MasterKind }
   /** A voucher: `create` names a base kind ("payment") or a voucher type id; display/alter name the voucher. `fromOrder` starts a new sales invoice from a sales order's pending lines (not part of the address). */
-  | { readonly type: 'voucher'; readonly mode: VoucherMode; readonly typeKey?: string; readonly id?: string; readonly fromOrder?: string }
+  | {
+      readonly type: 'voucher';
+      readonly mode: VoucherMode;
+      readonly typeKey?: string;
+      readonly id?: string;
+      readonly fromOrder?: string;
+      /** A new voucher made from an AI Inbox proposal (ADR-0023): it posts under the proposal's id. Not part of the address. */
+      readonly fromInbox?: InboxItem;
+    }
+  /** The AI Inbox: proposals made from documents sent from Gmail, waiting to be accepted or rejected. */
+  | { readonly type: 'inbox' }
   /** A report. The Ledger report names its ledger; without one it asks for it. */
   | { readonly type: 'report'; readonly report: ReportKind; readonly ledgerId?: string; readonly itemId?: string; readonly kind?: string; readonly groupId?: string };
 
@@ -52,6 +63,8 @@ export function refToHash(ref: ScreenRef): string {
       return '#/company/reset';
     case 'invoice-settings':
       return '#/company/invoice-settings';
+    case 'inbox':
+      return '#/inbox';
     case 'master':
       return ref.mode === 'create' || ref.id === undefined
         ? `#/master/${ref.kind}/create`
@@ -84,6 +97,7 @@ export function hashToRef(hash: string): ScreenRef | undefined {
   if (path === '/company/new') return { type: 'company-new' };
   if (path === '/company/reset') return { type: 'company-reset' };
   if (path === '/company/invoice-settings') return { type: 'invoice-settings' };
+  if (path === '/inbox') return { type: 'inbox' };
   const record = /^\/master\/([A-Za-z]+)\/(create|display|alter)(?:\/(.+))?$/.exec(path);
   if (record) {
     const [, kind = '', mode = '', rawId] = record;

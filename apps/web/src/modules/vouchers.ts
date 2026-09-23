@@ -122,7 +122,19 @@ const contextual = (id: string, title: string, panel?: NonNullable<Command<AppCo
   ...(panel ? { panel } : {}),
 });
 
+// The AI Inbox (ADR-0023): documents sent from Gmail, read into proposals that wait for a person.
+const inboxCommand: Command<AppContext> = {
+  id: 'inbox.open',
+  title: 'AI Inbox',
+  category: 'Voucher',
+  keywords: ['inbox', 'ai', 'gemini', 'gmail', 'mail', 'email', 'documents', 'proposals', 'auto entry'],
+  description: 'Vouchers proposed from documents you sent from Gmail — check, complete and accept them',
+  run: (app) => app.navigate({ type: 'inbox' }),
+};
+
 const commands: Command<AppContext>[] = [
+  inboxCommand,
+  contextual('inbox.reject', 'Reject this proposal', { label: 'Reject', group: 'Change', order: 31, on: ['inbox'] }),
   ...newCommands,
   ...salesCommands,
   stockJournalCommand,
@@ -169,6 +181,7 @@ const bindings: DefaultBinding[] = [
   { commandId: 'voucher.changeDate', chord: 'F2' },
   { commandId: 'voucher.partyDetails', chord: 'Alt+P', scope: 'screen:voucher' },
   { commandId: 'voucher.cancel', chord: 'Alt+X', scope: 'screen:voucher' },
+  { commandId: 'inbox.reject', chord: 'Alt+X', scope: 'screen:inbox' },
   { commandId: 'voucher.removeLine', chord: 'Ctrl+Delete', scope: 'screen:voucher' },
   { commandId: 'voucher.print', chord: 'Ctrl+P', scope: 'screen:voucher' },
 ];
@@ -184,7 +197,11 @@ const GROUPS: Readonly<Record<ListKind, { group: string; order: number }>> = {
   receipt: { group: 'General', order: 32 },
   journal: { group: 'General', order: 33 },
 };
-const menu: MenuEntry[] = LIST_KINDS.map((kind) => ({ section: 'transactions', commandId: `voucher.list.${kind}`, order: GROUPS[kind].order, group: GROUPS[kind].group }));
+const menu: MenuEntry[] = [
+  ...LIST_KINDS.map((kind) => ({ section: 'transactions', commandId: `voucher.list.${kind}`, order: GROUPS[kind].order, group: GROUPS[kind].group })),
+  // last, so the voucher lists keep their places (and their arrow-key positions)
+  { section: 'transactions', commandId: 'inbox.open', order: 40, group: 'AI Inbox' },
+];
 
 export const vouchersModule: ModuleManifest<AppContext> = {
   id: 'vouchers',

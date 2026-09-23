@@ -1,5 +1,6 @@
 import type { Frame } from '@minimalerp/command';
 import { CompanyCreateScreen, CompanyResetScreen } from '../screens/CompanyScreens';
+import { InboxScreen } from '../screens/InboxScreen';
 import { InvoiceSettingsScreen } from '../screens/InvoiceSettingsScreen';
 import { KeymapSettingsScreen } from '../screens/KeymapSettingsScreen';
 import { MasterFormScreen } from '../screens/MasterFormScreen';
@@ -28,12 +29,14 @@ function ScreenBody({ frame }: { frame: Frame<ScreenRef> }) {
       return <CompanyResetScreen />;
     case 'invoice-settings':
       return <InvoiceSettingsScreen frame={frame} />;
+    case 'inbox':
+      return <InboxScreen frame={frame} />;
     case 'master':
       return <MasterFormScreen frame={frame} kind={ref.kind} mode={ref.mode} id={ref.id} seed={ref.seed} inline={ref.inline} />;
     case 'master-list':
       return <MasterListScreen frame={frame} kind={ref.kind} />;
     case 'voucher':
-      return <VoucherScreen frame={frame} mode={ref.mode} typeKey={ref.typeKey} id={ref.id} fromOrder={ref.fromOrder} />;
+      return <VoucherScreen frame={frame} mode={ref.mode} typeKey={ref.typeKey} id={ref.id} fromOrder={ref.fromOrder} fromInbox={ref.fromInbox} />;
     case 'report':
       return <ReportScreen frame={frame} report={ref.report} ledgerId={ref.ledgerId} itemId={ref.itemId} kind={ref.kind} groupId={ref.groupId} />;
   }

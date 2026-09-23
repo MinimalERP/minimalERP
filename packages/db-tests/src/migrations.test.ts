@@ -23,6 +23,7 @@ describe('migrations', () => {
       'company_members',
       'financial_years',
       'gst_rates',
+      'inbox_items',
       'journal_lines',
       'ledgers',
       'numbering_series',
@@ -57,6 +58,8 @@ describe('migrations', () => {
     // Stock kinds (3 actions each): owner 27, accountant 26, and a clerk may post stock journals: 7.
     // Phase 6b adds the Sales and Sales Order kinds the same way: owner 33, accountant 32, and a clerk may post both: 9.
     // Phase 8 adds the Purchase and Purchase Order kinds the same way: owner 39, accountant 38, and a clerk may post both: 11.
-    expect(byRole).toEqual({ accountant: 38, clerk: 11, owner: 39, viewer: 3 });
+    // The AI Inbox (ADR-0023) lets owner and accountant send documents (inbox.submit): owner 40, accountant 39; and adds the `automation`
+    // role of the Gmail add-on: it submits and reads (master, voucher, report) and posts nothing: 4.
+    expect(byRole).toEqual({ accountant: 39, automation: 4, clerk: 11, owner: 40, viewer: 3 });
   });
 });

@@ -3,7 +3,7 @@ import { Kbd } from '../ui/Kbd';
 import { useServices, useSubscriptions } from './hooks';
 
 /** The screens that open at the third level — where a person is entering or reading, and wants the screen's own actions at hand. */
-export const PANEL_SCREENS: readonly string[] = ['voucher', 'report', 'master', 'master-list'];
+export const PANEL_SCREENS: readonly string[] = ['voucher', 'report', 'master', 'master-list', 'inbox'];
 
 /**
  * The screen's actions, down the right edge — the same commands the keys run, drawn as buttons (Tally's button panel). Derived like the

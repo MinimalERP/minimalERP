@@ -23,6 +23,8 @@ export function useScreenTitle() {
         return 'Close Company';
       case 'invoice-settings':
         return 'Invoice / PDF Settings';
+      case 'inbox':
+        return 'AI Inbox';
       case 'master-list':
         return PLURALS[ref.kind];
       case 'master':

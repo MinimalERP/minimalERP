@@ -6,7 +6,9 @@ import { Only } from '../shell/Only';
 import { WindowClose } from '../shell/WindowClose';
 import { useIdleOnBlankClick } from '../shell/idle';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
+import type { InboxItem } from '@minimalerp/ports';
 import type { ScreenRef, VoucherMode } from '../shell/router';
+import { inboxBanner, itemSeedOf, partySeedOf, salesFormFromProposal } from '../vouchers/proposalForms';
 import { useLeaveGuard } from '../shell/useLeaveGuard';
 import { Kbd } from '../ui/Kbd';
 import { ListView } from '../ui/ListView';
@@ -102,6 +104,8 @@ interface Props {
   readonly voucher: Voucher | undefined;
   /** A new invoice starts with the pending lines of this sales order. */
   readonly fromOrder?: string | undefined;
+  /** A new document made from an AI Inbox proposal (ADR-0023): it posts under the proposal's id. */
+  readonly fromInbox?: InboxItem | undefined;
 }
 
 /**
@@ -111,7 +115,7 @@ interface Props {
  * header, the entry grid straight under it, narration at the foot, its actions in the panel — and an invoice and its order switch into each
  * other in place (F8 / Shift+F8, F9 / Shift+F9) keeping the party, the reference and the lines. What differs between the four is in `docProfile`.
  */
-export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrder }: Props) {
+export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrder, fromInbox }: Props) {
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books, keymapStore);
   const masters = books.masters;
@@ -125,16 +129,35 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
     const order = fromOrder ? books.voucher(fromOrder) : undefined;
     return order ? invoiceFormFromOrder(order, books.orders, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID(), stock: books.stock, ...extra() }) : undefined;
   };
-  const startForm = (): SalesForm => (voucher ? salesFormFromVoucher(voucher, masters, books.orders) : (mode === 'create' && fromOrderForm()) || blankForm());
+  const inboxForm = (): SalesForm | undefined =>
+    fromInbox
+      ? salesFormFromProposal(fromInbox, masters, {
+          typeId,
+          newKey: () => crypto.randomUUID(),
+          ...extra(),
+          orders: books.orders,
+          stock: books.stock,
+          order: fromInbox.proposal.fromOrderId ? books.voucher(fromInbox.proposal.fromOrderId) : undefined,
+        })
+      : undefined;
+  const startForm = (): SalesForm => (voucher ? salesFormFromVoucher(voucher, masters, books.orders) : (mode === 'create' && (inboxForm() ?? fromOrderForm())) || blankForm());
+  /** A proposal is its own starting point: it neither loads nor leaves a half-entered draft (that belongs to the ordinary New voucher). */
+  const drafts = mode === 'create' && !fromInbox;
 
   const [form, setFormState] = useFrameState<SalesForm>(frame, 'form', startForm());
-  const [focusKey, setFocusKey] = useFrameState<string>(frame, 'focus', mode === 'create' ? (form.partyId !== '' ? 'l0.qty' : 'party') : 'date');
+  // a proposal opens on the first thing the reading could not settle: the party, else the first line without an item
+  const firstOpen = (): string => {
+    if (form.partyId === '') return 'party';
+    const i = form.lines.findIndex((l) => l.itemId === '');
+    return i >= 0 ? `l${i}.item` : 'l0.qty';
+  };
+  const [focusKey, setFocusKey] = useFrameState<string>(frame, 'focus', mode === 'create' ? (fromInbox ? firstOpen() : form.partyId !== '' ? 'l0.qty' : 'party') : 'date');
   const [dateText, setDateText] = useFrameState<string>(frame, 'dateText', formatDate(form.date));
   const [showErrors, setShowErrors] = useFrameState<boolean>(frame, 'showErrors', false);
   const [partyOpen, setPartyOpen] = useState(false);
   const [pick, setPick] = useState({ index: 0, touched: false });
   const [pickerClosed, setPickerClosed] = useState<string | undefined>(undefined);
-  const [banner, setBanner] = useState<{ text: string; tone: 'error' | 'ok' | 'note' } | undefined>(undefined);
+  const [banner, setBanner] = useState<{ text: string; tone: 'error' | 'ok' | 'note' } | undefined>(inboxBanner(fromInbox));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState<'cancel' | 'close' | undefined>(undefined);
   const leave = useLeaveGuard('This document has not been saved.');
@@ -167,12 +190,12 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
   draftKeyNow.current = draftKey;
   useEffect(
     () => () => {
-      if (mode === 'create') void books.clearDraft(draftKeyNow.current);
+      if (drafts) void books.clearDraft(draftKeyNow.current);
     },
     [],
   );
   useEffect(() => {
-    if (mode !== 'create' || frame.state.has('form-loaded')) {
+    if (!drafts || frame.state.has('form-loaded')) {
       draftReady.current = true;
       return;
     }
@@ -187,7 +210,7 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
     });
   }, []);
   useEffect(() => {
-    if (mode !== 'create' || !draftReady.current) return;
+    if (!drafts || !draftReady.current) return;
     const t = setTimeout(() => void (isBlankSales(form) ? books.clearDraft(draftKey) : books.saveDraft(draftKey, form)), 350);
     return () => clearTimeout(t);
   }, [form]);
@@ -596,7 +619,13 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
         type: 'master',
         kind: masterKind,
         mode: 'create',
-        seed: { ...(typedLabel.trim() === '' ? {} : { name: typedLabel.trim() }), ...(pickerKind === 'party' ? { roleType: p.role } : {}) },
+        seed: {
+          // from a proposal, a new party or item starts with what the document printed: GSTIN and address; HSN, GST rate and unit
+          ...(fromInbox && pickerKind === 'party' ? partySeedOf(fromInbox.proposal) : {}),
+          ...(fromInbox && pickerKind === 'item' && line ? itemSeedOf(masters, line, fromInbox.proposal.lines.find((x) => x.text === line.itemLabel)?.unit) : {}),
+          ...(typedLabel.trim() === '' ? {} : { name: typedLabel.trim() }),
+          ...(pickerKind === 'party' ? { roleType: p.role } : {}),
+        },
         inline: true,
       })
       .then((created) => {

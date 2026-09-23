@@ -108,7 +108,7 @@ describe('RLS: what a signed-in user can read', () => {
   });
 
   it('role and permission definitions are readable reference data', async () => {
-    expect(await visibleRows(users.viewer, 'app_roles')).toBe(4);
+    expect(await visibleRows(users.viewer, 'app_roles')).toBe(5); // owner, accountant, clerk, viewer and the add-on's automation (ADR-0023)
     expect(await visibleRows(users.viewer, 'role_permissions')).toBeGreaterThan(20);
   });
 

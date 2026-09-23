@@ -7,6 +7,8 @@ import { Only } from '../shell/Only';
 import { WindowClose } from '../shell/WindowClose';
 import { useIdleOnBlankClick } from '../shell/idle';
 import { useLeaveGuard } from '../shell/useLeaveGuard';
+import type { InboxItem } from '@minimalerp/ports';
+import { entryFormFromProposal, inboxBanner, partySeedOf } from '../vouchers/proposalForms';
 import type { ScreenRef, VoucherMode } from '../shell/router';
 import { Kbd } from '../ui/Kbd';
 import { ListView } from '../ui/ListView';
@@ -95,9 +97,11 @@ interface Props {
   readonly id?: string | undefined;
   /** create, sales invoice: the sales order whose pending lines it starts with. */
   readonly fromOrder?: string | undefined;
+  /** create: an AI Inbox proposal it starts from (and posts under the id of). */
+  readonly fromInbox?: InboxItem | undefined;
 }
 
-export function VoucherScreen({ frame, mode, typeKey, id, fromOrder }: Props) {
+export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromInbox }: Props) {
   const { books: host, keymapStore } = useServices();
   useSubscriptions(host, keymapStore);
   const books = host.current;
@@ -127,7 +131,7 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder }: Props) {
   }
   // The sales documents (Sales Order, Sales Invoice) are item lines: they have their own columns on the same worksheet.
   if (typeId && kinds.get(books.masters.voucherType(typeId as never)?.baseKind as never)?.layout === 'item-invoice') {
-    return <SalesVoucherEntry frame={frame} books={books} mode={mode} typeId={typeId} voucher={voucher} fromOrder={fromOrder} />;
+    return <SalesVoucherEntry frame={frame} books={books} mode={mode} typeId={typeId} voucher={voucher} fromOrder={fromOrder} fromInbox={mode === 'create' ? fromInbox : undefined} />;
   }
   if (!typeId || !layoutOf(books.masters, typeId, kinds)) {
     return (
@@ -137,7 +141,7 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder }: Props) {
       </section>
     );
   }
-  return <VoucherEntry frame={frame} books={books} mode={mode} typeId={typeId} voucher={voucher} />;
+  return <VoucherEntry frame={frame} books={books} mode={mode} typeId={typeId} voucher={voucher} fromInbox={mode === 'create' ? fromInbox : undefined} />;
 }
 
 // ---- the entry window --------------------------------------------------------------------------------------------
@@ -148,14 +152,18 @@ interface EntryProps {
   readonly mode: VoucherMode;
   readonly typeId: string;
   readonly voucher: Voucher | undefined;
+  readonly fromInbox?: InboxItem | undefined;
 }
 
-function VoucherEntry({ frame, books, mode, typeId, voucher }: EntryProps) {
+function VoucherEntry({ frame, books, mode, typeId, voucher, fromInbox }: EntryProps) {
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books);
   const masters = books.masters;
   const readOnly = mode === 'display';
-  const startForm = (): VoucherForm => (voucher ? formFromVoucher(voucher, masters) : blankForm(crypto.randomUUID(), typeId, defaultDate(masters)));
+  const startForm = (): VoucherForm =>
+    voucher ? formFromVoucher(voucher, masters) : fromInbox ? entryFormFromProposal(fromInbox, masters, typeId) : blankForm(crypto.randomUUID(), typeId, defaultDate(masters));
+  /** A proposal is its own starting point: it neither loads nor leaves a half-entered draft (that belongs to the ordinary New voucher). */
+  const drafts = mode === 'create' && !fromInbox;
 
   const [form, setFormState] = useFrameState<VoucherForm>(frame, 'form', startForm());
   const [focusKey, setFocusKey] = useFrameState<string>(
@@ -174,7 +182,7 @@ function VoucherEntry({ frame, books, mode, typeId, voucher }: EntryProps) {
   /** The open-bills list of an "Against ref" row: which ref field it belongs to, and whether something was typed or moved since (then it filters). It opens on typing or ↓. */
   const [billList, setBillList] = useState<{ key: string; touched: boolean } | undefined>(undefined);
   const [billIndex, setBillIndex] = useState(0);
-  const [banner, setBanner] = useState<{ text: string; tone: 'error' | 'ok' | 'note' } | undefined>(undefined);
+  const [banner, setBanner] = useState<{ text: string; tone: 'error' | 'ok' | 'note' } | undefined>(inboxBanner(fromInbox));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState<'cancel' | undefined>(undefined);
   const leave = useLeaveGuard('This voucher has not been saved.');
@@ -207,12 +215,12 @@ function VoucherEntry({ frame, books, mode, typeId, voucher }: EntryProps) {
   draftKeyNow.current = draftKey;
   useEffect(
     () => () => {
-      if (mode === 'create') void books.clearDraft(draftKeyNow.current);
+      if (drafts) void books.clearDraft(draftKeyNow.current);
     },
     [],
   );
   useEffect(() => {
-    if (mode !== 'create' || frame.state.has('form-loaded')) {
+    if (!drafts || frame.state.has('form-loaded')) {
       draftReady.current = true;
       return;
     }
@@ -227,7 +235,7 @@ function VoucherEntry({ frame, books, mode, typeId, voucher }: EntryProps) {
     });
   }, []);
   useEffect(() => {
-    if (mode !== 'create' || !draftReady.current) return;
+    if (!drafts || !draftReady.current) return;
     const t = setTimeout(() => void (isBlank(form) ? books.clearDraft(draftKey) : books.saveDraft(draftKey, form)), 350);
     return () => clearTimeout(t);
   }, [form]);
@@ -580,7 +588,8 @@ function VoucherEntry({ frame, books, mode, typeId, voucher }: EntryProps) {
         type: 'master',
         kind: 'party',
         mode: 'create',
-        seed: { ...(typedLabel.trim() === '' ? {} : { name: typedLabel.trim() }), roleType: want },
+        // from a proposal, the new party starts with the name, GSTIN and address the document printed
+        seed: { ...(fromInbox ? partySeedOf(fromInbox.proposal) : {}), ...(typedLabel.trim() === '' ? {} : { name: typedLabel.trim() }), roleType: want },
         inline: true,
       })
       .then((created) => {
