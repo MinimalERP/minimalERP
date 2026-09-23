@@ -60,6 +60,22 @@ export async function goTo(page: Page, text: string): Promise<void> {
 
 /** Moves the list cursor down until the selected row contains `text` — keyboard only. */
 export async function moveTo(page: Page, text: string): Promise<void> {
+  // Count the rows to go and press ↓ that many times in one go (the shortcut list is a hundred rows long; reading the
+  // selection after every single key made a walk down it slow enough to run out of time on a busy machine).
+  const steps = await page.evaluate((wanted) => {
+    const selected = document.querySelector('[role="option"][aria-selected="true"]');
+    const list = selected?.closest('[role="listbox"]');
+    if (!selected || !list) return -1;
+    const rows = [...list.querySelectorAll('[role="option"]')];
+    const from = rows.indexOf(selected);
+    const to = rows.findIndex((r, i) => i >= from && (r.textContent ?? '').includes(wanted));
+    return to === -1 ? -1 : to - from;
+  }, text);
+  if (steps >= 0) {
+    for (let i = 0; i < steps; i++) await page.keyboard.press('ArrowDown');
+    await expect(selectedRow(page)).toContainText(text);
+    return;
+  }
   for (let i = 0; i < 400; i++) { // the shortcut list has grown with every phase
     if ((await selectedRow(page).textContent())?.includes(text)) return;
     await page.keyboard.press('ArrowDown');
