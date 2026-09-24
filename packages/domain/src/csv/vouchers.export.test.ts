@@ -79,4 +79,13 @@ describe('voucherEntriesOf', () => {
     expect(back[0]?.extraction.partyName).toBe(entries[0]?.extraction.partyName);
     expect(back[0]?.extraction.lines).toHaveLength(1);
   });
+
+  it('the filter keeps only vouchers inside the period and of the chosen kinds', () => {
+    const { masters, vouchers } = world();
+    expect(voucherEntriesOf(vouchers, masters, { from: '2024-05-01', to: '2024-05-31' })).toHaveLength(1);
+    expect(voucherEntriesOf(vouchers, masters, { from: '2024-05-13' })).toHaveLength(0);
+    expect(voucherEntriesOf(vouchers, masters, { to: '2024-05-11' })).toHaveLength(0);
+    expect(voucherEntriesOf(vouchers, masters, { kinds: ['sales'] })).toHaveLength(1);
+    expect(voucherEntriesOf(vouchers, masters, { kinds: ['purchase', 'salesOrder'] })).toHaveLength(0);
+  });
 });

@@ -74,6 +74,18 @@ export function parseVouchersCsv(text: string): VoucherEntry[] {
 
 const INTAKE_ITEM_KINDS = new Set<string>(['salesOrder', 'sales', 'purchase']);
 
+/** A sample file to start from: a two-line Sales Invoice (both rows share `docRef` SAMPLE-1, header fields
+ *  repeated) and a one-line Sales Order — delete them before importing. */
+export function vouchersCsvTemplate(): string {
+  const acme = ['Acme Engineering Pvt Ltd', '27AAACE9659G1ZB', 'Plot 12, MIDC, Pune'];
+  return csvOf([
+    [...COLUMNS],
+    ['SAMPLE-1', 'sales', ...acme, '2026-04-15', 'PO-7781', '', '2026-05-15', '1500.00', '1770.00', 'Bolt M8 x 25', 'BLT-825', '7318', '100', 'Nos', '10.00', '1000.00', '18', ''],
+    ['SAMPLE-1', 'sales', ...acme, '2026-04-15', 'PO-7781', '', '2026-05-15', '1500.00', '1770.00', 'Machining charges', 'SRV-01', '998898', '1', 'Nos', '500.00', '500.00', '18', ''],
+    ['SAMPLE-2', 'salesOrder', ...acme, '2026-04-20', 'PO-7790', '', '', '', '', 'Bolt M8 x 25', 'BLT-825', '7318', '500', 'Nos', '10.00', '5000.00', '18', '2026-05-30'],
+  ]);
+}
+
 /** The same columns `parseVouchersCsv` reads — a true round trip: one row per line, `docRef` and every header
  *  field repeated on each of an entry's rows. */
 export function serializeVouchersCsv(entries: readonly VoucherEntry[]): string {
@@ -102,15 +114,23 @@ interface VoucherContent {
 
 const KIND_OF_BASE: Readonly<Record<string, IntakeKind | undefined>> = { sales: 'sales', purchase: 'purchase', salesOrder: 'salesOrder' };
 
+/** Which vouchers Export takes: dates inclusive (ISO `yyyy-mm-dd`), `kinds` a subset — each part optional. */
+export interface VoucherExportFilter {
+  readonly from?: string;
+  readonly to?: string;
+  readonly kinds?: readonly IntakeKind[];
+}
+
 /** Reverses posted Sales Invoices, Purchase Invoices and Sales Orders back into the same row shape
  *  `parseVouchersCsv` reads — Export's half of the round trip. `docRef` is the voucher's own number. */
-export function voucherEntriesOf(vouchers: readonly Voucher[], masters: Masters): VoucherEntry[] {
+export function voucherEntriesOf(vouchers: readonly Voucher[], masters: Masters, filter: VoucherExportFilter = {}): VoucherEntry[] {
   const out: VoucherEntry[] = [];
   for (const v of vouchers) {
     if (v.status !== 'posted') continue;
+    if ((filter.from && v.date < filter.from) || (filter.to && v.date > filter.to)) continue;
     const base = masters.voucherType(v.voucherTypeId)?.baseKind;
     const kind = base ? KIND_OF_BASE[base] : undefined;
-    if (!kind) continue;
+    if (!kind || (filter.kinds && !filter.kinds.includes(kind))) continue;
     const c = v.content as unknown as VoucherContent;
     if (!Array.isArray(c.lines)) continue;
     const party = c.partyId ? masters.party(c.partyId as never) : undefined;

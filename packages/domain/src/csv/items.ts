@@ -32,6 +32,16 @@ export function parseItemsCsv(text: string): ItemRow[] {
   }));
 }
 
+/** A sample file to start from: the header plus two example rows (delete them before importing). `group` is
+ *  left blank since a new company has no stock groups; `unit` and `gstRate` match the seeded masters. */
+export function itemsCsvTemplate(): string {
+  return csvOf([
+    [...COLUMNS],
+    ['Bolt M8 x 25', 'BLT-825', '', '', 'Nos', '7318', '18', 'trading'],
+    ['Machining charges', 'SRV-01', '', '', 'Nos', '998898', '18', 'service'],
+  ]);
+}
+
 /** The same columns `parseItemsCsv` reads — a true round trip. */
 export function serializeItemsCsv(items: readonly StockItem[], masters: Masters): string {
   return csvOf([

@@ -54,6 +54,14 @@ export function parsePartiesCsv(text: string): PartyRow[] {
   });
 }
 
+/** A sample file to start from: the header plus one example row (delete it before importing). */
+export function partiesCsvTemplate(): string {
+  return csvOf([
+    [...COLUMNS],
+    ['Acme Engineering Pvt Ltd', '27AAACE9659G1ZB', 'AAACE9659G', '9820000000', 'accounts@acme.example', 'Plot 12, MIDC, Pune', '27', '30', '500000.00', 'regular', '411026', 'India', '', '', '', '', 'customer|vendor'],
+  ]);
+}
+
 /** The same columns `parsePartiesCsv` reads — a true round trip (`addresses[]` is not exported either). */
 export function serializePartiesCsv(parties: readonly Party[]): string {
   return csvOf([

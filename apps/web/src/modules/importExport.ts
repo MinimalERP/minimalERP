@@ -29,12 +29,17 @@ const commands: Command<AppContext>[] = [
   contextual('io.cycleKind', 'Switch Items / Parties / Vouchers', { label: 'Switch kind', group: 'Actions', order: 1, on: ['import-export'] }),
   contextual('io.upload', 'Import a CSV file', { label: 'Import CSV', group: 'Actions', order: 2, on: ['import-export'] }),
   contextual('io.export', 'Export as CSV', { label: 'Export CSV', group: 'Actions', order: 3, on: ['import-export'] }),
+  contextual('io.types', 'Choose which vouchers to export', { label: 'Voucher types', group: 'Actions', order: 4, on: ['import-export'] }),
+  contextual('io.template', 'Download a sample CSV to fill in', { label: 'Sample file', group: 'Actions', order: 5, on: ['import-export'] }),
 ];
 
+// The export period is the shared F2 `voucher.changeDate`, the same key as a report's period.
 const bindings: DefaultBinding[] = [
   { commandId: 'io.cycleKind', chord: 'Alt+K', scope: 'screen:import-export' },
   { commandId: 'io.upload', chord: 'Alt+U', scope: 'screen:import-export' },
   { commandId: 'io.export', chord: 'Alt+E', scope: 'screen:import-export' },
+  { commandId: 'io.types', chord: 'Alt+T', scope: 'screen:import-export' },
+  { commandId: 'io.template', chord: 'Alt+S', scope: 'screen:import-export' },
 ];
 
 const menu: MenuEntry[] = [{ section: 'transactions', commandId: 'io.open', order: 45, group: 'Import / Export' }];

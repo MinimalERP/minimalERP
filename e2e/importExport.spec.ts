@@ -73,4 +73,61 @@ test.describe('Import / Export', () => {
     await expect(app.getByText('Sales Invoice · Test Customer')).toBeVisible();
     await expect(app.getByText('No customer called "Test Customer"')).toBeVisible();
   });
+
+  test('Sample file: Alt+S downloads a template whose example rows import cleanly', async ({ app }) => {
+    await goTo(app, 'import');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText('Import / Export');
+
+    const download = app.waitForEvent('download');
+    await app.keyboard.press('Alt+S');
+    const file = await download;
+    expect(file.suggestedFilename()).toBe('items-template.csv');
+    const fs = await import('node:fs');
+    const text = fs.readFileSync((await file.path()) as string, 'utf8');
+    expect(text.split(/\r?\n/)[0]).toBe('name,code,alias,group,unit,hsn,gstRate,itemType');
+
+    const chooser = app.waitForEvent('filechooser');
+    await app.keyboard.press('Alt+U');
+    await (await chooser).setFiles({ name: 'items-template.csv', mimeType: 'text/csv', buffer: Buffer.from(text) });
+    await expect(app.getByTestId('io-result')).toContainText('2 created');
+  });
+
+  test('Vouchers export: Alt+T narrows it to Sales Orders, F2 to a period', async ({ app }) => {
+    await goTo(app, 'import');
+    await app.keyboard.press('Enter');
+    await app.keyboard.press('Alt+K');
+    await app.keyboard.press('Alt+K');
+    await expect(app.getByTestId('io-filter')).toContainText('all types');
+
+    // All, Sales Invoice, Purchase Invoice, Sales Order: tick the last
+    await app.keyboard.press('Alt+T');
+    await expect(app.getByTestId('report-dialog')).toBeVisible();
+    for (let i = 0; i < 3; i++) await app.keyboard.press('ArrowDown');
+    await app.keyboard.press('Enter');
+    await app.keyboard.press('Control+a');
+    await expect(app.getByTestId('io-filter')).toContainText('Sales Order');
+
+    const fs = await import('node:fs');
+    const exported = async (): Promise<string[]> => {
+      const download = app.waitForEvent('download');
+      await app.keyboard.press('Alt+E');
+      const file = await download;
+      expect(file.suggestedFilename()).toMatch(/^vouchers_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.csv$/);
+      return fs.readFileSync((await file.path()) as string, 'utf8').split(/\r?\n/).filter((l) => l !== '').slice(1);
+    };
+    const rows = await exported();
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) expect(r.split(',')[1]).toBe('salesOrder');
+
+    // the demo's vouchers are all early in the year: March has none
+    await app.keyboard.press('F2');
+    await expect(app.getByTestId('report-dialog')).toContainText('Export period');
+    await app.keyboard.type('1-3');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('31-3');
+    await app.keyboard.press('Control+a');
+    await expect(app.getByTestId('report-dialog')).toHaveCount(0);
+    expect(await exported()).toEqual([]);
+  });
 });

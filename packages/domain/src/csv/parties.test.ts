@@ -3,7 +3,7 @@ import { localDate } from '../dates';
 import { deterministicUuid } from '../ids';
 import { prepareMasterCommand } from '../masters/commands';
 import { seedCompany } from '../masters/seed';
-import { parsePartiesCsv, resolvePartyRow, serializePartiesCsv } from './parties';
+import { parsePartiesCsv, partiesCsvTemplate, resolvePartyRow, serializePartiesCsv } from './parties';
 
 const newId = (n: string) => deterministicUuid(`csv-parties|${n}`);
 
@@ -68,5 +68,16 @@ describe('serializePartiesCsv', () => {
     const resolved = resolvePartyRow(row as NonNullable<typeof row>);
     expect(resolved.ok).toBe(true);
     if (resolved.ok) expect(resolved.data).toMatchObject({ creditDays: 45, roles: ['customer', 'vendor'] });
+  });
+});
+
+describe('partiesCsvTemplate', () => {
+  it('its example row passes prepareMasterCommand', () => {
+    const masters = seedCompany({ name: 'T', fyStart: localDate('2024-04-01'), newId });
+    const rows = parsePartiesCsv(partiesCsvTemplate());
+    expect(rows).toHaveLength(1);
+    const r = resolvePartyRow(rows[0] as NonNullable<(typeof rows)[0]>);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(prepareMasterCommand({ op: 'create', kind: 'party', id: newId('sample'), data: r.data }, masters).ok).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseVouchersCsv, serializeVouchersCsv, type VoucherEntry } from './vouchers';
+import { parseVouchersCsv, serializeVouchersCsv, type VoucherEntry, vouchersCsvTemplate } from './vouchers';
 
 const header =
   'docRef,kind,partyName,partyGstin,partyAddress,date,poNumber,invoiceNumber,dueDate,subtotal,grandTotal,description,code,hsn,qty,unit,rate,amount,gstRate,lineDueDate';
@@ -54,5 +54,15 @@ describe('serializeVouchersCsv round-trip', () => {
     expect(back[0]?.kind).toBe('sales');
     expect(back[0]?.extraction.lines).toHaveLength(2);
     expect(back[0]?.extraction).toMatchObject({ partyName: 'Acme Ltd', partyGstin: '27AAACE9659G1ZB', subtotal: '2160.00', grandTotal: '2549.00' });
+  });
+});
+
+describe('vouchersCsvTemplate', () => {
+  it('parses to a two-line Sales Invoice and a one-line Sales Order', () => {
+    const entries = parseVouchersCsv(vouchersCsvTemplate());
+    expect(entries.map((e) => [e.docRef, e.kind, e.extraction.lines.length])).toEqual([
+      ['SAMPLE-1', 'sales', 2],
+      ['SAMPLE-2', 'salesOrder', 1],
+    ]);
   });
 });

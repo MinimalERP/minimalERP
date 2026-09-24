@@ -3,7 +3,7 @@ import { localDate } from '../dates';
 import { deterministicUuid } from '../ids';
 import { prepareMasterCommand } from '../masters/commands';
 import { seedCompany } from '../masters/seed';
-import { parseItemsCsv, resolveItemRow, serializeItemsCsv } from './items';
+import { itemsCsvTemplate, parseItemsCsv, resolveItemRow, serializeItemsCsv } from './items';
 
 const newId = (n: string) => deterministicUuid(`csv-items|${n}`);
 
@@ -72,5 +72,14 @@ describe('serializeItemsCsv', () => {
     expect(row?.hsn).toBe('7318');
     const resolved = resolveItemRow(row as NonNullable<typeof row>, masters);
     expect(resolved.ok).toBe(true);
+  });
+});
+
+describe('itemsCsvTemplate', () => {
+  it('its example rows resolve against a fresh company’s masters', () => {
+    const masters = seedCompany({ name: 'T', fyStart: localDate('2024-04-01'), newId });
+    const rows = parseItemsCsv(itemsCsvTemplate());
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(resolveItemRow(row, masters).ok).toBe(true);
   });
 });
