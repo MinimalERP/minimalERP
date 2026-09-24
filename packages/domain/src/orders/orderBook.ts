@@ -212,13 +212,15 @@ export function orderDocOf(voucher: Voucher, side: OrderSide = 'sales'): OrderDo
 export function orderLinksOf(voucher: Voucher): OrderLink[] {
   const c = voucher.content as unknown as OrderContent;
   const out: OrderLink[] = [];
-  (c.lines ?? []).forEach((l, i) => {
+  let stockLine = 0; // deliveries sit on the invoice's stock lines, numbered over its item lines (a written line has none)
+  (c.lines ?? []).forEach((l) => {
+    if (typeof l.itemId === 'string') stockLine++;
     const q = typeof l.qty === 'string' ? parseQty(l.qty) : undefined;
     if (!l.orderRef || typeof l.orderRef.orderId !== 'string' || typeof l.orderRef.lineId !== 'string') return;
     if (typeof l.itemId !== 'string' || q === undefined) return;
     out.push({
       voucherId: voucher.id,
-      lineNo: i + 1,
+      lineNo: stockLine,
       date: voucher.date,
       orderId: l.orderRef.orderId as VoucherId,
       orderLineId: l.orderRef.lineId,

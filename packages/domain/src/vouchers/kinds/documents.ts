@@ -41,8 +41,14 @@ export const orderRefSchema = z.object({ orderId: voucherIdSchema, lineId: lineI
 export type OrderRef = z.output<typeof orderRefSchema>;
 
 export const invoiceLineSchema = z.object({
-  itemId: itemIdSchema,
-  warehouseId: warehouseIdSchema,
+  /** The stock item — or, on a one-time line, none: then `description` says what it is (a job charge, freight, a one-off part). */
+  itemId: itemIdSchema.optional(),
+  /** A ONE-TIME line: written text instead of a stock item. It is billed and taxed like any line and moves no stock. */
+  description: z.string().trim().min(1).max(200).optional(),
+  /** A one-time line's unit (a unit master's symbol: "Nos", "Kg"…), for the printed invoice and GST's unit code. */
+  unit: z.string().trim().min(1).max(20).optional(),
+  /** Where the goods leave (sales) or arrive (purchase); a one-time line has none. */
+  warehouseId: warehouseIdSchema.optional(),
   qty: qtySchema,
   rate: rateSchema,
   /** The order line this delivery fills, if it is against an order. */
@@ -115,6 +121,40 @@ export function partyProblems(
   return problems;
 }
 
+/** The stock lines of an invoice, each with its place on the invoice (a one-time line moves no stock, so it has no entry). */
+export function itemLinesOf<L extends { itemId?: string | undefined }>(lines: readonly L[]): { line: L & { itemId: StockItemId }; at: number }[] {
+  return lines.flatMap((l, at) => (l.itemId !== undefined ? [{ line: l as L & { itemId: StockItemId }, at }] : []));
+}
+
+/** Problems found on the stock lines alone ("lines.1") put back on their place on the invoice ("lines.3"). */
+export function onInvoiceLines(problems: readonly Issue[], places: readonly number[]): Issue[] {
+  return problems.map((p) => {
+    const m = /^lines\.(\d+)(\..*)?$/.exec(p.path ?? '');
+    const at = m ? places[Number(m[1])] : undefined;
+    return m && at !== undefined ? { ...p, path: `lines.${at}${m[2] ?? ''}` } : p;
+  });
+}
+
+/**
+ * A line is either a stock item or a written one-time line, never both or neither. A one-time line needs its text, a quantity and a rate,
+ * and cannot fill an order line (orders are of stock items).
+ */
+export function lineKindProblems(l: InvoiceLine, path: string): Issue[] {
+  if (l.itemId !== undefined && l.description !== undefined) return [issue(IssueCode.SalesDocInvalid, 'A line is either a stock item or written text, not both', `${path}.itemId`)];
+  if (l.itemId === undefined && l.description === undefined) return [issue(IssueCode.SalesDocInvalid, 'Choose a stock item — or write the line and press Alt+T', `${path}.itemId`)];
+  if (l.itemId !== undefined) {
+    const out: Issue[] = [];
+    if (l.warehouseId === undefined) out.push(issue(IssueCode.StockLineInvalid, 'Choose the godown', `${path}.warehouseId`));
+    if (l.unit !== undefined) out.push(issue(IssueCode.SalesDocInvalid, 'A stock item line takes the unit of its item', `${path}.unit`));
+    return out;
+  }
+  const problems: Issue[] = [];
+  const q = parseQty(l.qty) ?? 0n;
+  if (q <= 0n) problems.push(issue(IssueCode.StockLineInvalid, 'Enter a quantity above zero', `${path}.qty`));
+  if (l.orderRef) problems.push(issue(IssueCode.OrderRefInvalid, 'A written line cannot be against an order line', `${path}.orderRef`));
+  return problems;
+}
+
 /** A line's value must fit what the books hold. */
 export function lineValueProblems(l: { qty: string; rate: string }, path: string): Issue[] {
   return lineValue(l) > MAX_MONEY ? [issue(IssueCode.AmountTooLarge, 'That line comes to more than the books can hold', `${path}.rate`)] : [];
@@ -167,6 +207,7 @@ export function deliveryProblems(
       return;
     }
     const line = state.lines.find((s) => s.line.id === ref.lineId);
+    if (l.itemId === undefined) return; // a written line cannot fill an order line: lineKindProblems says so
     if (!line) {
       problems.push(issue(IssueCode.OrderRefInvalid, `${order.number} has no such line any more`, path));
       return;
@@ -200,10 +241,11 @@ export function deliveryProblems(
 /** The deliveries an invoice makes: one per line that names an order line, sitting on that line's number. */
 export function plannedLinksOf(lines: readonly InvoiceLine[]): PlannedLink[] {
   const out: PlannedLink[] = [];
-  lines.forEach((l, i) => {
+  // numbered like the invoice's stock lines (1..n over the item lines): a written line moves no stock and fills no order
+  itemLinesOf(lines).forEach(({ line: l }, k) => {
     if (!l.orderRef) return;
     out.push({
-      lineNo: i + 1,
+      lineNo: k + 1,
       orderId: l.orderRef.orderId as VoucherId,
       orderLineId: l.orderRef.lineId,
       itemId: l.itemId,

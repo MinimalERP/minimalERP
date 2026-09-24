@@ -1,5 +1,5 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
-import { type Money, type Voucher, formatQty, formatRate, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type Money, type Voucher, formatQty, formatRate, isQtyText, parseQty, partyLedgerId } from '@minimalerp/domain';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { Only } from '../shell/Only';
@@ -45,6 +45,7 @@ import {
 } from '../vouchers/salesModel';
 import { useOtherVoucherHandlers } from '../vouchers/otherVoucher';
 import { PartyDetailsDialog } from './PartyDetailsDialog';
+import { FieldsDialog } from './ReportDialogs';
 import type { CreatedMaster } from './MasterFormScreen';
 import type { InvoiceDoc } from '../ui/PrintView';
 import { placeOfSupplyText } from '../ui/printing';
@@ -83,9 +84,10 @@ function fieldsOf(form: SalesForm, kind: SalesKind, gstOn = false): Field[] {
     if (p.side === 'purchase') out.push({ key: 'billno', kind: 'billno' });
     out.push({ key: 'due', kind: 'due' });
   }
-  form.lines.forEach((_, i) => {
+  form.lines.forEach((l, i) => {
     out.push({ key: `l${i}.item`, kind: 'item', line: i });
-    if (p.invoice) out.push({ key: `l${i}.wh`, kind: 'wh', line: i }, { key: `l${i}.ord`, kind: 'ord', line: i });
+    // a one-time (written) line has no godown and no order line: its HSN, qty and unit are in its Alt+T form
+    if (p.invoice && !l.oneTime) out.push({ key: `l${i}.wh`, kind: 'wh', line: i }, { key: `l${i}.ord`, kind: 'ord', line: i });
     else out.push({ key: `l${i}.ldue`, kind: 'ldue', line: i });
     out.push({ key: `l${i}.qty`, kind: 'qty', line: i }, { key: `l${i}.rate`, kind: 'rate', line: i });
     if (gstOn) out.push({ key: `l${i}.gst`, kind: 'gst', line: i });
@@ -155,6 +157,8 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
   const [dateText, setDateText] = useFrameState<string>(frame, 'dateText', formatDate(form.date));
   const [showErrors, setShowErrors] = useFrameState<boolean>(frame, 'showErrors', false);
   const [partyOpen, setPartyOpen] = useState(false);
+  /** The line whose one-time form (Alt+T) is open. */
+  const [oneTimeFor, setOneTimeFor] = useState<number | undefined>(undefined);
   const [pick, setPick] = useState({ index: 0, touched: false });
   const [pickerClosed, setPickerClosed] = useState<string | undefined>(undefined);
   const [banner, setBanner] = useState<{ text: string; tone: 'error' | 'ok' | 'note' } | undefined>(inboxBanner(fromInbox));
@@ -225,15 +229,16 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
     const details = form.partyDetails;
     const lines = form.lines
       .map((l, i) => ({ l, amount: preview.amounts.get(i) }))
-      .filter((x): x is { l: SalesLineForm; amount: Money } => x.l.itemId !== '' && x.amount !== undefined)
+      .filter((x): x is { l: SalesLineForm; amount: Money } => (x.l.itemId !== '' || x.l.oneTime === true) && x.amount !== undefined)
       .map(({ l, amount }) => {
-        const item = masters.stockItem(l.itemId as never);
-        const decimals = item ? (masters.unit(item.unitId)?.decimals ?? 0) : 0;
+        const item = l.itemId !== '' ? masters.stockItem(l.itemId as never) : undefined;
+        // a one-time line prints with the unit chosen in its Alt+T form
+        const unit = item ? masters.unit(item.unitId) : masters.units.find((u) => u.symbol === l.unit);
         const q = parseQty(l.qty.trim());
         return {
           desc: l.itemLabel,
           hsn: l.hsn,
-          qty: q !== undefined ? `${formatQuantity(q, decimals)} ${masters.unit(item?.unitId as never)?.symbol ?? ''}`.trim() : l.qty,
+          qty: q !== undefined ? `${formatQuantity(q, unit?.decimals ?? 0)} ${unit?.symbol ?? l.unit ?? ''}`.trim() : l.qty,
           rate: l.rate,
           amount,
           gstRate: l.gstRate,
@@ -308,7 +313,11 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
     name: orderCallName(o, p.side),
     sub: [p.side === 'sales' ? (o.reference !== '' ? o.number : undefined) : o.reference !== '' ? `supplier ref ${o.reference}` : undefined, `${o.lines} line${o.lines === 1 ? '' : 's'} pending`, `due ${shownDue(o.due)}`].filter(Boolean).join(' · '),
   }));
-  const pickerKind = (['party', 'sledger', 'item', 'wh', 'ord'] as const).find((k) => k === current.kind) ?? (current.kind === 'ref' && refOptions.length > 0 ? ('ref' as const) : undefined);
+  // a one-time line's item cell is plain text: no item list
+  const writtenHere = current.kind === 'item' && current.line !== undefined && form.lines[current.line]?.oneTime === true;
+  const pickerKind = writtenHere
+    ? undefined
+    : ((['party', 'sledger', 'item', 'wh', 'ord'] as const).find((k) => k === current.kind) ?? (current.kind === 'ref' && refOptions.length > 0 ? ('ref' as const) : undefined));
   const options: Option[] =
     pickerKind === 'party' ? parties : pickerKind === 'sledger' ? salesLedgers : pickerKind === 'item' ? items : pickerKind === 'wh' ? godowns : pickerKind === 'ord' ? orderOptions : pickerKind === 'ref' ? refOptions : [];
   const pickerOn = !readOnly && pickerKind !== undefined;
@@ -506,7 +515,14 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
       const errKey = current.line === undefined ? current.key : `line.${current.line}.${current.kind}`;
       setFieldErrors((e) => ({
         ...e,
-        [errKey]: pickerKind === 'ord' ? `No open order line of this ${p.noun} matches` : pickerKind === 'party' ? `No such ${p.noun} — press Alt+C to create it` : 'No match — press Alt+C to create it',
+        [errKey]:
+          pickerKind === 'ord'
+            ? `No open order line of this ${p.noun} matches`
+            : pickerKind === 'party'
+              ? `No such ${p.noun} — press Alt+C to create it`
+              : pickerKind === 'item' && p.invoice
+                ? 'No match — Alt+C creates the item, Alt+T writes it as a one-time line'
+                : 'No match — press Alt+C to create it',
       }));
       return false;
     }
@@ -589,6 +605,50 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
     removeAt(current.line);
     return true;
   };
+  /**
+   * Alt+T on an invoice line's item cell: the typed text becomes a ONE-TIME line (no stock item, no godown, no stock moved — billed and taxed
+   * like any line), or back to an item line. For what is sold or bought once and is not worth an item master.
+   */
+  const openOneTime = (): boolean => {
+    if (readOnly || !p.invoice || current.kind !== 'item' || current.line === undefined) return false;
+    setOneTimeFor(current.line);
+    return true;
+  };
+  const unitNames = masters.units.filter((u) => u.isActive).map((u) => u.symbol);
+  const unitOf = (text: string) => {
+    const t = text.trim().toLowerCase().replace(/\.$/, '');
+    return masters.units.find((u) => u.isActive && (u.symbol.toLowerCase() === t || u.name.toLowerCase() === t));
+  };
+  /** The Alt+T form applied: the line becomes (or stays) a one-time line — or, with its description cleared, an item line again. */
+  const applyOneTime = (i: number, v: Record<string, string> | undefined) => {
+    setOneTimeFor(undefined);
+    if (!v) return go(`l${i}.item`);
+    const text = (v['description'] ?? '').trim();
+    if (text === '') {
+      const w = defaultGodown(books);
+      setLine(i, { oneTime: false, itemLabel: '', unit: '', hsn: '', warehouseId: w?.id ?? '', warehouseLabel: w?.label ?? '' });
+      setBanner({ text: `Line ${i + 1} is a stock item line again: choose the item.`, tone: 'note' });
+      return go(`l${i}.item`);
+    }
+    const wasItem = (fresh().lines[i] as SalesLineForm).itemId !== '';
+    setLine(i, {
+      oneTime: true,
+      itemId: '',
+      itemLabel: text,
+      hsn: (v['hsn'] ?? '').trim(),
+      qty: (v['qty'] ?? '').trim(),
+      unit: unitOf(v['unit'] ?? '')?.symbol ?? '',
+      warehouseId: '',
+      warehouseLabel: '',
+      orderId: '',
+      orderLineId: '',
+      orderLabel: '',
+      ...(wasItem ? { gstRate: '' } : {}),
+    });
+    setFieldErrors((e) => ({ ...e, [`line.${i}.item`]: '', [`line.${i}.qty`]: '' }));
+    go(`l${i}.rate`);
+  };
+
   /** Takes line `i` out of the table (the × on its row, or Ctrl+Delete on it). The only line is emptied instead, so there is always one to type in. */
   const removeAt = (i: number) => {
     if (readOnly) return;
@@ -840,6 +900,12 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
     ) : isFocus(key) && pickerOn && !pickerDismissed && typedLabel.trim() !== '' && typedLabel.trim() !== storedName && pickerKind !== 'ord' && pickerKind !== 'ref' ? (
       <div class="picker picker-empty" data-testid="picker">
         No match — <Kbd chord={chord('master.createInline') ?? 'Alt+C'} /> creates “{typedLabel.trim()}”
+        {pickerKind === 'item' && p.invoice && (
+          <>
+            {' '}
+            · <Kbd chord={chord('voucher.oneTimeLine') ?? 'Alt+T'} /> writes it as a one-time line
+          </>
+        )}
         {pickerKind === 'item' && hiddenItemReason(masters, typedLabel) && <div data-testid="hidden-item">{hiddenItemReason(masters, typedLabel)}</div>}
       </div>
     ) : isFocus(key) && pickerOn && !pickerDismissed && pickerKind === 'ord' ? (
@@ -884,7 +950,33 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
     return (
       <div key={`l${i}`} class={`${!idle && current.line === i ? 'vrow sales-row active' : 'vrow sales-row'}${openLine ? ' open-line' : ''}`}>
         <div class="vc-ledger">
-          {pickerInput(`l${i}.item`, `Line ${i + 1} stock item`, l.itemLabel, (v) => setLine(i, { itemLabel: v }), `line.${i}.item`)}
+          {l.oneTime ? (
+            <>
+              <input
+                data-vf={`l${i}.item`}
+                class={cls('vcell one-time', `l${i}.item`)}
+                type="text"
+                aria-label={`Line ${i + 1} one-time line`}
+                readOnly={readOnly}
+                autocomplete="off"
+                spellcheck={false}
+                value={l.itemLabel}
+                onFocus={() => !isFocus(`l${i}.item`) && go(`l${i}.item`)}
+                onInput={(e) => {
+                  setLine(i, { itemLabel: (e.target as HTMLInputElement).value });
+                  setFieldErrors((x) => ({ ...x, [`line.${i}.item`]: '' }));
+                }}
+              />
+              {errorOf(`line.${i}.item`)}
+              {!isFocus(`l${i}.item`) && (
+                <div class="vbal" data-testid="one-time-note">
+                  one-time line · no stock{l.hsn ? ` · HSN ${l.hsn}` : ''}{l.unit ? ` · ${l.unit}` : ''} · Alt+T to edit
+                </div>
+              )}
+            </>
+          ) : (
+            pickerInput(`l${i}.item`, `Line ${i + 1} stock item`, l.itemLabel, (v) => setLine(i, { itemLabel: v }), `line.${i}.item`)
+          )}
           {stock && !isFocus(`l${i}.item`) && (
             <div class="vbal" data-testid="stock-note">
               Stock: {stock}
@@ -892,7 +984,12 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
             </div>
           )}
         </div>
-        {p.invoice ? (
+        {p.invoice && l.oneTime ? (
+          <>
+            <div class="vc-godown vcell-none" aria-hidden="true">—</div>
+            <div class="vc-order vcell-none" aria-hidden="true">—</div>
+          </>
+        ) : p.invoice ? (
           <>
             <div class="vc-godown">{pickerInput(`l${i}.wh`, `Line ${i + 1} godown`, l.warehouseLabel, (v) => setLine(i, { warehouseLabel: v }), `line.${i}.wh`)}</div>
             <div class="vc-order">
@@ -1014,6 +1111,30 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
       {pickerOn && pickerKind !== 'ord' && pickerKind !== 'ref' && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
       {!readOnly && <Only scope={SCOPE} command="voucher.partyDetails" run={openPartyDetails} />}
       {!readOnly && p.invoice && <Only scope={SCOPE} command="voucher.againstOrder" run={againstOrder} />}
+      {!readOnly && p.invoice && current.kind === 'item' && oneTimeFor === undefined && <Only scope={SCOPE} command="voucher.oneTimeLine" run={openOneTime} />}
+      {oneTimeFor !== undefined && (
+        <FieldsDialog
+          title={`Line ${oneTimeFor + 1}: one-time line (not a stock item)`}
+          enterOnly
+          fields={[
+            { key: 'description', label: 'Description', value: form.lines[oneTimeFor]?.itemLabel ?? '', hint: 'what is sold or bought — leave empty to make it a stock item line again' },
+            { key: 'hsn', label: 'HSN / SAC', value: form.lines[oneTimeFor]?.hsn ?? '', hint: '4 to 8 digits' },
+            { key: 'qty', label: 'Qty', value: form.lines[oneTimeFor]?.qty || '1' },
+            { key: 'unit', label: 'Unit', value: form.lines[oneTimeFor]?.unit ?? '', hint: unitNames.join(', ') },
+          ]}
+          validate={(v) => {
+            const out: Record<string, string> = {};
+            if ((v['description'] ?? '').trim() === '') return out;
+            const hsn = (v['hsn'] ?? '').trim();
+            if (hsn !== '' && !/^\d{4,8}$/.test(hsn)) out['hsn'] = 'An HSN / SAC code is 4 to 8 digits';
+            const q = (v['qty'] ?? '').trim();
+            if (!isQtyText(q) || (parseQty(q) ?? 0n) <= 0n) out['qty'] = 'Enter a quantity above zero (like 1 or 2.5)';
+            if ((v['unit'] ?? '').trim() !== '' && !unitOf(v['unit'] ?? '')) out['unit'] = `Not one of your units: ${unitNames.join(', ')}`;
+            return out;
+          }}
+          onDone={(v) => applyOneTime(oneTimeFor, v)}
+        />
+      )}
       {!readOnly && current.line !== undefined && form.lines.length > 1 && <Only scope={SCOPE} command="voucher.removeLine" run={removeLine} />}
       {voucher && (
         <Only

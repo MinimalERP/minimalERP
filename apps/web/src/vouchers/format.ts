@@ -112,6 +112,15 @@ export function normalizeAmount(text: string): string | undefined {
   return m ? `${m[1]}.${(m[2] ?? '').padEnd(2, '0')}` : undefined;
 }
 
+/**
+ * Today's date where the person is, as YYYY-MM-DD. Never `new Date().toISOString()`: that is the date in UTC, which in India is still
+ * yesterday from midnight to 5:30 in the morning.
+ */
+export function todayText(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /** `date` plus `days` calendar days, as an ISO date (used for bill due dates: bill date + the party's credit days). */
 export function addDays(date: string, days: number): string {
   const d = parseLocalDate(date);

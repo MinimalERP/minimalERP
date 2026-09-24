@@ -57,6 +57,10 @@ export interface SalesLineForm {
   /** Invoice of a company that charges GST: the rate this line is charged at (a percentage) and the item's HSN as it is now. */
   gstRate?: string;
   hsn?: string;
+  /** Invoice: a ONE-TIME line (Alt+T) — `itemLabel` is its written text, there is no stock item and no godown; it moves no stock. */
+  oneTime?: boolean;
+  /** A one-time line's unit (a unit master's symbol), chosen in its Alt+T form. */
+  unit?: string;
 }
 
 export interface SalesForm {
@@ -281,6 +285,16 @@ export function formToSalesDraft(form: SalesForm, kind: SalesKind, masters?: Mas
   const lines = kept.map((i) => {
     const l = form.lines[i] as SalesLineForm;
     const common = { itemId: l.itemId, qty: l.qty.trim(), rate: l.rate.trim() };
+    if (l.oneTime && docProfile(kind).invoice) {
+      return {
+        description: l.itemLabel.trim(),
+        ...((l.unit ?? '').trim() !== '' ? { unit: (l.unit ?? '').trim() } : {}),
+        qty: l.qty.trim(),
+        rate: l.rate.trim(),
+        ...((l.gstRate ?? '').trim() !== '' ? { gstRate: (l.gstRate ?? '').trim() } : {}),
+        ...((l.hsn ?? '').trim() !== '' ? { hsn: (l.hsn ?? '').trim() } : {}),
+      };
+    }
     return docProfile(kind).order
       ? { id: l.key, ...common, dueDate: l.due }
       : {
@@ -326,7 +340,7 @@ export type SalesFieldKey =
   | 'due'
   | 'narration'
   | 'general'
-  | `line.${number}.${'item' | 'wh' | 'ldue' | 'ord' | 'qty' | 'rate' | 'gst'}`;
+  | `line.${number}.${'item' | 'wh' | 'ldue' | 'ord' | 'qty' | 'rate' | 'gst' | 'hsn'}`;
 
 export interface SalesFormIssue {
   readonly field: SalesFieldKey;
@@ -346,9 +360,11 @@ export interface SalesPreview {
   readonly grand: Money;
 }
 
-const LEAF: Readonly<Record<string, 'item' | 'wh' | 'ldue' | 'ord' | 'qty' | 'rate' | 'gst'>> = {
+const LEAF: Readonly<Record<string, 'item' | 'wh' | 'ldue' | 'ord' | 'qty' | 'rate' | 'gst' | 'hsn'>> = {
   id: 'item',
   itemId: 'item',
+  description: 'item',
+  hsn: 'hsn',
   warehouseId: 'wh',
   dueDate: 'ldue',
   orderRef: 'ord',
@@ -400,8 +416,12 @@ function localIssues(form: SalesForm, kind: SalesKind, kept: readonly number[]):
   }
   for (const i of kept) {
     const l = form.lines[i] as SalesLineForm;
-    if (l.itemId === '') out.push({ field: `line.${i}.item`, message: 'Choose a stock item' });
-    if (p.invoice && l.warehouseId === '') out.push({ field: `line.${i}.wh`, message: 'Choose a godown' });
+    if (l.oneTime && p.invoice) {
+      if (l.itemLabel.trim() === '') out.push({ field: `line.${i}.item`, message: 'Write what this line is' });
+    } else {
+      if (l.itemId === '') out.push({ field: `line.${i}.item`, message: p.invoice ? 'Choose a stock item — or press Alt+T to write it as a one-time line' : 'Choose a stock item' });
+      if (p.invoice && l.warehouseId === '') out.push({ field: `line.${i}.wh`, message: 'Choose a godown' });
+    }
     if (p.order && l.due === '') out.push({ field: `line.${i}.ldue`, message: 'Enter the due date' });
     if (l.qty.trim() === '') out.push({ field: `line.${i}.qty`, message: 'Enter a quantity' });
     else if (!isQtyText(l.qty.trim())) out.push({ field: `line.${i}.qty`, message: 'That is not a quantity (like 10 or 2.5)' });
@@ -492,14 +512,15 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     billNo?: string;
     dueDate?: string;
     closed?: boolean;
-    lines?: { id?: string; itemId: string; warehouseId?: string; qty: string; rate: string; dueDate?: string; gstRate?: string; hsn?: string; orderRef?: { orderId: string; lineId: string } }[];
+    lines?: { id?: string; itemId?: string; description?: string; unit?: string; warehouseId?: string; qty: string; rate: string; dueDate?: string; gstRate?: string; hsn?: string; orderRef?: { orderId: string; lineId: string } }[];
   };
-  const item = (id: string) => masters.stockItem(id as never)?.name ?? '';
+  const item = (id: string | undefined) => (id === undefined ? '' : (masters.stockItem(id as never)?.name ?? ''));
   const godown = (id: string | undefined) => (id === undefined ? '' : (masters.warehouse(id as never)?.name ?? ''));
   const lines: SalesLineForm[] = (c.lines ?? []).map((l, i) => ({
     key: l.id ?? `l${i + 1}`,
-    itemId: l.itemId,
-    itemLabel: item(l.itemId),
+    itemId: l.itemId ?? '',
+    itemLabel: l.itemId === undefined ? (l.description ?? '') : item(l.itemId),
+    ...(l.itemId === undefined ? { oneTime: true, ...(l.unit ? { unit: l.unit } : {}) } : {}),
     warehouseId: l.warehouseId ?? '',
     warehouseLabel: godown(l.warehouseId),
     qty: trimPlaces(l.qty),
@@ -574,13 +595,20 @@ export function switchSales(
     };
   }
   const hadRefs = form.lines.some((l) => l.orderId !== '');
+  // an order is of stock items: a one-time (written) line cannot come along
+  const written = form.lines.filter((l) => l.oneTime && !isEmptyLine(l)).length;
+  const kept = form.lines.filter((l) => !l.oneTime);
+  const notes = [
+    ...(hadRefs ? [`The order references were cleared: an order is what ${p.side === 'sales' ? 'a customer asks for' : 'we ask a supplier for'}, so it is not against another order.`] : []),
+    ...(written > 0 ? [`${written} one-time line${written === 1 ? ' was' : 's were'} left out: an order is of stock items.`] : []),
+  ];
   return {
     form: {
       ...next,
       closed: false,
-      lines: form.lines.map((l) => ({ ...l, warehouseId: '', warehouseLabel: '', orderId: '', orderLineId: '', orderLabel: '', due: form.date, dueText: formatDate(form.date) })),
+      lines: (kept.length > 0 ? kept : [blankSalesLine(crypto.randomUUID(), undefined, form.date)]).map((l) => ({ ...l, warehouseId: '', warehouseLabel: '', orderId: '', orderLineId: '', orderLabel: '', due: form.date, dueText: formatDate(form.date) })),
     },
-    ...(hadRefs ? { note: `The order references were cleared: an order is what ${p.side === 'sales' ? 'a customer asks for' : 'we ask a supplier for'}, so it is not against another order.` } : {}),
+    ...(notes.length > 0 ? { note: notes.join(' ') } : {}),
   };
 }
 

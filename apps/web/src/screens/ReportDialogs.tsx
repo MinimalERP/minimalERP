@@ -94,7 +94,14 @@ export interface InputField {
   readonly hint?: string;
 }
 
-export function FieldsDialog(props: { title: string; fields: readonly InputField[]; validate?: (values: Record<string, string>) => Record<string, string>; onDone: (values: Record<string, string> | undefined) => void }) {
+export function FieldsDialog(props: {
+  title: string;
+  fields: readonly InputField[];
+  validate?: (values: Record<string, string>) => Record<string, string>;
+  onDone: (values: Record<string, string> | undefined) => void;
+  /** Only Enter moves on, and Enter on the last field applies: Ctrl+A does nothing here (a form inside a voucher, where Ctrl+A saves the voucher). */
+  enterOnly?: boolean;
+}) {
   useScope(SCOPE, 'overlay', true);
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(props.fields.map((f) => [f.key, f.value])));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -122,7 +129,7 @@ export function FieldsDialog(props: { title: string; fields: readonly InputField
   useCommandHandler(SCOPE, 'nav.down', () => (setAt(Math.min(props.fields.length - 1, at + 1)), true));
   useCommandHandler(SCOPE, 'nav.up', () => (setAt(Math.max(0, at - 1)), true));
   useCommandHandler(SCOPE, 'nav.activate', forward);
-  useCommandHandler(SCOPE, 'voucher.accept', () => (apply(), true));
+  useCommandHandler(SCOPE, 'voucher.accept', () => (props.enterOnly ? undefined : apply(), true));
   useCommandHandler(SCOPE, 'app.back', () => (props.onDone(undefined), true));
 
   return (
@@ -131,7 +138,7 @@ export function FieldsDialog(props: { title: string; fields: readonly InputField
       hints={
         <>
           <Hint command="nav.activate" fallback="Enter">next</Hint>
-          <Hint command="voucher.accept" fallback="Ctrl+A">apply</Hint>
+          {props.enterOnly ? <Hint command="nav.activate" fallback="Enter">on the last field: apply</Hint> : <Hint command="voucher.accept" fallback="Ctrl+A">apply</Hint>}
           <Hint command="app.back" fallback="Esc">cancel</Hint>
         </>
       }

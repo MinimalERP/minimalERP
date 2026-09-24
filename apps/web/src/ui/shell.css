@@ -420,6 +420,8 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 /* Stock Journal: the same worksheet, with Particulars | Godown | Qty | Rate | Value */
 .vhdr.stock-row, .vrow.stock-row, .vtot.stock-row { grid-template-columns: 3.2em minmax(0, 1fr) 11em 8em 9em 10em 1.8em; }
 .vc-godown, .vc-qty, .vc-rate { position: relative; min-width: 0; }
+.vcell-none { color: var(--c-text-muted); padding: 0 var(--sp-2, 6px); align-self: center; } /* a one-time line has no godown or order */
+.vcell.one-time { font-style: italic; }
 .vc-value { text-align: right; padding-right: var(--sp-3); line-height: var(--row-h); }
 .vcell.derived { display: block; color: var(--c-text-muted); cursor: default; }
 /* Sales Order / Sales Invoice: the same worksheet with item lines — Particulars | Godown | Against order | Qty | Rate | Amount (an order has

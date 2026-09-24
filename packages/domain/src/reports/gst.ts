@@ -21,7 +21,10 @@ import type { Voucher } from '../vouchers/voucher';
 export type GstSide = 'sales' | 'purchase';
 
 export interface GstLineFact {
-  readonly itemId: StockItemId;
+  /** Absent on a one-time (written) line. */
+  readonly itemId: StockItemId | undefined;
+  /** What the line is: the item's name, or a one-time line's text. */
+  readonly description: string;
   readonly hsn: string;
   /** The GST unit quantity code: NOS, KGS, LTR… */
   readonly uqc: string;
@@ -66,7 +69,7 @@ const UQC: Readonly<Record<string, string>> = { Nos: 'NOS', Kg: 'KGS', Ltr: 'LTR
 interface Content {
   partyId?: string;
   partyDetails?: PartyDetails;
-  lines?: { itemId: string; qty: string; rate: string; gstRate?: string; hsn?: string }[];
+  lines?: { itemId?: string; description?: string; unit?: string; qty: string; rate: string; gstRate?: string; hsn?: string }[];
 }
 
 const inRange = (d: LocalDate, r: DateRange): boolean => (r.from === undefined || d >= r.from) && (r.to === undefined || d <= r.to);
@@ -91,12 +94,14 @@ export function gstInvoices({ vouchers, masters, side, range }: { vouchers: read
 
     // each rate's tax is shared out over its lines in proportion to their taxable value, so the lines add up to the invoice to the paisa
     const facts: GstLineFact[] = c.lines.map((l) => {
-      const item = masters.stockItem(l.itemId as never);
-      const unit = item ? masters.unit(item.unitId)?.symbol : undefined;
+      const item = l.itemId ? masters.stockItem(l.itemId as never) : undefined;
+      const unit = item ? masters.unit(item.unitId)?.symbol : l.unit;
       return {
-        itemId: l.itemId as StockItemId,
+        itemId: l.itemId as StockItemId | undefined,
+        description: item?.name ?? l.description ?? '',
         hsn: (l.hsn ?? item?.hsn ?? '').trim(),
-        uqc: unit ? (UQC[unit] ?? unit.toUpperCase()) : '',
+        // a one-time line without a unit: GST's code for "others"
+        uqc: unit ? (UQC[unit] ?? unit.toUpperCase()) : l.itemId === undefined ? 'OTH' : '',
         qty: (parseQty(l.qty) ?? 0n) as Qty,
         rate: canonicalPercent(lineGstRate(l)),
         taxable: lineValue(l),

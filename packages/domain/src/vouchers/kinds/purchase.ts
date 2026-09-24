@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { type Issue, IssueCode, issue } from '../../errors';
-import type { VoucherId } from '../../ids';
+import type { VoucherId, WarehouseId } from '../../ids';
 import type { PlannedLine } from '../../posting/plan';
 import { draftBaseShape, ledgerIdSchema, localDateSchema } from '../drafts';
 import { defineVoucherKind } from '../kind';
@@ -9,7 +9,10 @@ import {
   documentShape,
   invoiceLineSchema,
   invoiceTotal,
+  itemLinesOf,
+  lineKindProblems,
   lineValueProblems,
+  onInvoiceLines,
   partyProblems,
   plannedLinksOf,
   vendorLedgerOf,
@@ -42,7 +45,9 @@ export type PurchaseDraft = z.output<typeof purchaseDraftSchema>;
 
 /** A purchase brings goods IN, valued at the line's rate. */
 const asEntries = (lines: PurchaseDraft['lines']) =>
-  lines.map((l) => ({ itemId: l.itemId, warehouseId: l.warehouseId, direction: 'in' as const, qty: l.qty, rate: l.rate }));
+  itemLinesOf(lines).map(({ line: l }) => ({ itemId: l.itemId, warehouseId: l.warehouseId as WarehouseId, direction: 'in' as const, qty: l.qty, rate: l.rate }));
+/** Where each stock entry sits on the invoice (one-time lines have none). */
+const placesOf = (lines: PurchaseDraft['lines']) => itemLinesOf(lines).map((x) => x.at);
 
 export const purchaseKind = defineVoucherKind<PurchaseDraft>({
   base: 'purchase',
@@ -62,11 +67,14 @@ export const purchaseKind = defineVoucherKind<PurchaseDraft>({
     if (draft.dueDate < draft.date) {
       problems.push(issue(IssueCode.SalesDocInvalid, `The due date is before the invoice date (${draft.date})`, 'dueDate'));
     }
-    asEntries(draft.lines).forEach((e, i) => {
-      problems.push(...stockEntryProblems(e, masters, `lines.${i}`));
-      const line = draft.lines[i];
-      if (line) problems.push(...lineValueProblems(line, `lines.${i}`));
+    const places = placesOf(draft.lines);
+    draft.lines.forEach((line, i) => {
+      problems.push(...lineKindProblems(line, `lines.${i}`));
+      problems.push(...lineValueProblems(line, `lines.${i}`));
     });
+    if (problems.length === 0) {
+      asEntries(draft.lines).forEach((e, k) => problems.push(...onInvoiceLines(stockEntryProblems(e, masters, `lines.${k}`), places)));
+    }
     if (problems.length === 0 && invoiceTotal(draft.lines) <= 0n) {
       problems.push(issue(IssueCode.AmountNotPositive, 'The invoice comes to nothing: enter the rates', 'lines'));
     }
@@ -74,7 +82,7 @@ export const purchaseKind = defineVoucherKind<PurchaseDraft>({
     return [
       ...deliveryProblems(draft, masters, orders, 'purchase'),
       // an alteration that lowers what came in can leave a later day short
-      ...shortfallProblems(asEntries(draft.lines), draft.id, draft.date, masters, stock, 'lines'),
+      ...onInvoiceLines(shortfallProblems(asEntries(draft.lines), draft.id, draft.date, masters, stock, 'lines'), placesOf(draft.lines)),
     ];
   },
 
@@ -86,7 +94,7 @@ export const purchaseKind = defineVoucherKind<PurchaseDraft>({
     ];
   },
   postStock: (draft) => plannedStockOf(asEntries(draft.lines)),
-  stockItems: (draft) => [...new Set(draft.lines.map((l) => l.itemId))],
+  stockItems: (draft) => [...new Set(itemLinesOf(draft.lines).map((x) => x.line.itemId))],
   postLinks: (draft) => plannedLinksOf(draft.lines),
   orderIds: (draft) => [...new Set(draft.lines.flatMap((l) => (l.orderRef ? [l.orderRef.orderId as VoucherId] : [])))],
 });
