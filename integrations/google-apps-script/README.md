@@ -6,6 +6,9 @@ Two things, both in one Apps Script project (ADR-0023):
   press **Send to ERP → Sales Order / Purchase Bill / Sales Invoice / Receipt / Payment**. Gemini reads it on the ERP's server, the ERP
   matches the party and the items, and the result waits in **Transactions › AI Inbox** as a *proposal*. Nothing is posted until you open it
   there, complete it (items the ERP does not know show the mail's own words: Enter picks one, Alt+C creates it) and accept it with Ctrl+A.
+  **Send to ERP → Eclipse Receipt** is for Eclipse Combustion's remittance advice PDF: the ERP reads it by a fixed rule, not Gemini (each
+  invoice settled by Net + WHT, WHT as TDS; the GST Hold stays open), so it is in the AI Inbox in seconds. A PDF the rule does not
+  recognise, or whose rows do not add up to its total, arrives as a line saying so — it is never guessed.
 - **Daily report**: every morning at 8 a mail to you with yesterday's sales, purchases, receipts and payments, receivables and what is
   overdue, what to pay this week, **every customer order item that is late or due this week, with its due date and customer PO**, the GST
   net for the month, and how many documents wait in the AI Inbox. Optionally the same figures go into a Google Sheet.

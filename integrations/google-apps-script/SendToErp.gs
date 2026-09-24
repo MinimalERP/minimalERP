@@ -12,6 +12,8 @@ var KINDS_ = [
   { kind: 'sales', label: 'Sales Invoice', hint: 'goods to invoice to a customer' },
   { kind: 'receipt', label: 'Receipt', hint: "a customer's payment advice" },
   { kind: 'payment', label: 'Payment', hint: 'a payment we made to a supplier' },
+  // read by the ERP's fixed rule from the PDF itself — no Gemini, so it is there in seconds; an advice the rule does not know is not guessed
+  { kind: 'receipt', label: 'Eclipse Receipt', hint: "Eclipse Combustion's remittance advice (PDF)", rule: 'remittance' },
 ];
 var READABLE_ = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'];
 var MAX_BYTES_ = 10 * 1024 * 1024;
@@ -38,7 +40,7 @@ function onGmailMessageOpen(e) {
     section.addWidget(
       CardService.newTextButton()
         .setText('Send to ERP → ' + k.label)
-        .setOnClickAction(CardService.newAction().setFunctionName('onSend').setParameters({ kind: k.kind, label: k.label })),
+        .setOnClickAction(CardService.newAction().setFunctionName('onSend').setParameters({ kind: k.kind, label: k.label, rule: k.rule || '' })),
     );
   });
   section.addWidget(CardService.newTextParagraph().setText('<font color="#5f6368">It arrives in the ERP’s AI Inbox as a proposal. Nothing is posted until you accept it there.</font>'));
@@ -49,6 +51,7 @@ function onGmailMessageOpen(e) {
 function onSend(e) {
   var kind = e.parameters.kind;
   var label = e.parameters.label;
+  var rule = e.parameters.rule || '';
   var messageId = e.gmail.messageId;
   var already = sentBefore_(messageId);
   if (already && e.parameters.confirmed !== 'yes') return confirmCard_(e, already);
@@ -68,23 +71,30 @@ function onSend(e) {
     var f = files[Number(source)];
     if (!f) return notify_('That attachment cannot be read: send a PDF or an image.');
     if (f.size > MAX_BYTES_) return notify_('That file is larger than 10 MB.');
+    if (rule && f.blob.getContentType() !== 'application/pdf') return notify_('Choose the remittance advice PDF.');
     document = { mimeType: f.blob.getContentType(), base64: Utilities.base64Encode(f.blob.getBytes()) };
   }
   lap('document ready (' + (source === BODY_ ? 'mail text' : files[Number(source)].name) + ')');
 
   // background: the ERP answers at once and reads the document afterwards (Gmail gives this button only ~30 seconds)
-  var answer = erpCall_('intake', {
+  if (rule && source === BODY_) return notify_('Choose the remittance advice PDF, not the mail text.');
+  var request = {
     background: true,
     kind: kind,
     companyId: companyId_(),
     document: document,
     mail: { subject: message.getSubject().slice(0, 200), from: message.getFrom().slice(0, 200) },
-  });
+  };
+  if (rule) request.rule = rule;
+  var answer = erpCall_('intake', request);
   lap('ERP answered ' + (answer.ok ? 'ok' : JSON.stringify(answer.issues)));
   if (!answer.ok) return resultCard_('Not sent', (answer.issues || []).map(function (i) { return i.message; }), true);
 
   remember_(messageId, label);
   var v = answer.value;
+  if (v.background && rule) {
+    return resultCard_('Sent to the ERP', ['The ERP reads it by its own rule (no Gemini): it will be in the AI Inbox as a Receipt in a few seconds.', 'If it is not an Eclipse remittance advice, or its rows do not add up, a line there will say so.'], false);
+  }
   if (v.background) {
     return resultCard_('Sent to the ERP', ['It is being read now and will be in the AI Inbox (Transactions › AI Inbox) as a ' + label + ' in about a minute.', 'If Gemini is too busy, a line there will say so: then send the mail again.'], false);
   }
@@ -111,7 +121,7 @@ function resultCard_(title, lines, failed) {
 
 function confirmCard_(e, already) {
   var chosen = (e.formInput && e.formInput.source) || e.parameters.source || '';
-  var params = { kind: e.parameters.kind, label: e.parameters.label, confirmed: 'yes', source: chosen };
+  var params = { kind: e.parameters.kind, label: e.parameters.label, rule: e.parameters.rule || '', confirmed: 'yes', source: chosen };
   var section = CardService.newCardSection()
     .addWidget(CardService.newTextParagraph().setText('This mail was already sent as ' + escape_(already.label) + ' on ' + already.at + '. Send it again?'))
     .addWidget(CardService.newTextButton().setText('Send again').setOnClickAction(CardService.newAction().setFunctionName('onSend').setParameters(params)));

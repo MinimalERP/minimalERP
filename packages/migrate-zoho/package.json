@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "stage": "tsx src/run.ts"
+    "stage": "tsx src/run.ts",
+    "post": "tsx src/post.ts"
   },
   "dependencies": {
+    "@minimalerp/adapter-memory": "workspace:*",
     "@minimalerp/adapter-postgres": "workspace:*",
     "@minimalerp/domain": "workspace:*",
     "@minimalerp/ports": "workspace:*",

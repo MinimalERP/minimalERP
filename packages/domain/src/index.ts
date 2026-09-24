@@ -80,6 +80,7 @@ export * from './intake/extraction';
 export * from './intake/proposal';
 export * from './intake/match';
 export * from './intake/propose';
+export * from './intake/remittance';
 export * from './reports/digest';
 export * from './csv/format';
 export * from './csv/items';

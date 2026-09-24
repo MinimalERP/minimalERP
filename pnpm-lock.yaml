@@ -317,6 +317,9 @@ importers:
 
   packages/migrate-zoho:
     dependencies:
+      '@minimalerp/adapter-memory':
+        specifier: workspace:*
+        version: link:../adapter-memory
       '@minimalerp/adapter-postgres':
         specifier: workspace:*
         version: link:../adapter-postgres

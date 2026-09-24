@@ -3,6 +3,7 @@
  *   - the add-on's sign-in sends a document; what the reader says is matched and queued in the AI Inbox — nothing is posted
  *   - the document is never stored: no table has it after the request
  *   - who may send, and what a reader's refusal (the free limit reached) looks like to the add-on
+ *   - a payment advice a fixed rule knows (Eclipse Combustion) is read from the PDF's text, never by the reader
  */
 import { PostgresBackend, createIntakeHandler } from '@minimalerp/adapter-postgres';
 import type { DocumentReader } from '@minimalerp/ports';
@@ -41,6 +42,8 @@ const handler = () =>
     },
     gatewayFor: (actorId, requestId) => new PostgresBackend(db.pool, { actorId, requestId }),
     reader,
+    // the stand-in "PDF" is its own text
+    pdfText: async (base64) => Buffer.from(base64, 'base64').toString('utf8'),
     today: () => '2024-06-30',
   });
 
@@ -62,6 +65,7 @@ beforeAll(async () => {
     mustOk(await w.backend.execute({ companyId: w.companyId, command: { op: 'create', kind, id, data } }));
   await create('stockItem', w.uuid('item:bolt'), { name: 'Hex Bolt M8', code: 'BLT-M8', unitId: w.uuid('unit:Nos'), itemType: 'finished' });
   await create('party', w.uuid('party:acme'), { name: 'Acme Ltd', roles: ['customer'] });
+  await create('party', w.uuid('party:eclipse'), { name: 'Eclipse Combustion Pvt Ltd', roles: ['customer'] });
   await addMember(db.pool, w.companyId, bot, 'automation');
   await addMember(db.pool, w.companyId, viewer, 'viewer');
 });
@@ -152,5 +156,44 @@ describe('who may send', () => {
   it('a malformed request is 400', async () => {
     expect((await send({ kind: 'journal', document: pdf })).status).toBe(400);
     expect((await send({ kind: 'salesOrder' })).status).toBe(400);
+  });
+});
+
+describe('a payment advice a fixed rule knows (Gmail: "Send to ERP → Eclipse Receipt")', () => {
+  const advice = (net2: string) =>
+    ({
+      mimeType: 'application/pdf',
+      base64: Buffer.from(
+        `ECLIPSE COMBUSTION PVT LTD Remittance Advice: Date: 12 Jun,2024 UTR Number : ABCDN24100000001 ****1234 ` +
+          `Invoice / Reference Gross Amount WHT Amount GST Hold Amount Net Amount ` +
+          `24-25/001 1180.00 2.00 180.00 998.00 24-25/002 2360.00 4.00 360.00 ${net2} Total: 3540.00 6.00 540.00 2994.00`,
+      ).toString('base64'),
+    }) as const;
+
+  it('is read from the PDF itself — the reader is never asked — and queued as a receipt', async () => {
+    const asked = seen.length;
+    const r = await send({ kind: 'receipt', document: advice('1996.00'), rule: 'remittance' });
+    expect(r.body.ok).toBe(true);
+    expect(seen.length).toBe(asked);
+    const item = mustOk(await w.backend.inbox(w.companyId)).find((i) => i.id === r.body.value?.id);
+    expect(item?.proposal).toMatchObject({
+      kind: 'receipt',
+      date: '2024-06-12',
+      amount: '2994.00',
+      party: { partyId: w.uuid('party:eclipse') },
+      bills: [
+        { ref: '24-25/001', amount: '1000.00', tds: '2.00' },
+        { ref: '24-25/002', amount: '2000.00', tds: '4.00' },
+      ],
+    });
+  });
+
+  it('with the rule asked for, an advice it does not recognise is queued as not read — not handed to Gemini to guess', async () => {
+    const asked = seen.length;
+    const r = await send({ kind: 'receipt', document: advice('1990.00'), rule: 'remittance', background: true });
+    await Promise.all(deferred.splice(0));
+    expect(seen.length).toBe(asked);
+    const item = mustOk(await w.backend.inbox(w.companyId)).find((i) => i.id === r.body.value?.id);
+    expect(item?.proposal.notes).toEqual([{ code: 'READ_FAILED', message: expect.stringContaining('not an Eclipse Combustion remittance advice') }]);
   });
 });
