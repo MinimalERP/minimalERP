@@ -105,6 +105,9 @@ describe("a supplier's bill proposal in the Purchase window", () => {
     expect(seed).toEqual({ name: 'SS Washer M8', hsn: '7318', gstRateId: eighteen, unitId: nos });
     expect(eighteen && nos).toBeTruthy();
     expect(itemSeedOf(books.masters, { itemLabel: 'Thing', hsn: 'n/a', gstRate: '7' })).toEqual({ name: 'Thing' });
+    // "<part number> - <description>": the part number becomes the new item's code
+    expect(itemSeedOf(books.masters, { itemLabel: '841012179 - Linkage with Lever' })).toEqual({ name: '841012179 - Linkage with Lever', code: '841012179' });
+    expect(itemSeedOf(books.masters, { itemLabel: 'Bracket - type B' })).toEqual({ name: 'Bracket - type B' }); // no digits: not a part number
   });
 });
 

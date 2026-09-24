@@ -131,6 +131,9 @@ export function entryFormFromProposal(item: InboxItem, masters: Masters, typeId:
 export function itemSeedOf(masters: Masters, line: { itemLabel: string; hsn?: string | undefined; gstRate?: string | undefined }, unit?: string): Record<string, string> {
   const seed: Record<string, string> = {};
   if (line.itemLabel.trim() !== '') seed['name'] = line.itemLabel.trim();
+  // "<part number> - <description>": the part number is the item's code
+  const part = /^([A-Za-z0-9][A-Za-z0-9./]*)\s+-\s+\S/.exec(line.itemLabel.trim())?.[1];
+  if (part && /\d/.test(part)) seed['code'] = part;
   if (line.hsn && /^\d{4,8}$/.test(line.hsn)) seed['hsn'] = line.hsn;
   if (line.gstRate && line.gstRate !== '') {
     const want = canonicalPercent(line.gstRate);

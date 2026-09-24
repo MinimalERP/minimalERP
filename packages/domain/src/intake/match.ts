@@ -98,6 +98,10 @@ export function matchItem(masters: Masters, hint: { description?: string | undef
   if (code !== '') {
     const byCode = active.find((i) => i.code !== undefined && canonicalId(i.code) === code);
     if (byCode) return byCode;
+    // items named "<part number> - <description>" ("841010384-Washer", "841012360 - Adapter,Hex"): the part number leading the name
+    const bare = code.replace(/[^A-Z0-9]/g, '');
+    const leading = active.filter((i) => canonicalId(i.name.split(/\s*-\s*|\s/)[0] ?? '').replace(/[^A-Z0-9]/g, '') === bare);
+    if (bare.length >= 4 && leading.length === 1) return leading[0];
   }
   const text = hint.description?.trim() ?? '';
   if (text === '') return undefined;

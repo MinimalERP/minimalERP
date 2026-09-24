@@ -116,7 +116,10 @@ export const extractionResponseSchema = {
       type: 'ARRAY',
       items: {
         type: 'OBJECT',
-        properties: { description: S, code: S, hsn: S, qty: S, unit: S, rate: S, amount: S, gstRate: S, dueDate: { type: 'STRING', description: 'YYYY-MM-DD' } },
+        properties: {
+          description: { type: 'STRING', description: 'the item description as printed, without the part number' },
+          code: { type: 'STRING', description: 'the part number / material number / item code printed on the line (not the HSN)' },
+          hsn: S, qty: S, unit: S, rate: S, amount: S, gstRate: S, dueDate: { type: 'STRING', description: 'YYYY-MM-DD' } },
       },
     },
     subtotal: S,
@@ -142,6 +145,7 @@ export function extractionPrompt(kind: IntakeKind, ownCompany: string): string {
     `You read business documents for the accounting system of "${ownCompany}". This document is ${WHAT[kind]}`,
     `Never return "${ownCompany}" as the party.`,
     'Copy names, numbers and codes exactly as printed. Give dates as YYYY-MM-DD (Indian documents write day first).',
+    'For each line give its part number (material no. / item code) in `code` and its description separately in `description`.',
     'Give amounts and quantities as plain numbers without currency symbols or thousands separators.',
     'Leave out any field that is not on the document; never guess.',
   ].join('\n');

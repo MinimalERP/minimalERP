@@ -184,6 +184,27 @@ describe('a customer PO → a Sales Order proposal', () => {
     expect(both.lines[0]?.itemId).toBeUndefined();
   });
 
+  it('an unmatched line reads "part number - description", as the company names its items', () => {
+    const e = new Env();
+    const p = e.propose('salesOrder', { partyName: 'Acme Ltd', date: '2024-05-10', lines: [{ code: '841012179', description: 'Linkage with Lever, Unopack', qty: '4', rate: '310' }] });
+    expect(p.lines[0]?.itemId).toBeUndefined();
+    expect(p.lines[0]?.text).toBe('841012179 - Linkage with Lever, Unopack');
+    expect(p.notes[0]?.message).toContain('"841012179 - Linkage with Lever, Unopack" is not one of your items');
+    // the part number already in the description is not repeated; a part number alone is the text
+    expect(e.propose('salesOrder', { partyName: 'Acme Ltd', date: '2024-05-10', lines: [{ code: '7788', description: '7788 Gasket', qty: '1', rate: '1' }] }).lines[0]?.text).toBe('7788 Gasket');
+    expect(e.propose('salesOrder', { partyName: 'Acme Ltd', date: '2024-05-10', lines: [{ code: '7788', qty: '1', rate: '1' }] }).lines[0]?.text).toBe('7788');
+  });
+
+  it('matches by the part number leading an item’s name ("841010384-Washer…") when the item has no code', () => {
+    const e = new Env();
+    const washer = newId('washer');
+    const r = prepareMasterCommand({ op: 'create', kind: 'stockItem', id: washer, data: { name: '841010384-Washer, Spring, M8', unitId: e.masters.units[0]?.id, itemType: 'finished' } }, e.masters);
+    if (!r.ok) throw new Error(JSON.stringify(r.issues));
+    e.masters = r.value.masters;
+    const p = e.propose('salesOrder', { partyName: 'Acme Ltd', date: '2024-05-10', lines: [{ code: '841010384', description: 'WASHER SPRING M8', qty: '10', rate: '2' }] });
+    expect(p.lines[0]?.itemId).toBe(washer);
+  });
+
   it('leaves an unknown customer to the person, with the name and GSTIN to create it from', () => {
     const e = new Env();
     const other = gstin('29AABCZ9999Q1Z');

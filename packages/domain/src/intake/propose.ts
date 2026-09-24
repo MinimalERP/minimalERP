@@ -113,7 +113,9 @@ function proposeItems(kind: 'salesOrder' | 'sales' | 'purchase', x: Extraction, 
   x.lines.forEach((l, i) => {
     const path = `lines.${i}`;
     const item = matchItem(masters, { description: l.description, code: l.code, hsn: l.hsn });
-    const label = (l.description ?? l.code ?? `Line ${i + 1}`).slice(0, 80);
+    // "<part number> - <description>": how the company names its items, so the picker finds it and Alt+C creates it that way
+    const code = l.code?.trim();
+    const label = (code && l.description && !l.description.includes(code) ? `${code} - ${l.description}` : (l.description ?? code ?? `Line ${i + 1}`)).slice(0, 80);
     if (!item) note('ITEM_UNMATCHED', `"${label}" is not one of your items: pick one or create it (Alt+C)`, `${path}.item`);
     const qty = l.qty ?? '';
     if (qty === '' || parseQty(qty) === undefined) note('QTY_MISSING', `No quantity was read for "${label}"`, `${path}.qty`);
