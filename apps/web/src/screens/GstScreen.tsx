@@ -27,7 +27,7 @@ import type { ReportKind, ScreenRef } from '../shell/router';
 import { DataGrid } from '../ui/DataGrid';
 import { downloadText } from '../ui/download';
 import { Kbd } from '../ui/Kbd';
-import { formatAmount } from '../vouchers/format';
+import { formatAmount, todayText } from '../vouchers/format';
 import { FieldsDialog } from './ReportDialogs';
 
 const SCOPE = 'screen:report';
@@ -48,7 +48,7 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
   const books = host.current as NonNullable<typeof host.current>;
   useSubscriptions(books);
   const masters = books.masters;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayText();
 
   const [period, setPeriod] = useFrameState<GstPeriod>(frame, 'period', periodOfYm(kind) ?? defaultPeriod(masters, today));
   const [view, setView] = useFrameState<View>(frame, 'view', 'invoices');

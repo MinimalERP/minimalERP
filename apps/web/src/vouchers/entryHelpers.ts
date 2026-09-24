@@ -1,4 +1,5 @@
 import type { Masters } from '@minimalerp/domain';
+import { todayText } from './format';
 
 /** A voucher type from what a screen address says: a base kind ("payment") or a voucher type's id. */
 export function resolveTypeId(masters: Masters, key: string): string | undefined {
@@ -7,10 +8,7 @@ export function resolveTypeId(masters: Masters, key: string): string | undefined
   return (matches.find((t) => t.isSystem) ?? matches[0])?.id;
 }
 
-const today = (): string => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+const today = todayText;
 
 /** Today if it lies in a financial year of the company, otherwise the nearest year's edge. */
 export function defaultDate(masters: Masters): string {

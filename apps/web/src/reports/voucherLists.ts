@@ -1,6 +1,6 @@
 import { type BaseKind, type ColumnSpec, type LocalDate, type Masters, type Money, type OrderBook, type Voucher, customerLedgerOf, dayBookRows, daysOverdue, lineValue, money, openBills, vendorLedgerOf } from '@minimalerp/domain';
 import type { JournalLine } from '@minimalerp/domain';
-import { formatAmount, formatDate } from '../vouchers/format';
+import { formatAmount, formatDate, todayText } from '../vouchers/format';
 
 /**
  * The list behind each voucher type (Transactions › Sales › "Sales Vouchers"): one row per voucher, on the one grid, so it sorts and filters like
@@ -52,7 +52,7 @@ export const listTitle = (typeName: string): string => (/order$/i.test(typeName)
 /** Oldest first (the Day Book's order); the screen turns it newest first. */
 export function voucherListRows({ vouchers, lines, masters, orders, kind, range, asOf }: VoucherListInput): VoucherListRow[] {
   const byId = new Map(vouchers.map((v) => [v.id as string, v]));
-  const today = asOf ?? (new Date().toISOString().slice(0, 10) as LocalDate);
+  const today = asOf ?? (todayText() as LocalDate);
   // What each party still owes (or is owed), by bill: a sales invoice's bill is named by its own number, a purchase invoice's by the supplier's
   // (paid = no longer open).
   const isInvoice = kind === 'sales' || kind === 'purchase';

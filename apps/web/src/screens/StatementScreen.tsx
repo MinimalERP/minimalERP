@@ -4,7 +4,7 @@ import { useMemo, useState } from 'preact/hooks';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
 import type { ReportKind, ScreenRef } from '../shell/router';
 import { Kbd } from '../ui/Kbd';
-import { formatAmount, formatDate, parseDateInput } from '../vouchers/format';
+import { formatAmount, formatDate, parseDateInput, todayText } from '../vouchers/format';
 import { FieldsDialog } from './ReportDialogs';
 
 const SCOPE = 'screen:report';
@@ -27,7 +27,7 @@ export function StatementScreen({ frame, report }: { frame: Frame<ScreenRef>; re
   const masters = books.masters;
   const isSheet = report === 'balance-sheet';
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayText();
   const fy = masters.financialYears.find((y) => today >= y.start && today <= y.end) ?? masters.financialYears.at(-1);
   const [period, setPeriod] = useFrameState<{ from: string; to: string }>(frame, 'period', { from: fy?.start ?? '', to: isSheet && fy && today >= fy.start && today <= fy.end ? today : (fy?.end ?? '') });
   const [pos, setPos] = useFrameState<Pos>(frame, 'pos', { side: 'left', row: 0 });

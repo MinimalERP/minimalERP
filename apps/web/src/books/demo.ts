@@ -1,5 +1,5 @@
 import { type MasterKind, type PartyRole, type Result, IssueCode, deterministicUuid, fail, gstinCheckChar, indianFinancialYearOf, issue, localDate, ok, partyLedgerId } from '@minimalerp/domain';
-import { addDays } from '../vouchers/format';
+import { addDays, todayText } from '../vouchers/format';
 import { dueDateFor, partyDetailsOfParty } from '../vouchers/salesModel';
 import type { Books, BooksHost } from './books';
 
@@ -109,7 +109,7 @@ const STEPS: readonly Step[] = [
  */
 export async function loadDemoCompany(host: BooksHost): Promise<Result<Books>> {
   // The financial year we are in now, so a new voucher's default date (today) is inside it.
-  const fyStart = indianFinancialYearOf(localDate(new Date().toISOString().slice(0, 10))).start;
+  const fyStart = indianFinancialYearOf(localDate(todayText())).start;
   const created = await host.create({
     name: 'Demo Manufacturing Pvt Ltd',
     fyStart,

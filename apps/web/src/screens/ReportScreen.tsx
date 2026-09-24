@@ -40,7 +40,7 @@ import { Only } from '../shell/Only';
 import type { ReportKind, ScreenRef } from '../shell/router';
 import { DataGrid } from '../ui/DataGrid';
 import { Kbd } from '../ui/Kbd';
-import { formatAmount, formatBalance, formatDate, formatQuantity, normalizeAmount, parseDateInput } from '../vouchers/format';
+import { formatAmount, formatBalance, formatDate, formatQuantity, normalizeAmount, parseDateInput, todayText } from '../vouchers/format';
 import { FieldsDialog, LedgerDialog, MultiSelectDialog } from './ReportDialogs';
 import type { ReportDoc } from '../ui/PrintView';
 
@@ -137,12 +137,12 @@ function ReportBody({
   const masters = books.masters;
 
   const fy = masters.financialYears.find((y) => {
-    const t = new Date().toISOString().slice(0, 10);
+    const t = todayText();
     return t >= y.start && t <= y.end;
   }) ?? masters.financialYears.at(-1);
   const [query, setQuery] = useFrameState<GridQuery>(frame, 'query', EMPTY_QUERY);
   // Outstanding is AS ON a date (today, unless changed with F2); the rest cover the financial year.
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayText();
   const asOnReport = report === 'outstanding';
   const [period, setPeriod] = useFrameState<Period>(frame, 'period', { from: fy?.start ?? '', to: asOnReport && fy && today >= fy.start && today <= fy.end ? today : (fy?.end ?? '') });
   const [types, setTypes] = useFrameState<string[]>(frame, 'types', []);
@@ -183,14 +183,14 @@ function ReportBody({
 
   // the Sales Order Register: one row per order line (for one item, when the address names it)
   const orderRows = useMemo(
-    () => (report === 'sales-orders' || report === 'purchase-orders' ? orderRegisterRows(books.orders, masters, range.from, range.to, { itemId: itemFromAddress, side: report === 'purchase-orders' ? 'purchase' : 'sales', asOf: localDate(new Date().toISOString().slice(0, 10)) }) : []),
+    () => (report === 'sales-orders' || report === 'purchase-orders' ? orderRegisterRows(books.orders, masters, range.from, range.to, { itemId: itemFromAddress, side: report === 'purchase-orders' ? 'purchase' : 'sales', asOf: localDate(todayText()) }) : []),
     [report, books.orders, masters, itemFromAddress, period.from, period.to],
   );
 
   // A voucher type's list (Transactions › Sales › Sales Vouchers): one row per voucher of that kind
   const listKind = kind as BaseKind | undefined;
   const voucherRows = useMemo(
-    () => (report === 'vouchers' && listKind ? voucherListRows({ vouchers: books.vouchers, lines: books.lines, masters, orders: books.orders, kind: listKind, range, asOf: localDate(new Date().toISOString().slice(0, 10)) }) : []),
+    () => (report === 'vouchers' && listKind ? voucherListRows({ vouchers: books.vouchers, lines: books.lines, masters, orders: books.orders, kind: listKind, range, asOf: localDate(todayText()) }) : []),
     [report, listKind, books.vouchers, books.lines, books.orders, masters, period.from, period.to],
   );
 
