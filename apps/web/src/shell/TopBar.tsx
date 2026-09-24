@@ -25,6 +25,8 @@ export function useScreenTitle() {
         return 'Invoice / PDF Settings';
       case 'inbox':
         return 'AI Inbox';
+      case 'import-export':
+        return 'Import / Export';
       case 'master-list':
         return PLURALS[ref.kind];
       case 'master':

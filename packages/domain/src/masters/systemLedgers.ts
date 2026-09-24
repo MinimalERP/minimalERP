@@ -25,6 +25,7 @@ export const SYSTEM_LEDGERS: readonly SystemLedgerSpec[] = [
   { key: 'gst-input-sgst', name: 'Input SGST', group: 'loans-and-advances-asset' },
   { key: 'gst-input-igst', name: 'Input IGST', group: 'loans-and-advances-asset' },
   { key: 'tds-receivable', name: 'TDS Receivable', group: 'loans-and-advances-asset' },
+  { key: 'round-off', name: 'Round Off', group: 'indirect-expenses' },
 ];
 
 /** The id a company's system ledger has: derived from the company and the key, so seeding and upgrading a saved company always agree. */

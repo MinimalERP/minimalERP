@@ -17,7 +17,7 @@ import {
   onInvoiceLines,
   plannedLinksOf,
 } from './documents';
-import { grandTotal, gstHeaderSchema, invoiceGst, taxPostings } from './gstDoc';
+import { grandTotalParts, gstHeaderSchema, invoiceGst, roundOffPosting, roundOffProblems, taxPostings } from './gstDoc';
 import { plannedStockOf, shortfallProblems, stockEntryProblems } from './stockJournal';
 
 /**
@@ -62,6 +62,7 @@ export const salesKind = defineVoucherKind<SalesDraft>({
     }
     if (draft.lines.length === 0) problems.push(issue(IssueCode.TooFewLines, 'An invoice needs at least one line', 'lines'));
     problems.push(...invoiceGst(draft, masters, 'sales').problems);
+    problems.push(...roundOffProblems(masters, grandTotalParts(draft.lines, draft.gst).roundOff));
     if (draft.dueDate < draft.date) {
       problems.push(issue(IssueCode.SalesDocInvalid, `The due date is before the invoice date (${draft.date})`, 'dueDate'));
     }
@@ -84,10 +85,12 @@ export const salesKind = defineVoucherKind<SalesDraft>({
   },
 
   post(draft, { masters }): readonly PlannedLine[] {
+    const { rounded, roundOff } = grandTotalParts(draft.lines, draft.gst);
     return [
-      { ledgerId: customerLedgerOf(draft.partyId), side: 'debit', amount: grandTotal(draft.lines, draft.gst) },
+      { ledgerId: customerLedgerOf(draft.partyId), side: 'debit', amount: rounded },
       { ledgerId: draft.salesLedgerId, side: 'credit', amount: invoiceTotal(draft.lines) },
       ...taxPostings(masters, 'sales', draft.gst),
+      ...roundOffPosting(masters, 'sales', roundOff),
     ];
   },
   postStock: (draft) => plannedStockOf(asEntries(draft.lines)),

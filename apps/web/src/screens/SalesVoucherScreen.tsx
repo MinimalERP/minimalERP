@@ -1,5 +1,5 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
-import { type Money, type Voucher, formatQty, formatRate, isQtyText, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type Money, type Voucher, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { Only } from '../shell/Only';
@@ -257,6 +257,7 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
       lines,
       subtotal: preview.total,
       gst: preview.gst,
+      roundOff: preview.roundOff,
       grandTotal: preview.grand,
       narration: form.narration || undefined,
     };
@@ -1395,6 +1396,11 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
             </>
           ) : (
             <> · no GST on this invoice</>
+          )}
+          {preview.roundOff !== 0n && (
+            <>
+              {' · '}Round Off <strong data-testid="round-off">{preview.roundOff < 0n ? '(-) ' : ''}{formatAmount(preview.roundOff < 0n ? money(-preview.roundOff) : preview.roundOff)}</strong>
+            </>
           )}
           {' · '}Invoice total <strong data-testid="invoice-total">{formatAmount(preview.grand)}</strong>
         </p>

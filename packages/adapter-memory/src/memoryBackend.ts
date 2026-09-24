@@ -14,7 +14,11 @@ import {
   OrderBook,
   billRefProblems,
   ensureSystemLedgers,
+  extractionSchema,
+  type IntakeKind,
+  localDate,
   orderDocOf,
+  proposeFromExtraction,
   type Voucher,
   type VoucherId,
   type VoucherKindRegistry,
@@ -39,6 +43,7 @@ import type {
   DocumentSender,
   InboxGateway,
   InboxItem,
+  IntakeDocument,
   AlterRequest,
   CancelRequest,
   JournalQuery,
@@ -154,11 +159,21 @@ export class MemoryBackend
     return ok([...this.inboxItems.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
   }
 
-  /** Books kept in this browser have no server to read documents with. */
-  async sendDocument(companyId: CompanyId): Promise<Result<{ readonly id: string }>> {
+  /** Books kept in this browser have no server to read a document (a PDF, a photo) with — but an `extraction`
+   *  already IS the reading (a CSV row turned into one directly, needing no AI at all), so that one case works offline too. */
+  async sendDocument(companyId: CompanyId, s: { readonly kind: IntakeKind; readonly document: IntakeDocument; readonly name?: string | undefined }): Promise<Result<{ readonly id: string }>> {
     const wrongCompany = this.checkCompany(companyId);
     if (wrongCompany) return wrongCompany;
-    return fail(issue(IssueCode.UnsupportedOperation, 'Reading documents needs the online books: sign in to the company online'));
+    if (!('extraction' in s.document)) {
+      return fail(issue(IssueCode.UnsupportedOperation, 'Reading documents needs the online books: sign in to the company online'));
+    }
+    const extraction = extractionSchema.safeParse(s.document.extraction);
+    if (!extraction.success) return fail(issue(IssueCode.SchemaInvalid, 'The extraction is not in the expected shape', 'document'));
+    const today = localDate(new Date().toISOString().slice(0, 10));
+    const proposal = proposeFromExtraction(s.kind, extraction.data, { masters: this.masters, vouchers: [...this.vouchers.values()], orders: this.orderBook(), today });
+    const id = (globalThis as unknown as { crypto: { randomUUID(): string } }).crypto.randomUUID();
+    this.putInbox({ id, kind: s.kind, proposal, mailSubject: s.name ? `Uploaded: ${s.name}`.slice(0, 200) : undefined, createdAt: new Date().toISOString() });
+    return ok({ id });
   }
 
   async rejectInbox(companyId: CompanyId, id: string): Promise<Result<void>> {

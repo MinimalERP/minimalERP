@@ -26,6 +26,7 @@ import { StatementScreen } from './StatementScreen';
 import { GstScreen } from './GstScreen';
 import { type VoucherListRow, listTitle, listTotals, voucherListColumns, voucherListRows, voucherRowClass } from '../reports/voucherLists';
 import { type OrderRow, orderRegisterColumns, newestOrdersFirst, orderRegisterRows, orderRowClass, registerCounts } from '../reports/salesReports';
+import { type SalesRegisterRow, newestInvoicesFirst, salesRegisterColumns, salesRegisterRows } from '../reports/salesRegister';
 import {
   type StockLedgerRow,
   type StockSummaryRow,
@@ -70,7 +71,7 @@ interface Props {
   readonly groupId?: string | undefined;
 }
 
-type AnyRow = DayBookRow | StatementRow | StockSummaryRow | StockLedgerRow | OrderRow | VoucherListRow | TbRow | PartyRow | OutstandingBillRow;
+type AnyRow = DayBookRow | StatementRow | StockSummaryRow | StockLedgerRow | OrderRow | SalesRegisterRow | VoucherListRow | TbRow | PartyRow | OutstandingBillRow;
 /** What identifies a row: a voucher (Day Book, Ledger), an item (Stock Summary), one movement (Stock Ledger) or one order line (Sales Order Register). */
 const rowKeyOf = (r: AnyRow): string => ('key' in r ? r.key : 'voucherId' in r ? r.voucherId : r.itemId);
 
@@ -82,6 +83,7 @@ function titleWithoutBooks(report: ReportKind, kind: string | undefined): string
     case 'stock-item': return 'Stock Ledger';
     case 'sales-orders': return 'Sales Order Register';
     case 'purchase-orders': return 'Purchase Order Register';
+    case 'sales-register': return 'Sales Invoice Register';
     case 'trial-balance': return 'Trial Balance';
     case 'profit-loss': return 'Profit & Loss';
     case 'balance-sheet': return 'Balance Sheet';
@@ -187,6 +189,12 @@ function ReportBody({
     [report, books.orders, masters, itemFromAddress, period.from, period.to],
   );
 
+  // the Sales Register: one row per posted Sales Invoice line
+  const salesRegRows = useMemo(
+    () => (report === 'sales-register' ? salesRegisterRows(books.vouchers, masters, range.from, range.to) : []),
+    [report, books.vouchers, masters, period.from, period.to],
+  );
+
   // A voucher type's list (Transactions › Sales › Sales Vouchers): one row per voucher of that kind
   const listKind = kind as BaseKind | undefined;
   const voucherRows = useMemo(
@@ -223,6 +231,7 @@ function ReportBody({
   const sumCols = useMemo(() => stockSummaryColumns(), []);
   const itemCols = useMemo(() => stockLedgerColumns(typeChoices), [typeChoices]);
   const orderCols = useMemo(() => orderRegisterColumns(report === 'purchase-orders' ? 'purchase' : 'sales'), [report]);
+  const salesRegCols = useMemo(() => salesRegisterColumns(), []);
   const listCols = useMemo(() => voucherListColumns(listKind ?? 'journal'), [listKind]);
   const tbCols = useMemo(() => tbColumns(), []);
   const partyCols = useMemo(() => partyColumns(side), [side]);
@@ -236,7 +245,9 @@ function ReportBody({
           ? sumCols
           : report === 'sales-orders' || report === 'purchase-orders'
             ? orderCols
-            : report === 'vouchers'
+            : report === 'sales-register'
+              ? salesRegCols
+              : report === 'vouchers'
               ? listCols
               : report === 'trial-balance' || report === 'book'
                 ? tbCols
@@ -247,11 +258,18 @@ function ReportBody({
                   : itemCols
   ) as readonly ColumnSpec<AnyRow>[];
   const baseRows = (
-    report === 'daybook' ? dayRows : report === 'ledger' ? (view?.rows ?? []) : report === 'stock-summary' ? stockRows : report === 'sales-orders' || report === 'purchase-orders' ? orderRows : report === 'vouchers' ? voucherRows : report === 'trial-balance' || report === 'book' ? tbBase : report === 'outstanding' ? (ledgerFromAddress ? billBase : partyBase) : onlyVoucherTypes(stockLedger?.rows ?? [], typeIds)
+    report === 'daybook' ? dayRows : report === 'ledger' ? (view?.rows ?? []) : report === 'stock-summary' ? stockRows : report === 'sales-orders' || report === 'purchase-orders' ? orderRows : report === 'sales-register' ? salesRegRows : report === 'vouchers' ? voucherRows : report === 'trial-balance' || report === 'book' ? tbBase : report === 'outstanding' ? (ledgerFromAddress ? billBase : partyBase) : onlyVoucherTypes(stockLedger?.rows ?? [], typeIds)
   ) as readonly AnyRow[];
   // Every list opens NEWEST FIRST (the running balances stay true: they were worked out oldest first). A column sort replaces it; clearing the sort returns to it.
   const newestFirst = useMemo(
-    () => (report === 'stock-summary' || report === 'trial-balance' || report === 'book' || report === 'outstanding' ? baseRows : report === 'sales-orders' || report === 'purchase-orders' ? newestOrdersFirst(baseRows as readonly OrderRow[]) : [...baseRows].reverse()),
+    () =>
+      report === 'stock-summary' || report === 'trial-balance' || report === 'book' || report === 'outstanding'
+        ? baseRows
+        : report === 'sales-orders' || report === 'purchase-orders'
+          ? newestOrdersFirst(baseRows as readonly OrderRow[])
+          : report === 'sales-register'
+            ? newestInvoicesFirst(baseRows as readonly SalesRegisterRow[])
+            : [...baseRows].reverse(),
     [report, baseRows],
   );
   const rows = useMemo(() => applyGridQuery(newestFirst, columns, query), [newestFirst, columns, query]);
@@ -366,9 +384,11 @@ function ReportBody({
               : report === 'purchase-orders'
                 ? 'Purchase Order Register'
                 : 'Sales Order Register'
-            : ledger
-              ? `Ledger: ${ledger.name}`
-              : 'Ledger';
+            : report === 'sales-register'
+              ? 'Sales Invoice Register'
+              : ledger
+                ? `Ledger: ${ledger.name}`
+                : 'Ledger';
   const chord = (id: string) => keymapStore.keymap.chordsFor(id)[0];
 
   const chips: { key: string; text: string; clear: () => void }[] = [
@@ -641,6 +661,12 @@ function ReportBody({
           <>
             {hasActiveFilters(query) ? 'Filtered total' : 'Total'} — opening <strong>{formatAmount(totals.opening)}</strong> · inward <strong>{formatAmount(totals.inward)}</strong> · outward <strong>{formatAmount(totals.outward)}</strong> · closing stock value <strong data-testid="stock-closing-value">{formatAmount(totals.closing)}</strong>
           </>
+        )}
+        {report === 'sales-register' && (
+          <span data-testid="sales-register-total">
+            {rows.length} line{rows.length === 1 ? '' : 's'} · Total{' '}
+            <strong data-testid="sales-register-value">{formatAmount((rows as readonly SalesRegisterRow[]).reduce((s, r) => s + r.value, 0n))}</strong>
+          </span>
         )}
         {(report === 'sales-orders' || report === 'purchase-orders') && (
           <span data-testid="order-counts">

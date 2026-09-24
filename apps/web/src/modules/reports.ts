@@ -114,6 +114,14 @@ const commands: Command<AppContext>[] = [
     description: 'Every purchase order line: ordered, received, pending, and whether the order is still open',
     run: (app) => app.navigate({ type: 'report', report: 'purchase-orders' }),
   },
+  {
+    id: 'report.salesRegister',
+    title: 'Sales Invoice Register',
+    category: 'Report',
+    keywords: ['sales register', 'invoice register', 'item wise', 'gst', 'hsn'],
+    description: 'Every sales invoice line: item, quantity, rate and GST — read invoices item by item',
+    run: (app) => app.navigate({ type: 'report', report: 'sales-register' }),
+  },
   // What Go To runs for "Purchase orders" on a stock item: the register for that item alone.
   {
     id: 'report.purchaseOrdersOf',
@@ -220,7 +228,8 @@ const menu: MenuEntry[] = [
   { section: 'reports', commandId: 'report.payables', order: 21, group: 'Outstanding' },
   { section: 'reports', commandId: 'report.stockSummary', order: 30, group: 'Inventory & Sales' },
   { section: 'reports', commandId: 'report.salesOrders', order: 31, group: 'Inventory & Sales' },
-  { section: 'reports', commandId: 'report.purchaseOrders', order: 32, group: 'Inventory & Sales' },
+  { section: 'reports', commandId: 'report.salesRegister', order: 32, group: 'Inventory & Sales' },
+  { section: 'reports', commandId: 'report.purchaseOrders', order: 33, group: 'Inventory & Sales' },
   { section: 'reports', commandId: 'report.gstr1', order: 40, group: 'GST' },
   { section: 'reports', commandId: 'report.gstr3b', order: 41, group: 'GST' },
 ];

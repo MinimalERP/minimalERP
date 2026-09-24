@@ -109,6 +109,21 @@ export function purchaseContract(label: string, makeWorld: MakeMasterWorld): voi
       expect(book.committedByItem().size).toBe(0);
     });
 
+    it('Round Off: a total that is not a whole rupee rounds the supplier’s credit, and an extra line to the Round Off ledger balances it', async () => {
+      // 1 × 100.01 = 100.01, rounded down to 100.00 (nearest rupee, half up): the supplier is owed 100.00, the purchase ledger
+      // still keeps the exact 100.01, and the 1-paisa gap is posted to Round Off — the mirror of the sales side (a CREDIT here).
+      const inv = mustOk(await invoice('inv-round', [await own('1', bolt(), '100.01')]));
+      const roundOffLedgerId = (await w.backend.load(w.companyId)).systemLedger('round-off')?.id;
+      const lines = await w.backend.lines({ companyId: w.companyId, voucherId: inv.voucher.id });
+      expect(lines.map((l) => [l.ledgerId, l.side, l.amount])).toEqual([
+        [w.uuid('ledger:purchases'), 'debit', 10001n],
+        [supplierLedger(), 'credit', 10000n],
+        [roundOffLedgerId, 'credit', 1n],
+      ]);
+      expect(lines.reduce((sum, l) => sum + (l.side === 'debit' ? l.amount : -l.amount), 0n)).toBe(0n);
+      expect((await bills()).map((b) => [b.ref, b.side, b.pending])).toEqual([['SS/inv-round', 'credit', 10000n]]);
+    });
+
     it('receiving more than is pending is refused on that line with the same code everywhere, and nothing is written', async () => {
       const po = mustOk(await order('po1')).voucher;
       mustOk(await invoice('inv1', [await receive(po.id, 'a', '60')]));

@@ -14,6 +14,7 @@ export type ScreenRef =
   | { readonly type: 'company-new' }
   | { readonly type: 'company-reset' }
   | { readonly type: 'invoice-settings' }
+  | { readonly type: 'import-export' }
   /** A master record's form. `seed` pre-fills a new one (Alt+C from a field) and `inline` makes it hand its result back; neither is part of the address. */
   | {
       readonly type: 'master';
@@ -41,7 +42,7 @@ export type ScreenRef =
 
 export type MasterMode = 'create' | 'display' | 'alter';
 export type VoucherMode = 'create' | 'display' | 'alter';
-export type ReportKind = 'daybook' | 'ledger' | 'stock-summary' | 'stock-item' | 'sales-orders' | 'purchase-orders' | 'vouchers' | 'trial-balance' | 'book' | 'profit-loss' | 'balance-sheet' | 'outstanding' | 'gstr1' | 'gstr3b' | 'gst-purchases';
+export type ReportKind = 'daybook' | 'ledger' | 'stock-summary' | 'stock-item' | 'sales-orders' | 'purchase-orders' | 'sales-register' | 'vouchers' | 'trial-balance' | 'book' | 'profit-loss' | 'balance-sheet' | 'outstanding' | 'gstr1' | 'gstr3b' | 'gst-purchases';
 const MODES: readonly string[] = ['create', 'display', 'alter'];
 
 export const GATEWAY: ScreenRef = { type: 'menu', id: 'gateway' };
@@ -65,6 +66,8 @@ export function refToHash(ref: ScreenRef): string {
       return '#/company/invoice-settings';
     case 'inbox':
       return '#/inbox';
+    case 'import-export':
+      return '#/import-export';
     case 'master':
       return ref.mode === 'create' || ref.id === undefined
         ? `#/master/${ref.kind}/create`
@@ -98,6 +101,7 @@ export function hashToRef(hash: string): ScreenRef | undefined {
   if (path === '/company/reset') return { type: 'company-reset' };
   if (path === '/company/invoice-settings') return { type: 'invoice-settings' };
   if (path === '/inbox') return { type: 'inbox' };
+  if (path === '/import-export') return { type: 'import-export' };
   const record = /^\/master\/([A-Za-z]+)\/(create|display|alter)(?:\/(.+))?$/.exec(path);
   if (record) {
     const [, kind = '', mode = '', rawId] = record;
@@ -119,10 +123,11 @@ export function hashToRef(hash: string): ScreenRef | undefined {
       return undefined;
     }
   }
-  const report = /^\/report\/(daybook|ledger|stock-summary|stock-item|sales-orders|purchase-orders|vouchers|trial-balance|book|profit-loss|balance-sheet|outstanding|gstr1|gstr3b|gst-purchases)(?:\/(.+))?$/.exec(path);
+  const report = /^\/report\/(daybook|ledger|stock-summary|stock-item|sales-orders|purchase-orders|sales-register|vouchers|trial-balance|book|profit-loss|balance-sheet|outstanding|gstr1|gstr3b|gst-purchases)(?:\/(.+))?$/.exec(path);
   if (report) {
     if (report[1] === 'daybook') return { type: 'report', report: 'daybook' };
     if (report[1] === 'stock-summary') return { type: 'report', report: 'stock-summary' };
+    if (report[1] === 'sales-register') return { type: 'report', report: 'sales-register' };
     try {
       if (report[1] === 'profit-loss') return { type: 'report', report: 'profit-loss' };
       if (report[1] === 'balance-sheet') return { type: 'report', report: 'balance-sheet' };

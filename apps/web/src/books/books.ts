@@ -27,6 +27,7 @@ import type {
   DocumentSender,
   InboxGateway,
   InboxItem,
+  IntakeDocument,
   JournalRepository,
   MasterGateway,
   MasterOutcome,
@@ -261,8 +262,9 @@ export class Books {
     return this.backend.inbox(this.companyId);
   }
 
-  /** Upload: sends a file to be read into a proposal (it appears in the inbox a little later). */
-  sendDocument(kind: IntakeKind, document: { mimeType: string; base64: string }, name?: string): Promise<Result<{ readonly id: string }>> {
+  /** Upload: sends a file (or, for a bulk CSV import, an already-built `Extraction`) to become a proposal — it
+   *  appears in the inbox a little later (immediately for an `extraction`, which needs no reading). */
+  sendDocument(kind: IntakeKind, document: IntakeDocument, name?: string): Promise<Result<{ readonly id: string }>> {
     return this.backend.sendDocument(this.companyId, { kind, document, name });
   }
 

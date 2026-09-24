@@ -1,5 +1,5 @@
 import { type IntakeKind, type Issue, type Result, extractionPrompt, extractionResponseSchema, fail, ok } from '@minimalerp/domain';
-import type { DocumentReader, IntakeDocument } from '@minimalerp/ports';
+import type { DocumentReader, ReadableDocument } from '@minimalerp/ports';
 
 export interface GeminiOptions {
   /** An API key from Google AI Studio (aistudio.google.com). Free-tier keys work. Kept in a server secret, never in the browser or the add-on. */
@@ -37,7 +37,7 @@ const problem = (code: string, message: string): Issue => ({ code, message }) as
 export class GeminiReader implements DocumentReader {
   constructor(private readonly options: GeminiOptions) {}
 
-  async read(input: { readonly kind: IntakeKind; readonly ownCompany: string; readonly document: IntakeDocument }): Promise<Result<unknown>> {
+  async read(input: { readonly kind: IntakeKind; readonly ownCompany: string; readonly document: ReadableDocument }): Promise<Result<unknown>> {
     const doc = input.document;
     let part: Record<string, unknown>;
     if ('text' in doc) {

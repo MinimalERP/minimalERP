@@ -124,7 +124,7 @@ describe('the GST / TDS system ledgers of a company saved before they existed', 
     store.data.set('company', { version: 1, company: saved, log: [] });
     const first = await reopen(store);
     const keys = first.masters.ledgers.flatMap((l) => (l.reservedKey === undefined ? [] : [l.reservedKey]));
-    expect(keys.filter((k) => k !== 'opening-difference').sort()).toEqual(['gst-input-cgst', 'gst-input-igst', 'gst-input-sgst', 'gst-output-cgst', 'gst-output-igst', 'gst-output-sgst', 'tds-receivable']);
+    expect(keys.filter((k) => k !== 'opening-difference').sort()).toEqual(['gst-input-cgst', 'gst-input-igst', 'gst-input-sgst', 'gst-output-cgst', 'gst-output-igst', 'gst-output-sgst', 'round-off', 'tds-receivable']);
     const second = await reopen(store);
     expect(second.masters.ledgers.map((l) => [l.id, l.name])).toEqual(first.masters.ledgers.map((l) => [l.id, l.name]));
   });

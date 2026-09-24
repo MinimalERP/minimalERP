@@ -15,6 +15,7 @@ import {
   canonicalId,
   canonicalPercent,
   deriveGstHeader,
+  grandTotalParts,
   isPercentText,
   defaultVoucherKinds,
   formatQty,
@@ -357,6 +358,8 @@ export interface SalesPreview {
   readonly total: Money;
   /** The GST the invoice comes to (undefined when it states none) and what the invoice comes to with it. */
   readonly gst: { readonly cgst: Money; readonly sgst: Money; readonly igst: Money; readonly placeOfSupply: string; readonly supplyState: string } | undefined;
+  /** The Round Off adjustment (Round Off ledger): raw total + roundOff = grand. Zero when the total is already a whole rupee. */
+  readonly roundOff: Money;
   readonly grand: Money;
 }
 
@@ -460,9 +463,12 @@ export function previewSales(
     }
   }
 
-  const grand = money(total + (gst ? gst.cgst + gst.sgst + gst.igst : 0n));
+  const { roundOff, rounded: grand } = grandTotalParts(
+    kept.map((i) => form.lines[i] as SalesLineForm),
+    gst,
+  );
   const local = localIssues(form, kind, kept);
-  if (local.length > 0) return { ok: false, issues: local, draft, amounts, total, gst, grand };
+  if (local.length > 0) return { ok: false, issues: local, draft, amounts, total, gst, roundOff, grand };
 
   const result = prepareVoucher(
     draft,
@@ -473,8 +479,8 @@ export function previewSales(
   );
   if (result.ok) {
     const duplicate = billRefProblems(result.value.voucherType.baseKind, result.value.draft, masters, vouchers, form.id as never);
-    if (duplicate.length === 0) return { ok: true, issues: [], draft, amounts, total, gst, grand };
-    return { ok: false, issues: duplicate.map((i) => ({ field: fieldOfSalesPath(i.path, kept), message: i.message, code: i.code })), draft, amounts, total, gst, grand };
+    if (duplicate.length === 0) return { ok: true, issues: [], draft, amounts, total, gst, roundOff, grand };
+    return { ok: false, issues: duplicate.map((i) => ({ field: fieldOfSalesPath(i.path, kept), message: i.message, code: i.code })), draft, amounts, total, gst, roundOff, grand };
   }
   return {
     ok: false,
@@ -483,6 +489,7 @@ export function previewSales(
     amounts,
     total,
     gst,
+    roundOff,
     grand,
   };
 }

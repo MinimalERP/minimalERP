@@ -22,6 +22,7 @@ import { indexedDbStore } from './books/idb';
 import { createLocalFactory, memoryStore } from './books/local';
 import { SaveTracker } from './books/saving';
 import { coreModule } from './modules/core';
+import { importExportModule } from './modules/importExport';
 import { mastersModule } from './modules/masters';
 import { reportsModule } from './modules/reports';
 import { roadmapModule } from './modules/roadmap';
@@ -61,7 +62,7 @@ function mountApp(books: BooksHost, saving: SaveTracker, account?: Account, loca
     saving,
     account,
     localBooks,
-    modules: [coreModule, roadmapModule, mastersModule, vouchersModule, reportsModule],
+    modules: [coreModule, roadmapModule, mastersModule, vouchersModule, reportsModule, importExportModule],
   });
 
   services.keyboard.start();

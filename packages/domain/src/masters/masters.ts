@@ -38,7 +38,8 @@ export type SystemLedgerKey =
   | 'gst-input-cgst'
   | 'gst-input-sgst'
   | 'gst-input-igst'
-  | 'tds-receivable';
+  | 'tds-receivable'
+  | 'round-off';
 
 export interface Ledger {
   readonly id: LedgerId;

@@ -4,6 +4,7 @@
  */
 import type {
   CompanyId,
+  Extraction,
   MasterKind,
   MasterOp,
   JournalLine,
@@ -198,13 +199,19 @@ export interface InboxGateway {
   rejectInbox(companyId: CompanyId, id: string, reason?: string): Promise<Result<void>>;
 }
 
-/** A document a person chose to send to the ERP: a PDF or an image (base64), or the text of a mail. Never stored — read, then gone. */
-export type IntakeDocument = { readonly mimeType: string; readonly base64: string } | { readonly text: string };
+/** A document a person chose to send to the ERP: a PDF or an image (base64), or the text of a mail — something an
+ *  actual reader (Gemini) must read. */
+export type ReadableDocument = { readonly mimeType: string; readonly base64: string } | { readonly text: string };
+
+/** `ReadableDocument`, or — for a bulk CSV import — an `Extraction` already built directly from a spreadsheet
+ *  row, needing no reading at all. Never stored as sent — read (or, for the last case, used as-is), then gone. */
+export type IntakeDocument = ReadableDocument | { readonly extraction: Extraction };
 
 /**
  * Reads a document into the extraction shape (`extractionSchema` in the domain) — the raw answer, which the caller parses. Failures a person
- * should see (the reader is busy, the document could not be read) come back as issues, never thrown.
+ * should see (the reader is busy, the document could not be read) come back as issues, never thrown. Never asked to read an `extraction` —
+ * the caller already has one for that case.
  */
 export interface DocumentReader {
-  read(input: { readonly kind: IntakeKind; readonly ownCompany: string; readonly document: IntakeDocument }): Promise<Result<unknown>>;
+  read(input: { readonly kind: IntakeKind; readonly ownCompany: string; readonly document: ReadableDocument }): Promise<Result<unknown>>;
 }

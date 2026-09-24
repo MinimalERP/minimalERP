@@ -41,7 +41,8 @@ describe('a written line on an invoice, posted', () => {
         },
       }),
     );
-    expect(await rows(`select side, kind, amount::text as amount from public.bill_allocations where voucher_id = $1`, [posted.voucher.id])).toEqual([{ side: 'debit', kind: 'new', amount: '5150.50' }]);
+    // 5150.50 rounds up to the nearest rupee (Round Off, half up): the mirrored bill amount matches what was actually posted
+    expect(await rows(`select side, kind, amount::text as amount from public.bill_allocations where voucher_id = $1`, [posted.voucher.id])).toEqual([{ side: 'debit', kind: 'new', amount: '5151.00' }]);
     expect(await rows(`select count(*)::int as n from public.stock_movements where voucher_id = $1`, [posted.voucher.id])).toEqual([{ n: 0 }]);
     // and it reads back as written
     const back = await w.backend.get(w.companyId, posted.voucher.id);

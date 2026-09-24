@@ -230,7 +230,12 @@ describe('a sales invoice', () => {
         { itemId: env.bolt, warehouseId: env.main, qty: '1', rate: '0.005' }, // 0.005 → 0.01 (half up)
       ]),
     );
-    expect(env.plan(inv).journal[0]?.amount).toBe(10001n);
+    // the lines come to 100.01 — rounded to the nearest rupee (100.00), the extra paisa goes to Round Off
+    expect(env.plan(inv).journal.map((l) => [l.ledgerId, l.side, l.amount])).toEqual([
+      [partyLedgerId(env.acme, 'customer'), 'debit', 10000n],
+      [env.salesLedger, 'credit', 10001n],
+      [env.masters.systemLedger('round-off')?.id, 'debit', 1n],
+    ]);
     const free = env.post(env.invoice([{ itemId: env.bolt, warehouseId: env.main, qty: '1', rate: '0' }]));
     expect(env.codes(free)).toEqual([IssueCode.AmountNotPositive]);
   });

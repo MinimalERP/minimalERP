@@ -88,6 +88,8 @@ export const IssueCode = {
   GstInvalid: 'GST_INVALID',
   /** TDS on a receipt: more than the bill it is deducted from, on something that is not a bill, or a kind of voucher that has none. */
   TdsInvalid: 'TDS_INVALID',
+  /** Round Off on an invoice: the company's Round Off ledger is missing (an old company gets it when it is reopened). */
+  RoundOffInvalid: 'ROUND_OFF_INVALID',
   /** A purchase invoice reuses a supplier's invoice number that is already a bill of that supplier. */
   BillRefInUse: 'BILL_REF_IN_USE',
   /** Infrastructure: a master change was checked against data that changed underneath it. Callers re-check and retry. */

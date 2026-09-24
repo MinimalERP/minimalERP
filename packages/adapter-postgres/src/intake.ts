@@ -65,6 +65,7 @@ const body = z.object({
   document: z.union([
     z.object({ mimeType: z.string().min(1).max(100), base64: z.string().min(1) }),
     z.object({ text: z.string().max(200_000) }),
+    z.object({ extraction: z.unknown() }),
   ]),
   mail: z.object({ subject: z.string().max(1000).optional(), from: z.string().max(1000).optional() }).optional(),
   background: z.boolean().optional(),
@@ -113,11 +114,19 @@ export function createIntakeHandler(deps: IntakeHandlerDeps): (request: Request)
       const mailSubject = cmd.mail?.subject?.slice(0, 200);
       const mailFrom = cmd.mail?.from?.slice(0, 200);
       const today = localDate((deps.today ?? indiaToday)());
-      const document = 'text' in cmd.document ? { text: cmd.document.text } : { mimeType: cmd.document.mimeType, base64: cmd.document.base64 };
+      // A CSV row (or another bulk import) already IS an Extraction — mechanical, structured data, needing no reading at all.
+      const cmdDocument = cmd.document;
 
       /** Read, match, queue. In the background a failed reading is queued too, as an item that says so — the person sent something and must learn it did not arrive. */
       const work = async (background: boolean): Promise<Result<{ id: string; party?: string; notes: string[] }>> => {
-        const read = await deps.reader.read({ kind: cmd.kind, ownCompany: masters.company.name, document });
+        const read =
+          'extraction' in cmdDocument
+            ? ok(cmdDocument.extraction)
+            : await deps.reader.read({
+                kind: cmd.kind,
+                ownCompany: masters.company.name,
+                document: 'text' in cmdDocument ? { text: cmdDocument.text } : { mimeType: cmdDocument.mimeType, base64: cmdDocument.base64 },
+              });
         const extraction = read.ok ? extractionSchema.safeParse(read.value) : undefined;
         if (!read.ok || !extraction?.success) {
           const why = read.ok ? 'the reading did not come back in the expected shape' : (read.issues[0]?.message ?? 'the reader did not answer');

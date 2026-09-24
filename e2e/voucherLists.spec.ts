@@ -41,10 +41,10 @@ test.describe('the grouped Transactions screen', () => {
     await loadDemo(app);
   });
 
-  test('headed groups — Sales, Purchase, Inventory, General, then the AI Inbox — each with its voucher types, and their keys', async ({ app }) => {
+  test('headed groups — Sales, Purchase, Inventory, General, the AI Inbox, then Import / Export — each with its voucher types, and their keys', async ({ app }) => {
     await app.getByRole('option', { name: /^Transactions/ }).click();
     await expect(heading(app)).toHaveText('Transactions');
-    await expect(app.getByTestId('menu-group').locator('.menu-group-title')).toHaveText(['Sales', 'Purchase', 'Inventory', 'General', 'AI Inbox']);
+    await expect(app.getByTestId('menu-group').locator('.menu-group-title')).toHaveText(['Sales', 'Purchase', 'Inventory', 'General', 'AI Inbox', 'Import / Export']);
     const group = (name: string) => app.getByTestId('menu-group').filter({ has: app.locator('.menu-group-title', { hasText: name }) });
     await expect(group('Sales').getByRole('option')).toHaveText([/Sales Vouchers/, /Sales Orders/, /New Credit Note/]);
     await expect(group('Sales').getByRole('option').first()).toContainText('F8');
@@ -56,8 +56,9 @@ test.describe('the grouped Transactions screen', () => {
     await expect(group('Purchase').getByRole('option').nth(2)).toContainText('Phase 7');
     await expect(group('Inventory').getByRole('option')).toHaveText([/Stock Journal Vouchers/]);
     await expect(group('General').getByRole('option')).toHaveText([/Contra Vouchers/, /Payment Vouchers/, /Receipt Vouchers/, /Journal Vouchers/]);
-    // last, so the lists keep their places: the documents sent from Gmail, waiting to be accepted
+    // near the end, so the lists keep their places: the documents sent from Gmail, waiting to be accepted
     await expect(group('AI Inbox').getByRole('option')).toHaveText([/AI Inbox/]);
+    await expect(group('Import / Export').getByRole('option')).toHaveText([/Import \/ Export/]);
   });
 
   test('one cursor walks all the groups with the arrow keys and Enter opens the row', async ({ app }) => {

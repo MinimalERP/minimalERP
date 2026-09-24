@@ -41,7 +41,7 @@ describe('a new company', () => {
   it('starts with the standard chart, cash, the built-in difference ledger, GST slabs, units and a warehouse', () => {
     expect(m.groups.all).toHaveLength(28);
     // Cash, the built-in difference ledger, and the system ledgers GST and TDS post to (Phase 9, ADR-0019)
-    expect(m.ledgers.map((l) => l.name).sort()).toEqual(['Cash', 'Input CGST', 'Input IGST', 'Input SGST', 'Opening Balance Difference', 'Output CGST', 'Output IGST', 'Output SGST', 'TDS Receivable']);
+    expect(m.ledgers.map((l) => l.name).sort()).toEqual(['Cash', 'Input CGST', 'Input IGST', 'Input SGST', 'Opening Balance Difference', 'Output CGST', 'Output IGST', 'Output SGST', 'Round Off', 'TDS Receivable']);
     expect(m.openingDifferenceLedger()?.reservedKey).toBe('opening-difference');
     expect(m.gstRates.map((r) => r.ratePercent)).toEqual(['0', '5', '12', '18', '28']);
     expect(m.units.map((u) => u.symbol)).toEqual(['Nos', 'Kg', 'Ltr', 'Mtr', 'Box']);

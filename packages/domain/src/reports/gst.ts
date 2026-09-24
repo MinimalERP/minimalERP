@@ -1,3 +1,4 @@
+import { csvOf } from '../csv/format';
 import type { DateRange, LocalDate } from '../dates';
 import { type TaxSlab, canonicalPercent, isIntraState, percentHundredths } from '../gst/tax';
 import type { StockItemId, VoucherId } from '../ids';
@@ -389,12 +390,11 @@ export function gstr1Export({ masters, invoices, period }: { masters: Masters; i
 
   const hsn = hsnRows(invoices).map((h, n) => ({ num: n + 1, hsn_sc: h.hsn, uqc: h.uqc, qty: Number(h.qty) / 10_000, val: amt(h.value), txval: amt(h.taxable), iamt: amt(h.igst), camt: amt(h.cgst), samt: amt(h.sgst), csamt: 0 }));
 
-  const csv = (rows: (string | number)[][]) => rows.map((r) => r.map((c) => (typeof c === 'string' && /[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : String(c))).join(',')).join('\n');
-  const invoicesCsv = csv([
+  const invoicesCsv = csvOf([
     ['Invoice no', 'Date', 'Customer', 'GSTIN', 'Place of supply', 'Type', 'Rate %', 'Taxable value', 'CGST', 'SGST', 'IGST', 'Invoice value'],
     ...gstr1Rows(invoices).map((r) => [r.number, r.date, r.party, r.gstin, r.placeOfSupply, r.section, r.rate, formatMoney(r.taxable), formatMoney(r.cgst), formatMoney(r.sgst), formatMoney(r.igst), formatMoney(r.value)]),
   ]);
-  const hsnCsv = csv([
+  const hsnCsv = csvOf([
     ['HSN', 'UQC', 'Rate %', 'Quantity', 'Taxable value', 'CGST', 'SGST', 'IGST', 'Total value'],
     ...hsnRows(invoices).map((h) => [h.hsn, h.uqc, h.rate, Number(h.qty) / 10_000, formatMoney(h.taxable), formatMoney(h.cgst), formatMoney(h.sgst), formatMoney(h.igst), formatMoney(h.value)]),
   ]);

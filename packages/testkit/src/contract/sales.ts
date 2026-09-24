@@ -114,6 +114,20 @@ export function salesContract(label: string, makeWorld: MakeMasterWorld): void {
       expect(book.state(so.id)).toMatchObject({ status: 'open' });
     });
 
+    it('Round Off: a total that is not a whole rupee rounds the customer’s debit, and an extra line to the Round Off ledger balances it', async () => {
+      // 1 × 100.01 = 100.01, rounded down to 100.00 (nearest rupee, half up): the customer owes 100.00, the sales ledger
+      // still keeps the exact 100.01, and the 1-paisa gap is posted to Round Off.
+      const inv = mustOk(await invoice('inv-round', [{ itemId: bolt(), warehouseId: await main(), qty: '1', rate: '100.01' }]));
+      const roundOffLedgerId = (await w.backend.load(w.companyId)).systemLedger('round-off')?.id;
+      const lines = await w.backend.lines({ companyId: w.companyId, voucherId: inv.voucher.id });
+      expect(lines.map((l) => [l.ledgerId, l.side, l.amount])).toEqual([
+        [partyLedgerId(acme(), 'customer'), 'debit', 10000n],
+        [w.uuid('ledger:sales'), 'credit', 10001n],
+        [roundOffLedgerId, 'debit', 1n],
+      ]);
+      expect(lines.reduce((sum, l) => sum + (l.side === 'debit' ? l.amount : -l.amount), 0n)).toBe(0n);
+    });
+
     it('over-delivery is refused on that line with the same code everywhere, and nothing is written', async () => {
       const so = mustOk(await order('so1')).voucher;
       mustOk(await invoice('inv1', [await against(so.id, 'a', '10')]));

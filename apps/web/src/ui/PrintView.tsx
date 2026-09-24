@@ -72,6 +72,8 @@ export interface InvoiceDoc {
   }[];
   readonly subtotal: bigint;
   readonly gst?: { readonly cgst: bigint; readonly sgst: bigint; readonly igst: bigint } | undefined;
+  /** The Round Off adjustment (signed: positive when rounded up) — shown only when nonzero. */
+  readonly roundOff?: bigint | undefined;
   readonly grandTotal: bigint;
   readonly narration?: string | undefined;
 }
@@ -327,6 +329,12 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
               <tr>
                 <td>IGST</td>
                 <td>{formatAmount(doc.gst.igst)}</td>
+              </tr>
+            )}
+            {doc.roundOff !== undefined && doc.roundOff !== 0n && (
+              <tr>
+                <td>Round Off</td>
+                <td>{doc.roundOff < 0n ? '(-) ' : ''}{formatAmount(doc.roundOff < 0n ? -doc.roundOff : doc.roundOff)}</td>
               </tr>
             )}
             <tr class="grand">

@@ -4,7 +4,7 @@ import { type GstBreakdown, canonicalPercent, computeGst, isIntraState, isPercen
 import type { Masters } from '../../masters/masters';
 import { GST_STATE_CODES, stateOfGstin, gstinProblem } from '../../masters/rules';
 import type { SystemLedgerKey } from '../../masters/systemLedgers';
-import { formatMoney, money, parseMoney, type Money } from '../../money';
+import { absMoney, formatMoney, money, parseMoney, type Money } from '../../money';
 import type { PlannedLine } from '../../posting/plan';
 import type { LedgerId } from '../../ids';
 import { type PartyDetails, moneySchema } from '../drafts';
@@ -51,9 +51,35 @@ export function breakdownOf(lines: readonly GstInputLine[], header: Pick<GstHead
   );
 }
 
-/** What an invoice comes to with its GST: the items plus the tax. */
-export const grandTotal = (lines: readonly GstInputLine[], header: Pick<GstHeader, 'cgst' | 'sgst' | 'igst'> | undefined): Money =>
-  money(lines.reduce((t, l) => t + lineValue(l), 0n) + (header ? header.cgst + header.sgst + header.igst : 0n));
+/**
+ * Signed adjustment that rounds `total` to the nearest rupee, half up (Round Off, ADR-0025): +0.37 when
+ * rounded up (₹2549.63), -0.37 when rounded down (₹2549.37), 0 when already whole. The SQL mirror of this
+ * lives in `sync_bill_allocations()` (supabase/migrations/20261005000100_round_off.sql) — keep the two in sync.
+ */
+export function roundOffAmount(total: Money): Money {
+  const cents = ((total % 100n) + 100n) % 100n;
+  if (cents === 0n) return money(0n);
+  return money(cents >= 50n ? 100n - cents : -cents);
+}
+
+export interface GrandTotalParts {
+  /** Items + tax, to the paisa — unrounded. */
+  readonly raw: Money;
+  /** The Round Off ledger's adjustment: raw + roundOff = rounded. */
+  readonly roundOff: Money;
+  /** What the customer/vendor actually owes: raw rounded to the nearest rupee. */
+  readonly rounded: Money;
+}
+
+/** `grandTotal`, split into its unrounded and rounded parts, and the Round Off adjustment between them. */
+export function grandTotalParts(lines: readonly GstInputLine[], header: Pick<GstHeader, 'cgst' | 'sgst' | 'igst'> | undefined): GrandTotalParts {
+  const raw = money(lines.reduce((t, l) => t + lineValue(l), 0n) + (header ? header.cgst + header.sgst + header.igst : 0n));
+  const roundOff = roundOffAmount(raw);
+  return { raw, roundOff, rounded: money(raw + roundOff) };
+}
+
+/** What an invoice comes to with its GST, rounded to the nearest rupee (Round Off): what the customer/vendor is actually debited/credited. */
+export const grandTotal = (lines: readonly GstInputLine[], header: Pick<GstHeader, 'cgst' | 'sgst' | 'igst'> | undefined): Money => grandTotalParts(lines, header).rounded;
 
 /** The GST header of a stored voucher's content (money as a number or as decimal text, whichever the store keeps), or undefined. */
 export function gstOfContent(content: unknown): GstHeader | undefined {
@@ -185,5 +211,27 @@ export function taxPostings(masters: Masters, side: InvoiceSide, header: GstHead
     if (ledger) out.push({ ledgerId: ledger.id as LedgerId, side: side === 'sales' ? 'credit' : 'debit', amount });
   }
   return out;
+}
+
+/**
+ * The Round Off ledger's line, or none when the total is already a whole rupee. Balances the rounded grand
+ * total against the unrounded lines + tax: on a SALE a rounded-UP total needs an extra CREDIT (the customer's
+ * debit grew); on a PURCHASE the same rounded-UP total needs an extra DEBIT (the vendor's credit grew) —
+ * purchase is the mirror image.
+ */
+export function roundOffPosting(masters: Masters, side: InvoiceSide, roundOff: Money): PlannedLine[] {
+  if (roundOff === 0n) return [];
+  const ledger = masters.systemLedger('round-off');
+  if (!ledger) return [];
+  const up = roundOff > 0n;
+  const postSide = side === 'sales' ? (up ? 'credit' : 'debit') : up ? 'debit' : 'credit';
+  return [{ ledgerId: ledger.id as LedgerId, side: postSide, amount: absMoney(roundOff) }];
+}
+
+/** Whether the Round Off ledger an invoice needs (because its total isn't a whole rupee) actually exists. */
+export function roundOffProblems(masters: Masters, roundOff: Money): Issue[] {
+  if (roundOff === 0n) return [];
+  if (masters.systemLedger('round-off')) return [];
+  return [issue(IssueCode.RoundOffInvalid, 'The Round Off ledger is missing from this company: reopen the company to add it', 'gst')];
 }
 
