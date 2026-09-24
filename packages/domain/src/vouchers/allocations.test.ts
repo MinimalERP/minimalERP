@@ -8,7 +8,7 @@ import type { Masters } from '../masters/masters';
 import { gstinCheckChar } from '../masters/rules';
 import { seedCompany } from '../masters/seed';
 import { prepareVoucher } from '../posting/engine';
-import { allocatedLinesOf, openBills } from './allocations';
+import { allocatedLinesOf, billStatusOf, openBills } from './allocations';
 import { defaultVoucherKinds } from './registry';
 import type { Voucher } from './voucher';
 
@@ -180,6 +180,33 @@ describe('open bills', () => {
     s.post('receipt', '2024-05-02', { accountLedgerId: s.L.bank, lines: [{ ledgerId: s.L.abc, amount: '100', allocations: [{ kind: 'new', ref: 'R', amount: '100' }] }] });
     expect(allocatedLinesOf(s.vouchers[0]!, s.m()).map((l) => l.side)).toEqual(['debit']);
     expect(allocatedLinesOf(s.vouchers[1]!, s.m()).map((l) => l.side)).toEqual(['credit']);
+  });
+});
+
+describe('billStatusOf: how much of a bill is settled', () => {
+  const raise = (s: ReturnType<typeof setup>) =>
+    s.post('journal', '2024-04-10', {
+      entries: [{ ledgerId: s.L.abc, side: 'debit', amount: '2000', allocations: [{ kind: 'new', ref: 'INV-9', amount: '2000' }] }, { ledgerId: s.L.rent, side: 'credit', amount: '2000' }],
+    });
+
+  it('nothing settled, part settled, fully settled', () => {
+    const s = setup();
+    raise(s);
+    const bill = () => billStatusOf(s.vouchers[0]!, s.vouchers, s.m());
+    expect(bill()).toEqual({ total: 200000n, settled: 0n, pending: 200000n });
+    s.post('receipt', '2024-04-20', { accountLedgerId: s.L.bank, lines: [{ ledgerId: s.L.abc, amount: '1500', allocations: [{ kind: 'against', ref: 'INV-9', amount: '1500' }] }] });
+    expect(bill()).toEqual({ total: 200000n, settled: 150000n, pending: 50000n });
+    s.post('receipt', '2024-04-25', { accountLedgerId: s.L.bank, lines: [{ ledgerId: s.L.abc, amount: '500', allocations: [{ kind: 'against', ref: 'INV-9', amount: '500' }] }] });
+    expect(bill()).toEqual({ total: 200000n, settled: 200000n, pending: 0n });
+  });
+
+  it('a cancelled receipt counts for nothing; a voucher that raises no bill has no status', () => {
+    const s = setup();
+    raise(s);
+    s.post('receipt', '2024-04-20', { accountLedgerId: s.L.bank, lines: [{ ledgerId: s.L.abc, amount: '1500', allocations: [{ kind: 'against', ref: 'INV-9', amount: '1500' }] }] });
+    s.vouchers[1] = { ...s.vouchers[1]!, status: 'cancelled' };
+    expect(billStatusOf(s.vouchers[0]!, s.vouchers, s.m())?.settled).toBe(0n);
+    expect(billStatusOf(s.vouchers[1]!, s.vouchers, s.m())).toBeUndefined();
   });
 });
 

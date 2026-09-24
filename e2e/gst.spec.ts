@@ -229,6 +229,58 @@ test.describe('TDS deducted by a customer, on the Receipt', () => {
   });
 });
 
+test.describe('what has come in on an invoice, on its totals bar', () => {
+  test('nothing received: the bar is as it was; a part receipt shows Recd and Pending beside the Invoice total', async ({ app }) => {
+    await loadDemo(app);
+    await chargeGst(app);
+    await sale(app, 'kumar', 'machine oil', '10', '250'); // 2,500 + IGST 450 = 2,950
+    await app.keyboard.press('Alt+n');
+    await expect(banner(app)).toContainText('saved.');
+    await app.keyboard.press('Escape');
+
+    await goTo(app, 'v:2950');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toContainText('Display Sales');
+    await expect(app.getByTestId('invoice-total')).toHaveText('2,950.00');
+    await expect(app.getByTestId('bill-settled')).toHaveCount(0); // nothing received yet: nothing said
+    await app.keyboard.press('Escape');
+
+    await app.keyboard.press('F6');
+    await expect(heading(app)).toHaveText('New Receipt Voucher');
+    await app.keyboard.type('hdfc');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('kumar');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('2,000'); // a part payment
+    await app.keyboard.press('Enter');
+    await app.keyboard.press('Enter'); // type: Against ref
+    await app.keyboard.type('sal');
+    await app.keyboard.press('Enter');
+    await expect(app.locator('[data-vf="a0.0.ref"]')).toHaveValue(/^SAL\//);
+    await app.keyboard.press('Enter'); // amount: the 2,000 received
+    await app.keyboard.press('Enter'); // no TDS → next line
+    await app.keyboard.press('Enter'); // no more lines → narration
+    await app.keyboard.press('Alt+n');
+    await expect(banner(app)).toContainText('saved.');
+    await app.keyboard.press('Escape');
+
+    await goTo(app, 'v:2950');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toContainText('Display Sales');
+    await expect(app.getByTestId('bill-settled')).toHaveText('2,000.00');
+    await expect(app.getByTestId('bill-pending')).toHaveText('950.00');
+    // on the same bar as the Invoice total, after it, each figure its own box — nothing drawn over another
+    const summary = app.getByTestId('gst-summary');
+    await expect(summary).toContainText('Invoice total 2,950.00 · Recd 2,000.00 · Pending 950.00');
+    const boxes = await Promise.all(['invoice-total', 'bill-settled', 'bill-pending'].map((id) => app.getByTestId(id).boundingBox()));
+    for (let i = 1; i < boxes.length; i++) {
+      const [a, b] = [boxes[i - 1]!, boxes[i]!];
+      const apart = b.x >= a.x + a.width || b.y >= a.y + a.height; // after it on the line, or on a line below
+      expect(apart).toBe(true);
+    }
+  });
+});
+
 test.describe('input GST on purchases is shown to review, never claimed', () => {
   test('a purchase invoice with GST lands in GSTR-3B under TO REVIEW; the eligible credit stays zero', async ({ app }) => {
     await loadDemo(app);

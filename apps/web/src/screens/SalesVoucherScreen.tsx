@@ -1,5 +1,5 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
-import { type Money, type Voucher, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type Money, type Voucher, billStatusOf, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { Only } from '../shell/Only';
@@ -222,6 +222,22 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
   // ---- the stock and the orders WITHOUT this voucher (what its own lines are checked and shown against), and the engine's verdict ----
   const base = useMemo(() => books.stock.withChange({ remove: [form.id as never] }), [books.stock, form.id]);
   const preview = useMemo(() => previewSales(form, kind, masters, books.stock, books.orders, undefined, books.vouchers), [form, kind, masters, books.stock, books.orders, books.vouchers]);
+  // a saved invoice: how much of it has come in (TDS included) and what is still pending — shown only once something has
+  const bill = useMemo(() => (voucher && p.invoice ? billStatusOf(voucher, books.vouchers, masters) : undefined), [voucher, p.invoice, books.vouchers, masters]);
+  const settledPart =
+    bill && bill.settled > 0n ? (
+      <>
+        {p.side === 'purchase' ? 'Paid' : 'Recd'} <strong data-testid="bill-settled">{formatAmount(bill.settled)}</strong>
+        {' · '}
+        {bill.pending > 0n ? (
+          <>
+            Pending <strong data-testid="bill-pending">{formatAmount(bill.pending)}</strong>
+          </>
+        ) : (
+          <>nothing pending</>
+        )}
+      </>
+    ) : undefined;
   /** The posted voucher as a plain invoice/order document — every amount comes from `preview.amounts`/`total`/`gst`/`grand`,
    * indexed exactly as `previewSales` computed them, so a printed figure can never disagree with what the screen showed. */
   const buildPrintDoc = (): InvoiceDoc | undefined => {
@@ -1403,6 +1419,12 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
             </>
           )}
           {' · '}Invoice total <strong data-testid="invoice-total">{formatAmount(preview.grand)}</strong>
+          {settledPart && <> · {settledPart}</>}
+        </p>
+      )}
+      {!gstOn && settledPart && (
+        <p class="gst-summary" data-testid="bill-status">
+          {settledPart}
         </p>
       )}
 

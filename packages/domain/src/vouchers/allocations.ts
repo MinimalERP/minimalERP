@@ -190,6 +190,21 @@ export function openBills(vouchers: readonly Voucher[], masters: Masters, ledger
 }
 
 /**
+ * How much of a posted invoice's own bill has been settled — received on a sale, paid on a purchase, TDS included, as the Outstanding
+ * report counts it — and what is still pending. Undefined for a voucher that is not posted or raises no bill.
+ */
+export function billStatusOf(voucher: Voucher, vouchers: readonly Voucher[], masters: Masters): { total: Money; settled: Money; pending: Money } | undefined {
+  if (voucher.status !== 'posted') return undefined;
+  const line = allocatedLinesOf(voucher, masters).find((l) => l.allocations.some((a) => a.kind === 'new'));
+  const bill = line?.allocations.find((a) => a.kind === 'new');
+  const ref = bill?.ref?.trim();
+  if (!line || !bill || !ref) return undefined;
+  const open = openBills(vouchers, masters, line.ledgerId).find((b) => b.ref === ref && b.voucherId === voucher.id);
+  const pending = open?.pending ?? money(0n);
+  return { total: money(bill.amount), settled: money(bill.amount - pending), pending };
+}
+
+/**
  * Is this supplier bill number already one of that supplier's bills? A bill is named by the number a new-bill allocation gives it, on any
  * posted voucher (an opening balance, a journal, a purchase invoice). `ignoring` is the voucher being altered, which may keep its own number.
  */

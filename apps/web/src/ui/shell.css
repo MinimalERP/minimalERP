@@ -438,6 +438,8 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 .vc-gst { position: relative; min-width: 0; }
 .gst-summary { margin: var(--sp-2) 0 var(--sp-3); color: var(--c-text-muted); }
 .gst-summary strong { color: var(--c-text); font-family: var(--font-figures); }
+/* one line on a screen wider than a phone (Invoice total · Recd · Pending read across, never broken); a phone may wrap it: no sideways scroll there */
+@media (min-width: 641px) { .gst-summary { white-space: nowrap; } }
 .vhdr.sales-order, .vtot.sales-order, .sales-order .vrow { grid-template-columns: minmax(0, 1fr) 10em 8em 9em 10em 1.8em; }
 .vhdr.sales-order.with-fill, .vtot.sales-order.with-fill, .sales-order.with-fill .vrow { grid-template-columns: minmax(0, 1fr) 10em 8em 9em 10em 6em 1.8em; }
 .vc-order, .vc-due { position: relative; min-width: 0; }
