@@ -1,4 +1,4 @@
-import { type Voucher, MAX_MAIL_ATTACHMENT_BYTES, voucherMail, voucherMailProblems } from '@minimalerp/domain';
+import { type Voucher, MAX_MAIL_FILES, MAX_MAIL_TOTAL_BYTES, isMailFileName, voucherMail, voucherMailProblems } from '@minimalerp/domain';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { Hint } from '../shell/Hint';
@@ -36,7 +36,7 @@ export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: 
   const [picked, setPicked] = useState<readonly string[]>(addresses);
   const [subject, setSubject] = useState(start?.subject ?? '');
   const [body, setBody] = useState(start?.body ?? '');
-  const [attached, setAttached] = useState<Attached | undefined>(undefined);
+  const [attached, setAttached] = useState<readonly Attached[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [warnNoFile, setWarnNoFile] = useState(false);
   const [sending, setSending] = useState(false);
@@ -55,30 +55,37 @@ export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: 
     return true;
   };
 
-  const choose = async (f: File | undefined) => {
-    if (!f) return;
-    if (!/\.pdf$/i.test(f.name) && f.type !== 'application/pdf') return setErrors((e) => ({ ...e, attachment: 'Choose a PDF file' }));
-    if (f.size > MAX_MAIL_ATTACHMENT_BYTES) return setErrors((e) => ({ ...e, attachment: 'The PDF is larger than 10 MB' }));
-    setAttached({ name: f.name, base64: await readBase64(f), size: f.size });
+  /** Adds the chosen files to the ones already attached (the same name again replaces it). */
+  const choose = async (list: FileList | null | undefined) => {
+    const files = [...(list ?? [])];
+    if (files.length === 0) return;
+    const odd = files.find((f) => !isMailFileName(f.name));
+    if (odd) return setErrors((e) => ({ ...e, attachment: `${odd.name}: attach PDF, picture, Excel, Word, CSV or ZIP files` }));
+    const read = await Promise.all(files.map(async (f) => ({ name: f.name, base64: await readBase64(f), size: f.size })));
+    const next = [...attached.filter((a) => !read.some((r) => r.name === a.name)), ...read];
+    if (next.length > MAX_MAIL_FILES) return setErrors((e) => ({ ...e, attachment: `Attach at most ${MAX_MAIL_FILES} files` }));
+    if (next.reduce((t, a) => t + a.size, 0) > MAX_MAIL_TOTAL_BYTES) return setErrors((e) => ({ ...e, attachment: 'The files come to more than 18 MB together' }));
+    setAttached(next);
     setErrors((e) => ({ ...e, attachment: '' }));
     setWarnNoFile(false);
+    if (file.current) file.current.value = ''; // choosing the same file again (after removing it) fires again
   };
 
   const send = async (): Promise<void> => {
     if (sending) return;
-    const attachment = attached ? { name: attached.name, base64: attached.base64 } : undefined;
-    const problems = voucherMailProblems(voucher, books.masters, { to: picked, subject, attachment });
+    const attachments = attached.map((a) => ({ name: a.name, base64: a.base64 }));
+    const problems = voucherMailProblems(voucher, books.masters, { to: picked, subject, attachments });
     if (problems.length > 0) {
       setErrors(Object.fromEntries(problems.map((p) => [p.path ?? 'general', p.message])));
       return;
     }
-    if (!attached && !warnNoFile) {
+    if (attached.length === 0 && !warnNoFile) {
       setWarnNoFile(true); // asked once: a second Send goes without a file
       return;
     }
     setSending(true);
     try {
-      const r = await books.sendVoucherMail({ voucherId: voucher.id, to: picked, subject: subject.trim(), body, ...(attachment ? { attachment } : {}) });
+      const r = await books.sendVoucherMail({ voucherId: voucher.id, to: picked, subject: subject.trim(), body, ...(attachments.length > 0 ? { attachments } : {}) });
       if (r.ok) onDone(r.value.sentTo);
       else setErrors({ general: r.issues.map((i) => i.message).join(' ') });
     } catch {
@@ -162,32 +169,37 @@ export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: 
             </div>
           </div>
           <div class="field-row">
-            <span class="field-label">PDF</span>
+            <span class="field-label">Files</span>
             <div class="field-control">
               <input
                 ref={file}
                 type="file"
-                accept="application/pdf,.pdf"
+                multiple
+                accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.doc,.csv,.zip"
                 hidden
                 data-testid="mail-file"
-                onChange={(e) => void choose((e.target as HTMLInputElement).files?.[0])}
+                onChange={(e) => void choose((e.target as HTMLInputElement).files)}
               />
+              {attached.map((a) => (
+                <div key={a.name} class="mail-file" data-testid="mail-attached">
+                  <span>
+                    {a.name} · {sizeText(a.size)}
+                  </span>
+                  <button type="button" class="line-x" aria-label={`Remove ${a.name}`} title="Remove this file" onClick={() => setAttached(attached.filter((x) => x.name !== a.name))}>
+                    ×
+                  </button>
+                </div>
+              ))}
               <button type="button" class="button" data-mf onClick={() => file.current?.click()}>
-                {attached ? 'Choose another PDF…' : 'Choose PDF…'}
+                {attached.length > 0 ? 'Add more files…' : 'Choose files…'}
               </button>{' '}
-              {attached ? (
-                <span data-testid="mail-attached">
-                  {attached.name} · {sizeText(attached.size)}
-                </span>
-              ) : (
-                <span class="field-hint">Print or save the voucher as PDF (sign it with your DSC if you like), then choose it here.</span>
-              )}
+              {attached.length === 0 && <span class="field-hint">The voucher’s PDF (printed, signed with your DSC if you like) and any supporting documents — several at once.</span>}
               {err('attachment')}
             </div>
           </div>
           {warnNoFile && (
             <p class="notice" role="status" data-testid="mail-no-file">
-              No PDF is attached. Send again to email it without one.
+              Nothing is attached. Send again to email it without a file.
             </p>
           )}
           {errors['general'] && (

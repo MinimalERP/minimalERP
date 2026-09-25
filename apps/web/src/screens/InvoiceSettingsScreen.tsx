@@ -35,7 +35,7 @@ const PRINT_FIELDS: readonly Field[] = [
 
 /** The email each kind of voucher is sent with (Alt+E on it): a subject and a body, blank = the default shown greyed. */
 const MAIL_NAMES: Readonly<Record<MailKind, string>> = { sales: 'Sales Invoice', salesOrder: 'Sales Order', quotation: 'Quotation', purchase: 'Purchase', purchaseOrder: 'Purchase Order' };
-const PLACEHOLDER_HINT = `Leave blank for the default. These are filled from the voucher: ${MAIL_PLACEHOLDERS.map((p) => `{${p}}`).join(' ')}`;
+const PLACEHOLDER_HINT = `Leave blank for the default. These are filled from the voucher: ${MAIL_PLACEHOLDERS.map((p) => `{${p}}`).join(' ')} ({reference} is the customer’s PO). A line whose placeholder is empty is left out.`;
 const MAIL_FIELDS: readonly Field[] = MAIL_KINDS.flatMap((k, i): Field[] => [
   { key: `mail.${k}.subject`, label: `${MAIL_NAMES[k]}: subject`, hint: PLACEHOLDER_HINT, multiline: false, placeholder: DEFAULT_MAIL_TEMPLATES[k].subject, ...(i === 0 ? { heading: 'Email templates' } : {}) },
   { key: `mail.${k}.body`, label: `${MAIL_NAMES[k]}: message`, hint: PLACEHOLDER_HINT, multiline: true, placeholder: DEFAULT_MAIL_TEMPLATES[k].body },

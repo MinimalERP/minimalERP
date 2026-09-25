@@ -4,7 +4,7 @@ import { emailsOf } from '../masters/rules';
 import { formatMoney } from '../money';
 import type { Voucher } from '../vouchers/voucher';
 import { grandTotal, gstOfContent } from '../vouchers/kinds/gstDoc';
-import { MAIL_DOC_NAMES, type MAIL_PLACEHOLDERS, type MailKind, fillTemplate, isMailKind, templateFor } from '../masters/mailTemplates';
+import { MAIL_DOC_NAMES, type MAIL_PLACEHOLDERS, type MailKind, fillMessage, fillTemplate, isMailKind, templateFor } from '../masters/mailTemplates';
 
 const shownDate = (iso: string | undefined): string => (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}` : '');
 
@@ -39,16 +39,22 @@ export function voucherMail(voucher: Voucher, masters: Masters): { kind: MailKin
   const party = partyId ? masters.party(partyId as never) : undefined;
   const t = templateFor(masters.company.emailTemplates, kind);
   const values = mailValues(voucher, masters);
-  return { kind, to: emailsOf(party?.email), subject: fillTemplate(t.subject, values), body: fillTemplate(t.body, values), docName: MAIL_DOC_NAMES[kind] };
+  return { kind, to: emailsOf(party?.email), subject: fillTemplate(t.subject, values), body: fillMessage(t.body, values), docName: MAIL_DOC_NAMES[kind] };
 }
 
-/** The largest PDF a mail carries (Gmail's own limit is 25 MB for the whole message). */
-export const MAX_MAIL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+/** What a mail may carry: up to 10 files, 18 MB together (Gmail's limit is 25 MB for the whole message, and files grow a third on the way). */
+export const MAX_MAIL_FILES = 10;
+export const MAX_MAIL_TOTAL_BYTES = 18 * 1024 * 1024;
+/** The voucher's PDF and the documents that usually go with it: PDFs, pictures, spreadsheets, Word files, CSV and ZIP. */
+export const MAIL_FILE_TYPES = ['pdf', 'jpg', 'jpeg', 'png', 'xlsx', 'xls', 'docx', 'doc', 'csv', 'zip'] as const;
+export const mailFileSize = (base64: string): number => Math.floor((base64.length * 3) / 4);
+const extensionOf = (name: string): string => /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? '';
+export const isMailFileName = (name: string): boolean => (MAIL_FILE_TYPES as readonly string[]).includes(extensionOf(name));
 
 export interface VoucherMailRequest {
   readonly to: readonly string[];
   readonly subject: string;
-  readonly attachment?: { readonly name: string; readonly base64: string } | undefined;
+  readonly attachments?: readonly { readonly name: string; readonly base64: string }[] | undefined;
 }
 
 /**
@@ -65,11 +71,11 @@ export function voucherMailProblems(voucher: Voucher, masters: Masters, req: Vou
   const stranger = req.to.find((e) => !allowed.has(e.trim().toLowerCase()));
   if (stranger !== undefined) problems.push(issue(IssueCode.MailInvalid, `${stranger} is not an address of this voucher’s party`, 'to'));
   if (req.subject.trim() === '') problems.push(issue(IssueCode.MailInvalid, 'Enter a subject', 'subject'));
-  const a = req.attachment;
-  if (a) {
-    if (!/\.pdf$/i.test(a.name)) problems.push(issue(IssueCode.MailInvalid, 'Attach a PDF file', 'attachment'));
-    if (Math.floor((a.base64.length * 3) / 4) > MAX_MAIL_ATTACHMENT_BYTES) problems.push(issue(IssueCode.MailInvalid, 'The PDF is larger than 10 MB', 'attachment'));
-  }
+  const files = req.attachments ?? [];
+  if (files.length > MAX_MAIL_FILES) problems.push(issue(IssueCode.MailInvalid, `Attach at most ${MAX_MAIL_FILES} files`, 'attachment'));
+  const odd = files.find((f) => !isMailFileName(f.name));
+  if (odd) problems.push(issue(IssueCode.MailInvalid, `${odd.name}: attach PDF, picture, Excel, Word, CSV or ZIP files`, 'attachment'));
+  if (files.reduce((t, f) => t + mailFileSize(f.base64), 0) > MAX_MAIL_TOTAL_BYTES) problems.push(issue(IssueCode.MailInvalid, 'The files come to more than 18 MB together', 'attachment'));
   return problems;
 }
 
@@ -104,7 +110,7 @@ export function voucherMailHtml(voucher: Voucher, masters: Masters, message: str
     `<table role="presentation" style="border-collapse:collapse;font-family:${font};font-size:14px">` +
     row('Number', v.number, true) +
     row('Date', v.date) +
-    row('Reference', v.reference) +
+    row(mail?.kind === 'sales' || mail?.kind === 'salesOrder' ? 'Your PO' : 'Reference', v.reference) +
     (priced ? row('Amount', `₹ ${v.amount}`, true) : '') +
     (priced ? row('Due', v.due) : '') +
     `</table></div>` +

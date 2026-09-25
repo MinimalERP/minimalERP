@@ -29,11 +29,11 @@ export const MAIL_DOC_NAMES: Readonly<Record<MailKind, string>> = {
 export const DEFAULT_MAIL_TEMPLATES: Readonly<Record<MailKind, MailTemplate>> = {
   sales: {
     subject: 'Invoice {number} from {company}',
-    body: 'Dear {party},\n\nPlease find attached our invoice {number} dated {date} for ₹{amount}, due on {due}.\n\nThank you,\n{company}',
+    body: 'Dear {party},\n\nPlease find attached our invoice {number} dated {date} for ₹{amount}, due on {due}.\nYour PO: {reference}\n\nThank you,\n{company}',
   },
   salesOrder: {
     subject: 'Order confirmation {number} from {company}',
-    body: 'Dear {party},\n\nThank you for your order {reference}. Please find attached our order confirmation {number} dated {date}.\n\nRegards,\n{company}',
+    body: 'Dear {party},\n\nThank you for your order. Please find attached our order confirmation {number} dated {date}.\nYour PO: {reference}\n\nRegards,\n{company}',
   },
   quotation: {
     subject: 'Quotation {number} from {company}',
@@ -59,5 +59,17 @@ export function templateFor(templates: MailTemplates | undefined, kind: MailKind
 /** `{name}` → its value; a name that is not a placeholder is left as it was typed. */
 export function fillTemplate(text: string, values: Readonly<Record<string, string>>): string {
   return text.replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? (values[name] as string) : whole));
+}
+
+/**
+ * A message filled in: a line that names a placeholder with nothing to say (no PO on this invoice: "Your PO: {reference}") is left out
+ * whole, rather than sent with a blank.
+ */
+export function fillMessage(text: string, values: Readonly<Record<string, string>>): string {
+  return text
+    .split('\n')
+    .filter((line) => ![...line.matchAll(/\{(\w+)\}/g)].some((m) => (m[1] as string) in values && values[m[1] as string] === ''))
+    .map((line) => fillTemplate(line, values))
+    .join('\n');
 }
 

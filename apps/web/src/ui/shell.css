@@ -570,3 +570,4 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 .mail-dialog { width: min(680px, 94vw); }
 .mail-to { display: block; padding: var(--sp-1) 0; font-family: var(--font-figures); }
 .mail-body { font-family: var(--font-figures); min-height: 9em; resize: vertical; }
+.mail-file { display: flex; align-items: center; gap: var(--sp-2); padding: 2px 0; font-family: var(--font-figures); }

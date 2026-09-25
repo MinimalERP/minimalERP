@@ -42,6 +42,14 @@ describe('a voucher’s email', () => {
     expect(mail.subject).toBe('Invoice SAL/26-27/0145 from Micro Components');
     expect(mail.body).toContain('invoice SAL/26-27/0145 dated 25-09-2026 for ₹550.00, due on 25-10-2026');
     expect(mail.body.startsWith('Dear Acme Ltd,')).toBe(true);
+    expect(mail.body).toContain('Your PO: PO-77');
+  });
+
+  it('a line whose placeholder is empty is left out (an invoice without a PO says nothing about one)', () => {
+    const { masters, partyId } = company();
+    const mail = voucherMail(voucherOf(masters, 'sales', { partyId, dueDate: '2026-10-25', lines: [{ qty: '1', rate: '5' }] }), masters)!;
+    expect(mail.body).not.toContain('PO');
+    expect(mail.body).toContain('due on 25-10-2026');
   });
 
   it('uses the company’s own template for that kind, and the default for a part left blank', () => {

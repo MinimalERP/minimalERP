@@ -32,6 +32,7 @@ const ask = async (handler: ReturnType<typeof createPostingHandler>, userId: str
   return { text: await res.clone().text(), json: (await res.json()) as { ok: boolean; value?: { sentTo: string[] }; issues?: { code: string; message: string }[] } };
 };
 const pdf = { name: 'QT-0001-signed.pdf', base64: Buffer.from('%PDF-1.4 signed').toString('base64') };
+const sheet = { name: 'rates.xlsx', base64: Buffer.from('PK sheet').toString('base64') };
 
 beforeAll(async () => {
   db = await createTestDb(inject('pgPort'));
@@ -63,10 +64,10 @@ afterAll(async () => {
 describe('emailing a voucher to its party', () => {
   it('goes to the party’s own addresses through the Gmail script, in the voucher’s style, with the PDF — and is audited', async () => {
     const sent: OutgoingMail[] = [];
-    const r = await ask(handlerWith(async (m) => (sent.push(m), { ok: true })), w.ownerId, { to: ['sales@acme.in', 'ACCOUNTS@acme.in'], attachment: pdf });
+    const r = await ask(handlerWith(async (m) => (sent.push(m), { ok: true })), w.ownerId, { to: ['sales@acme.in', 'ACCOUNTS@acme.in'], attachments: [pdf, sheet] });
     expect(r.json).toEqual({ ok: true, value: { sentTo: ['sales@acme.in', 'ACCOUNTS@acme.in'] } });
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ to: ['sales@acme.in', 'ACCOUNTS@acme.in'], subject: 'Quotation', text: 'Dear Acme,\nPlease find it attached.', attachment: pdf });
+    expect(sent[0]).toMatchObject({ to: ['sales@acme.in', 'ACCOUNTS@acme.in'], subject: 'Quotation', text: 'Dear Acme,\nPlease find it attached.', attachments: [pdf, sheet] });
     expect(sent[0]!.html).toContain('Consolas'); // the typewriter font of the print
     expect(sent[0]!.html).toMatch(/QT\/[^<]*0001/); // the document summary, from the voucher itself
     expect(sent[0]!.html).toContain('Please find it attached.');
@@ -81,6 +82,14 @@ describe('emailing a voucher to its party', () => {
     expect(r.json.issues?.map((i) => i.code)).toContain('MAIL_INVALID');
     expect(r.json.issues?.[0]?.message).toContain('buyer@other.in');
     expect(sent).toEqual([]);
+  });
+
+  it('refuses a file type that is not a document (an .exe), and more than 10 files', async () => {
+    const send = handlerWith(async () => ({ ok: true }));
+    const exe = await ask(send, w.ownerId, { to: ['sales@acme.in'], attachments: [pdf, { name: 'setup.exe', base64: 'AA==' }] });
+    expect(exe.json.issues?.[0]?.message).toContain('setup.exe');
+    const many = await ask(send, w.ownerId, { to: ['sales@acme.in'], attachments: Array.from({ length: 11 }, (_, i) => ({ ...pdf, name: `p${i}.pdf` })) });
+    expect(many.json.ok).toBe(false);
   });
 
   it('refuses someone outside the company', async () => {

@@ -106,7 +106,7 @@ const body = z.discriminatedUnion('action', [
     to: z.array(z.string().max(200)).max(20),
     subject: z.string().max(200),
     body: z.string().max(8000),
-    attachment: z.object({ name: z.string().min(1).max(200), base64: z.string().max(15_000_000) }).optional(),
+    attachments: z.array(z.object({ name: z.string().min(1).max(200), base64: z.string().max(26_000_000) })).max(10).optional(),
   }),
   z.object({ action: z.literal('inbox'), companyId }),
   // the daily report: for the company given, or the caller's only one (the add-on's sign-in); `asOn` defaults to today in India
@@ -134,7 +134,7 @@ export interface OutgoingMail {
   readonly text: string;
   readonly html: string;
   readonly fromName: string;
-  readonly attachment?: { readonly name: string; readonly base64: string } | undefined;
+  readonly attachments?: readonly { readonly name: string; readonly base64: string }[] | undefined;
 }
 export type MailResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
@@ -305,7 +305,7 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
           const [voucher, masters] = await Promise.all([gateway.get(id, cmd.voucherId as never), gateway.load(id)]);
           if (!voucher) return json(200, fail(issue(IssueCode.VoucherNotFound, 'That voucher does not exist')));
           const to = cmd.to.map((e) => e.trim());
-          const problems = voucherMailProblems(voucher, masters, { to, subject: cmd.subject, attachment: cmd.attachment });
+          const problems = voucherMailProblems(voucher, masters, { to, subject: cmd.subject, attachments: cmd.attachments });
           if (problems.length > 0) return json(200, { ok: false, issues: problems });
           if (!deps.sendMail) return json(200, fail(issue(IssueCode.MailNotSetUp, 'Emailing is not set up yet: deploy the Gmail script and set MAIL_SCRIPT_URL and MAIL_SCRIPT_SECRET')));
           const sent = await deps.sendMail({
@@ -314,7 +314,7 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
             text: cmd.body,
             html: voucherMailHtml(voucher, masters, cmd.body),
             fromName: masters.company.name,
-            ...(cmd.attachment ? { attachment: cmd.attachment } : {}),
+            ...(cmd.attachments?.length ? { attachments: cmd.attachments } : {}),
           });
           if (!sent.ok) return json(200, fail(issue(IssueCode.MailFailed, `Gmail did not send it: ${sent.message}`)));
           await gateway.recordMail(id, voucher.id, to);

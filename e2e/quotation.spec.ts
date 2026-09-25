@@ -100,8 +100,14 @@ test.describe('emailing a voucher to its party', () => {
     await expect(dialog.getByLabel('Subject')).toHaveValue(/^Quotation QT\/.+ from Demo Manufacturing Pvt Ltd$/);
     await expect(dialog.getByLabel('Message')).toHaveValue(/^Dear ABC Industries,/);
 
-    await app.getByTestId('mail-file').setInputFiles({ name: 'QT-signed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 signed') });
-    await expect(app.getByTestId('mail-attached')).toContainText('QT-signed.pdf');
+    await app.getByTestId('mail-file').setInputFiles([
+      { name: 'QT-signed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 signed') },
+      { name: 'drawing.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 drawing') },
+    ]);
+    await app.getByTestId('mail-file').setInputFiles({ name: 'rates.xlsx', mimeType: 'application/vnd.ms-excel', buffer: Buffer.from('PK') }); // added to the others
+    await expect(app.getByTestId('mail-attached')).toHaveCount(3);
+    await dialog.getByRole('button', { name: 'Remove drawing.pdf' }).click();
+    await expect(app.getByTestId('mail-attached')).toHaveText([/QT-signed\.pdf/, /rates\.xlsx/]);
     await app.getByTestId('mail-send').click();
     // these books live in the browser: sending needs the online books (and your Gmail script)
     await expect(dialog.getByRole('alert')).toContainText('Emailing needs the online books');
