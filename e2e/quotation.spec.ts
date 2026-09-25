@@ -29,6 +29,10 @@ test.describe('the Quotation window', () => {
     await openQuotations(app);
     await panel(app).locator('[data-command="list.new.quotation"]').click();
     await expect(heading(app)).toHaveText('New Quotation');
+    // the number it will get, greyed beside "assigned on save" (the demo has no quotation yet)
+    await expect(app.getByTestId('voucher-number')).toHaveText('assigned on save');
+    await expect(app.getByTestId('next-number')).toHaveText(/^\(QT\/.+0001\)$/);
+    const hinted = (await app.getByTestId('next-number').textContent())!.slice(1, -1);
     // Particulars, Qty, Rate (GST %), Amount — no due date anywhere
     await expect(app.locator('.vhdr .vc-due')).toHaveCount(0);
     await expect(app.locator('[data-vf="due"]')).toHaveCount(0);
@@ -51,6 +55,8 @@ test.describe('the Quotation window', () => {
     // open it: it can still be altered, and a sales order made from it
     await app.keyboard.press('Enter');
     await expect(heading(app)).toContainText('Display Quotation QT/');
+    await expect(app.getByTestId('voucher-number')).toHaveText(hinted); // it got the number it said it would
+    await expect(app.getByTestId('next-number')).toHaveCount(0); // a saved voucher shows only its own number
     await expect(panel(app).locator('[data-command="master.alter"]')).toBeEnabled();
     await app.keyboard.press('Alt+Shift+O');
     await expect(heading(app)).toHaveText('New Sales Order');

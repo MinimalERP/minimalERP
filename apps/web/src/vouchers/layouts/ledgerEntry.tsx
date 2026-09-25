@@ -47,7 +47,7 @@ import {
   VoucherWorksheetHead,
   VoucherWorksheetSection,
 } from './worksheetChrome';
-import { MAX_OPTIONS, PickerList, useFieldFocus, useFieldIssues, usePickerState, useVoucherSave } from './worksheetKit';
+import { MAX_OPTIONS, PickerList, useFieldFocus, useFieldIssues, usePickerState, useVoucherSave, useNextNumber } from './worksheetKit';
 
 /**
  * The accounting vouchers (Contra, Payment, Receipt, Journal): the single-entry and double-entry layouts on the shared worksheet.
@@ -662,6 +662,7 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
   const chord = (id: string) => keymapStore.keymap.chordsFor(id)[0];
   const cls = (base: string, key: string, invalid: boolean) => `${base}${isFocus(key) ? ' active' : ''}${invalid ? ' invalid' : ''}`;
   const numberText = voucher ? voucher.number : 'assigned on save';
+  const nextNumber = useNextNumber(books, form.typeId, form.date, mode === 'create');
   const title = mode === 'create' ? `New ${type?.name ?? ''} Voucher` : `${mode === 'alter' ? 'Alter' : 'Display'} ${type?.name ?? ''} ${voucher?.number ?? ''}`;
   const cancelled = voucher?.status === 'cancelled';
   const accountBalance = form.accountId ? books.balanceOf(form.accountId) : undefined;
@@ -976,6 +977,7 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
         <VoucherWorksheetHead
           typeName={type?.name}
           numberText={numberText}
+          nextNumber={nextNumber}
           formDate={form.date}
           dateText={dateText}
           readOnly={readOnly}

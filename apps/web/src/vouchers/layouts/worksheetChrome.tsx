@@ -128,6 +128,8 @@ function VoucherWorksheetNotices(props: {
 export function VoucherWorksheetHead(props: {
   readonly typeName: string | undefined;
   readonly numberText: string;
+  /** A new voucher: the number it will probably get, shown greyed (see useNextNumber). */
+  readonly nextNumber?: string | undefined;
   readonly formDate: string;
   readonly dateText: string;
   readonly readOnly: boolean;
@@ -137,7 +139,7 @@ export function VoucherWorksheetHead(props: {
   readonly onInputDate: (text: string) => void;
   readonly dateError?: ComponentChildren;
 }): JSX.Element {
-  const { typeName, numberText, formDate, dateText, readOnly, dateActive, dateInvalid, onFocusDate, onInputDate, dateError } = props;
+  const { typeName, numberText, nextNumber, formDate, dateText, readOnly, dateActive, dateInvalid, onFocusDate, onInputDate, dateError } = props;
   return (
     <div class="vhead">
       <span class="vtag" data-testid="voucher-type-tag">
@@ -145,6 +147,11 @@ export function VoucherWorksheetHead(props: {
       </span>
       <span class="vno">
         No. <strong data-testid="voucher-number">{numberText}</strong>
+        {nextNumber && (
+          <span class="vno-next" data-testid="next-number" title="The number this voucher will probably get — someone else may save one first">
+            ({nextNumber})
+          </span>
+        )}
       </span>
       <span class="vspacer" />
       <span class="vday" data-testid="voucher-weekday">

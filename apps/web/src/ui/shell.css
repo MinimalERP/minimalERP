@@ -391,6 +391,7 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 .vtag { background: var(--c-accent); color: var(--c-accent-text); font-weight: 700; padding: 0 var(--sp-4); min-width: 8em; text-align: center; line-height: var(--row-h); }
 .vno { color: var(--c-text-muted); }
 .vno strong { color: var(--c-text); margin-left: var(--sp-2); }
+.vno-next { color: var(--c-text-muted); margin-left: var(--sp-2); font-family: var(--font-figures); }
 .vspacer { flex: 1; }
 .vday { color: var(--c-text-muted); }
 .vdate {

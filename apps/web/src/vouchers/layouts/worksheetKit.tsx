@@ -1,10 +1,11 @@
 import { type EntityDoc, searchEntities } from '@minimalerp/command';
-import type { Voucher } from '@minimalerp/domain';
+import { type Voucher, formatVoucherNumber } from '@minimalerp/domain';
 import type { ComponentChildren, RefObject } from 'preact';
-import { useLayoutEffect, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { useServices } from '../../shell/hooks';
 import type { VoucherMode } from '../../shell/router';
+import { fyOf } from '../entryHelpers';
 import { Kbd } from '../../ui/Kbd';
 import { ListView } from '../../ui/ListView';
 import type { VoucherBanner } from './worksheetChrome';
@@ -227,6 +228,33 @@ export function PickerList<T extends { readonly id: string; readonly name: strin
       {props.hint}
     </div>
   );
+}
+
+// ---- the number a new voucher will get ----
+
+/**
+ * The number the next voucher of this type saved on this date would get (its series' counter, formatted the way the server formats it) —
+ * shown greyed beside "assigned on save" as a hint only: someone else may save one first. Asked again after each save.
+ */
+export function useNextNumber(books: Books, typeId: string, date: string, enabled: boolean): string | undefined {
+  const masters = books.masters;
+  const year = fyOf(masters, date);
+  const series = enabled && year ? masters.series.find((s) => s.voucherTypeId === typeId && s.financialYearId === year.id) : undefined;
+  const [next, setNext] = useState<{ readonly seriesId: string; readonly text: string } | undefined>(undefined);
+  useEffect(() => {
+    if (!series) return;
+    let current = true;
+    books
+      .seriesStatus(series.id)
+      .then((r) => {
+        if (current && r.ok) setNext({ seriesId: series.id, text: formatVoucherNumber(series, r.value.nextValue) });
+      })
+      .catch(() => undefined); // a hint: without it the window works as before
+    return () => {
+      current = false;
+    };
+  }, [series, books.vouchers.length]);
+  return series && next?.seriesId === series.id ? next.text : undefined;
 }
 
 // ---- saving ----

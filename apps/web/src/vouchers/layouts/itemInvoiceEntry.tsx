@@ -56,7 +56,7 @@ import {
   VoucherWorksheetHead,
   VoucherWorksheetSection,
 } from './worksheetChrome';
-import { Cell, type CellHost, PickerList, focusKeyOf, matchOptions, useFieldFocus, useFieldIssues, usePickerState, useVoucherSave } from './worksheetKit';
+import { Cell, type CellHost, PickerList, focusKeyOf, matchOptions, useFieldFocus, useFieldIssues, usePickerState, useVoucherSave, useNextNumber } from './worksheetKit';
 
 const SCOPE = 'screen:voucher';
 
@@ -801,6 +801,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const cls = (b: string, key: string) => `${b}${isFocus(key) ? ' active' : ''}${issueAt(key) ? ' invalid' : ''}`;
   const host: CellHost = { readOnly, isFocus, go, cls };
   const numberText = voucher ? voucher.number : 'assigned on save';
+  const nextNumber = useNextNumber(books, form.typeId, form.date, mode === 'create');
   const shortName = p.invoice ? `${type?.name ?? cap(p.side)} Voucher` : (type?.name ?? `${cap(p.side)} Order`);
   const title = mode === 'create' ? `New ${shortName}` : `${mode === 'alter' ? 'Alter' : 'Display'} ${type?.name ?? ''} ${voucher?.number ?? ''}`;
   const cancelled = voucher?.status === 'cancelled';
@@ -1117,6 +1118,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         <VoucherWorksheetHead
           typeName={type?.name}
           numberText={numberText}
+          nextNumber={nextNumber}
           formDate={form.date}
           dateText={dateText}
           readOnly={readOnly}
