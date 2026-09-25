@@ -1,18 +1,17 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
 import { type Voucher, formatRate, parseQty, parseRate, rateOf, valueOf } from '@minimalerp/domain';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import type { Books } from '../books/books';
-import { Only } from '../shell/Only';
-import { WindowClose } from '../shell/WindowClose';
-import { useIdleOnBlankClick } from '../shell/idle';
-import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
-import type { ScreenRef, VoucherMode } from '../shell/router';
-import { useLeaveGuard } from '../shell/useLeaveGuard';
-import { Kbd } from '../ui/Kbd';
-import { ListView } from '../ui/ListView';
-import { godownWithStock, hiddenItemReason } from '../vouchers/salesModel';
-import { defaultDate, fyOf } from '../vouchers/entryHelpers';
-import { formatAmount, formatDate, formatQuantity, parseDateInput } from '../vouchers/format';
+import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import type { Books } from '../../books/books';
+import { Only } from '../../shell/Only';
+import { useIdleOnBlankClick } from '../../shell/idle';
+import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../../shell/hooks';
+import type { ScreenRef, VoucherMode } from '../../shell/router';
+import { useLeaveGuard } from '../../shell/useLeaveGuard';
+import { Kbd } from '../../ui/Kbd';
+import { ListView } from '../../ui/ListView';
+import { godownWithStock, hiddenItemReason } from '../salesModel';
+import { defaultDate } from '../entryHelpers';
+import { formatAmount, formatDate, formatQuantity } from '../format';
 import {
   type LineValue,
   type StockForm,
@@ -24,9 +23,16 @@ import {
   previewStock,
   stockFormFromVoucher,
   trimPlaces,
-} from '../vouchers/stockModel';
-import type { CreatedMaster } from './MasterFormScreen';
-import type { StockDoc } from '../ui/PrintView';
+} from '../stockModel';
+import type { CreatedMaster } from '../../screens/MasterFormScreen';
+import type { StockDoc } from '../../ui/PrintView';
+import {
+  tryCommitVoucherDate,
+  useVoucherDraftPersistence,
+  VoucherNarrationRow,
+  VoucherWorksheetHead,
+  VoucherWorksheetSection,
+} from './worksheetChrome';
 
 const SCOPE = 'screen:voucher';
 const MAX_OPTIONS = 8;
@@ -96,7 +102,6 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
   const rootRef = useRef<HTMLDivElement>(null);
   /** Clicking blank space deactivates the active field until a field is clicked or a key pressed. */
   const { idle, wake } = useIdleOnBlankClick(rootRef);
-  const draftReady = useRef(mode !== 'create');
 
   const type = masters.voucherType(form.typeId as never);
   const fields = fieldsOf(form);
@@ -107,39 +112,21 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
   const update = (fn: (f: StockForm) => StockForm) => setFormState(fn(fresh()));
   const setLine = (i: number, patch: Partial<StockLineForm>) => update((f) => ({ ...f, lines: f.lines.map((l, k) => (k === i ? { ...l, ...patch } : l)) }));
 
-  // ---- drafts: a half-entered stock journal survives a reload ----
   const draftKey = `stock:${form.typeId}`;
-
-  // Leaving the window — Esc, ×, saving, another screen on top — leaves nothing behind: the next New voucher opens clean. (A page reload never runs
-  // this, so a half-entered document still survives a reload.)
-  const draftKeyNow = useRef(draftKey);
-  draftKeyNow.current = draftKey;
-  useEffect(
-    () => () => {
-      if (mode === 'create') void books.clearDraft(draftKeyNow.current);
-    },
-    [],
-  );
-  useEffect(() => {
-    if (mode !== 'create' || frame.state.has('form-loaded')) {
-      draftReady.current = true;
-      return;
-    }
-    frame.state.set('form-loaded', true);
-    void books.loadDraft(draftKey).then((saved) => {
-      const d = saved as StockForm | undefined;
-      if (d && isBlankStock(fresh()) && d.typeId === typeId && Array.isArray(d.lines)) {
-        setFormState(d);
-        setDateText(formatDate(d.date));
-      }
-      draftReady.current = true;
-    });
-  }, []);
-  useEffect(() => {
-    if (mode !== 'create' || !draftReady.current) return;
-    const t = setTimeout(() => void (isBlankStock(form) ? books.clearDraft(draftKey) : books.saveDraft(draftKey, form)), 350);
-    return () => clearTimeout(t);
-  }, [form]);
+  useVoucherDraftPersistence({
+    enabled: mode === 'create',
+    frame,
+    draftKey,
+    books,
+    form,
+    typeId,
+    isBlank: isBlankStock,
+    fresh,
+    setForm: setFormState,
+    setDateText,
+    formDate: (f) => f.date,
+    acceptLoaded: (d) => d.typeId === typeId && Array.isArray(d.lines),
+  });
 
   // ---- the stock without this voucher (what its own lines are checked and shown against), and the engine's verdict ----
   const base = useMemo(() => books.stock.withChange({ remove: [form.id as never] }), [books.stock, form.id]);
@@ -264,14 +251,13 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
   const settle = (): boolean => {
     if (readOnly) return true;
     if (current.kind === 'date') {
-      const y = fyOf(masters, fresh().date);
-      const parsed = parseDateInput(dateText, { start: y?.start ?? fresh().date, end: y?.end ?? fresh().date, base: fresh().date });
-      if (!parsed) {
-        setFieldErrors((e) => ({ ...e, date: 'That is not a date — try 10, 10-5 or 10-5-24' }));
+      const committed = tryCommitVoucherDate(masters, dateText, fresh().date);
+      if (!committed.ok) {
+        setFieldErrors((e) => ({ ...e, date: committed.message }));
         return false;
       }
-      update((f) => ({ ...f, date: parsed }));
-      setDateText(formatDate(parsed));
+      update((f) => ({ ...f, date: committed.date }));
+      setDateText(formatDate(committed.date));
       setFieldErrors((e) => ({ ...e, date: '' }));
       return true;
     }
@@ -545,8 +531,6 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
   const numberText = voucher ? voucher.number : 'assigned on save';
   const title = mode === 'create' ? `New ${type?.name ?? 'Stock Journal'} Voucher` : `${mode === 'alter' ? 'Alter' : 'Display'} ${type?.name ?? ''} ${voucher?.number ?? ''}`;
   const cancelled = voucher?.status === 'cancelled';
-  const fullDay = form.date ? new Date(`${form.date}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'UTC' }) : '';
-
   const pickerList = (key: string) =>
     isFocus(key) && pickerOn && !pickerDismissed && hits.length > 0 ? (
       <div class="picker" data-testid="picker">
@@ -731,53 +715,53 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
   );
 
   return (
-    <section class="screen voucher-screen" aria-labelledby="voucher-title" data-testid="voucher-form" ref={rootRef as never}>
-      <h1 id="voucher-title" class="vtitle">
-        {title}
-        {cancelled && <span class="badge">Cancelled</span>}
-      </h1>
-      <WindowClose />
-
-      {banner && (
-        <p class={banner.tone === 'error' ? 'notice error' : banner.tone === 'note' ? 'notice capture' : 'notice'} role={banner.tone === 'error' ? 'alert' : 'status'} data-testid="voucher-banner">
-          {banner.text}
-        </p>
-      )}
-      {general.length > 0 && (
-        <p class="notice error" role="alert">
-          {general.join(' ')}
-        </p>
-      )}
-      {confirm === 'cancel' && (
-        <p class="notice error" role="alert" data-testid="cancel-confirm">
-          Cancel voucher {voucher?.number}? It keeps its number but leaves the books. Press <Kbd chord={chord('voucher.accept') ?? 'Ctrl+A'} /> to confirm, <Kbd chord={chord('app.back') ?? 'Esc'} /> to keep it.
-        </p>
-      )}
-
-      <div class="vhead">
-        <span class="vtag" data-testid="voucher-type-tag">{type?.name}</span>
-        <span class="vno">
-          No. <strong data-testid="voucher-number">{numberText}</strong>
-        </span>
-        <span class="vspacer" />
-        <span class="vday" data-testid="voucher-weekday">{fullDay}</span>
-        <input
-          data-vf="date"
-          class={cls('vdate', 'date')}
-          type="text"
-          aria-label="Voucher date"
+    <VoucherWorksheetSection
+      rootRef={rootRef}
+      title={
+        <>
+          {title}
+          {cancelled && <span class="badge">Cancelled</span>}
+        </>
+      }
+      banner={banner}
+      general={general}
+      notices={
+        confirm === 'cancel' ? (
+          <p class="notice error" role="alert" data-testid="cancel-confirm">
+            Cancel voucher {voucher?.number}? It keeps its number but leaves the books. Press <Kbd chord={chord('voucher.accept') ?? 'Ctrl+A'} /> to confirm, <Kbd chord={chord('app.back') ?? 'Esc'} /> to keep it.
+          </p>
+        ) : undefined
+      }
+      head={
+        <VoucherWorksheetHead
+          typeName={type?.name}
+          numberText={numberText}
+          formDate={form.date}
+          dateText={dateText}
           readOnly={readOnly}
-          autocomplete="off"
-          value={dateText}
-          onFocus={() => !isFocus('date') && go('date')}
-          onInput={(e) => {
-            setDateText((e.target as HTMLInputElement).value);
+          dateActive={isFocus('date')}
+          onFocusDate={() => !isFocus('date') && go('date')}
+          onInputDate={(text) => {
+            setDateText(text);
             setFieldErrors((x) => ({ ...x, date: '' }));
           }}
+          dateError={errorOf('date')}
         />
-        {errorOf('date')}
-      </div>
-
+      }
+      footer={
+        <>
+          <VoucherNarrationRow
+            active={isFocus('narration')}
+            readOnly={readOnly}
+            value={form.narration}
+            onFocus={() => !isFocus('narration') && go('narration')}
+            onInput={(text) => update((f) => ({ ...f, narration: text }))}
+          />
+          {modeHandlers}
+          {leave.dialog}
+        </>
+      }
+    >
       <div class="vgrid" role="group" aria-label="Entries">
         <div class="vhdr stock-row">
           <span class="vc-side">&nbsp;</span>
@@ -803,26 +787,6 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
           <span class="vc-x" />
         </div>
       </div>
-
-      <div class={isFocus('narration') ? 'vnarr active' : 'vnarr'}>
-        <label class="vlabel" for="v-narration">
-          Narration:
-        </label>
-        <input
-          id="v-narration"
-          data-vf="narration"
-          class={cls('vcell', 'narration')}
-          type="text"
-          readOnly={readOnly}
-          autocomplete="off"
-          value={form.narration}
-          onFocus={() => !isFocus('narration') && go('narration')}
-          onInput={(e) => update((f) => ({ ...f, narration: (e.target as HTMLInputElement).value }))}
-        />
-      </div>
-
-      {modeHandlers}
-      {leave.dialog}
-    </section>
+    </VoucherWorksheetSection>
   );
 }

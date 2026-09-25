@@ -62,17 +62,17 @@ export interface Ledger {
  * one of these — "Sales-Export" is a VoucherType row with baseKind 'sales', not new code.
  * Later phases add 'sales', 'purchase', 'credit-note', … here and register a VoucherKind for each.
  */
-export type BaseKind = 'contra' | 'payment' | 'receipt' | 'journal' | 'opening' | 'stockJournal' | 'stockOpening' | 'sales' | 'salesOrder' | 'purchase' | 'purchaseOrder';
+export type BaseKind = 'contra' | 'payment' | 'receipt' | 'journal' | 'opening' | 'stockJournal' | 'stockOpening' | 'sales' | 'salesOrder' | 'quotation' | 'purchase' | 'purchaseOrder';
 
 /** The kinds a person can create a voucher type for. 'opening' and 'stockOpening' are system kinds (opening balances, opening stock). */
 export type UserBaseKind = Exclude<BaseKind, 'opening' | 'stockOpening'>;
-export const USER_BASE_KINDS: readonly UserBaseKind[] = ['contra', 'payment', 'receipt', 'journal', 'stockJournal', 'sales', 'salesOrder', 'purchase', 'purchaseOrder'];
+export const USER_BASE_KINDS: readonly UserBaseKind[] = ['contra', 'payment', 'receipt', 'journal', 'stockJournal', 'sales', 'salesOrder', 'quotation', 'purchase', 'purchaseOrder'];
 
 /** Kinds that move stock and post NOTHING to the accounts. */
 export const STOCK_ONLY_KINDS: readonly BaseKind[] = ['stockJournal', 'stockOpening'];
 
 /** Kinds that are documents only: they post NOTHING to the accounts or the stock (a Sales or Purchase Order records what was agreed, not what happened). */
-export const DOCUMENT_KINDS: readonly BaseKind[] = ['salesOrder', 'purchaseOrder'];
+export const DOCUMENT_KINDS: readonly BaseKind[] = ['salesOrder', 'purchaseOrder', 'quotation'];
 
 export interface VoucherType {
   readonly id: VoucherTypeId;

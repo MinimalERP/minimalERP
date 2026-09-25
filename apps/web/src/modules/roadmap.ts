@@ -17,6 +17,8 @@ export const PHASES: Readonly<Record<number, string>> = {
   6: 'Books & reports',
   7: 'Inventory, Sales & Purchase, GST',
   8: 'Orders & documents',
+  9: 'Production readiness',
+  10: 'Manufacturing (BOM, production, job work)',
 };
 
 const planned = (
@@ -35,10 +37,12 @@ const planned = (
   ...extra,
 });
 
-// Contra, Payment, Receipt, Journal, Sales, Sales Order and the Stock Journal are real now (modules/vouchers.ts).
+// Contra, Payment, Receipt, Journal, Sales, Sales Order, Purchase, Stock Journal are real now (modules/vouchers.ts).
 const vouchers: Command<AppContext>[] = [
   planned('voucher.new.creditNote', 'New Credit Note', 'Voucher', 7, { keywords: ['sales return'] }),
   planned('voucher.new.debitNote', 'New Debit Note', 'Voucher', 7, { keywords: ['purchase return'] }),
+  planned('voucher.new.deliveryNote', 'New Delivery Note', 'Voucher', 8, { keywords: ['delivery challan', 'dispatch', 'DC'] }),
+  planned('voucher.new.receiptNote', 'New Receipt Note', 'Voucher', 8, { keywords: ['goods receipt', 'GRN'] }),
 ];
 
 // Every report is real now (modules/reports.ts), GST reports included; GST itself is a switch on the Company (Charge GST) with rates in the GST Rate master.
@@ -51,7 +55,9 @@ const bindings: DefaultBinding[] = [];
 // Where the planned vouchers sit in the grouped Transactions screen (the real ones are placed by modules/vouchers.ts).
 const VOUCHER_GROUPS: Readonly<Record<string, { group: string; order: number }>> = {
   'voucher.new.creditNote': { group: 'Sales', order: 3 },
+  'voucher.new.deliveryNote': { group: 'Sales', order: 4 },
   'voucher.new.debitNote': { group: 'Purchase', order: 12 },
+  'voucher.new.receiptNote': { group: 'Purchase', order: 13 },
 };
 
 const entry = (section: string, commandId: string, order: number): MenuEntry => ({ section, commandId, order });

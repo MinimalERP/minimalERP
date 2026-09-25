@@ -1,6 +1,6 @@
 import { type Command, type DefaultBinding, type MenuEntry, type ModuleManifest, searchEntities } from '@minimalerp/command';
 import { voucherDocsOf } from '../books/voucherDocs';
-import { ENTRY_KINDS, type EntryKind, KIND_TITLES, SALES_KINDS, SALES_TITLES, type SalesKind, isSalesKind } from '../vouchers/kinds';
+import { ENTRY_KINDS, type EntryKind, KIND_TITLES, QUOTATION_KIND, SALES_KINDS, SALES_TITLES, type SalesKind, isSalesKind } from '../vouchers/kinds';
 import type { AppContext } from '../shell/services';
 
 /**
@@ -53,13 +53,22 @@ const salesCommands: Command<AppContext>[] = SALES_KINDS.map((kind) => ({
   run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: kind }),
 }));
 
+const quotationCommand: Command<AppContext> = {
+  id: 'voucher.new.quotation',
+  title: 'New Quotation',
+  category: 'Voucher',
+  keywords: ['quote', 'estimate', 'quotation', 'proposal'],
+  description: 'What you offered a customer — items, quantities and rates — posts nothing to the accounts or the stock',
+  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: QUOTATION_KIND }),
+};
+
 // The Stock Journal moves stock, not money: it is opened from anywhere (F10) and has its own columns, so it is not one of the keys that switch type inside an accounting voucher.
 // One LIST per voucher type (Transactions › Sales › Sales Vouchers): every voucher of that type, with New. The window it opens closes back here.
-const LIST_KINDS = [...ENTRY_KINDS, ...SALES_KINDS, 'stockJournal'] as const;
+const LIST_KINDS = [...ENTRY_KINDS, ...SALES_KINDS, QUOTATION_KIND, 'stockJournal'] as const;
 type ListKind = (typeof LIST_KINDS)[number];
-const NEW_TITLES: Readonly<Record<ListKind, string>> = { contra: 'Contra Voucher', payment: 'Payment Voucher', receipt: 'Receipt Voucher', journal: 'Journal Voucher', sales: 'Sales Voucher', salesOrder: 'Sales Order', purchase: 'Purchase Voucher', purchaseOrder: 'Purchase Order', stockJournal: 'Stock Journal' };
-const LIST_TITLES: Readonly<Record<ListKind, string>> = { contra: 'Contra Vouchers', payment: 'Payment Vouchers', receipt: 'Receipt Vouchers', journal: 'Journal Vouchers', sales: 'Sales Vouchers', salesOrder: 'Sales Orders', purchase: 'Purchase Vouchers', purchaseOrder: 'Purchase Orders', stockJournal: 'Stock Journal Vouchers' };
-const LIST_KEYS: Readonly<Record<ListKind, string>> = { ...KEYS, ...SALES_KEYS, stockJournal: 'F10' };
+const NEW_TITLES: Readonly<Record<ListKind, string>> = { contra: 'Contra Voucher', payment: 'Payment Voucher', receipt: 'Receipt Voucher', journal: 'Journal Voucher', sales: 'Sales Voucher', salesOrder: 'Sales Order', quotation: 'Quotation', purchase: 'Purchase Voucher', purchaseOrder: 'Purchase Order', stockJournal: 'Stock Journal' };
+const LIST_TITLES: Readonly<Record<ListKind, string>> = { contra: 'Contra Vouchers', payment: 'Payment Vouchers', receipt: 'Receipt Vouchers', journal: 'Journal Vouchers', sales: 'Sales Vouchers', salesOrder: 'Sales Orders', quotation: 'Quotations', purchase: 'Purchase Vouchers', purchaseOrder: 'Purchase Orders', stockJournal: 'Stock Journal Vouchers' };
+const LIST_KEYS: Readonly<Record<ListKind, string>> = { ...KEYS, ...SALES_KEYS, quotation: '', stockJournal: 'F10' };
 const LIST_KEYWORDS: Readonly<Record<ListKind, readonly string[]>> = {
   contra: ['list', 'register', 'cash deposit'],
   payment: ['list', 'register', 'payments made'],
@@ -67,6 +76,7 @@ const LIST_KEYWORDS: Readonly<Record<ListKind, readonly string[]>> = {
   journal: ['list', 'register', 'entries'],
   sales: ['list', 'register', 'invoices', 'sales register'],
   salesOrder: ['list', 'register', 'orders', 'customer po'],
+  quotation: ['list', 'register', 'quotes', 'estimates'],
   purchase: ['list', 'register', 'bills', 'purchase register', 'supplier invoices'],
   purchaseOrder: ['list', 'register', 'orders', 'supplier orders'],
   stockJournal: ['list', 'register', 'transfers', 'conversion'],
@@ -138,6 +148,7 @@ const commands: Command<AppContext>[] = [
   contextual('inbox.upload', 'Upload a document (PDF or photo) to be read', { label: 'Upload document', group: 'Actions', order: 5, on: ['inbox'] }),
   ...newCommands,
   ...salesCommands,
+  quotationCommand,
   stockJournalCommand,
   ...listCommands,
   ...listNewCommands,
@@ -147,6 +158,7 @@ const commands: Command<AppContext>[] = [
   contextual('voucher.acceptAndNew', 'Save and start a new one', { label: 'Save & new', group: 'Actions', order: 11.5, on: ['voucher'] }),
   contextual('voucher.againstOrder', 'Deliver or receive against an order', { label: 'Against order', group: 'Actions', order: 12, on: ['voucher'] }),
   contextual('order.invoice', 'Create an invoice for the pending items of this order', { label: 'Invoice pending', group: 'Actions', order: 15, on: ['voucher'] }),
+  contextual('quotation.order', 'Create a sales order from this quotation', { label: 'Sales order', group: 'Actions', order: 15.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.removeLine', 'Remove this line', { label: 'Remove line', group: 'Actions', order: 14, on: ['voucher'] }),
   contextual('voucher.oneTimeLine', 'One-time line: write it instead of choosing a stock item', { label: 'One-time line', group: 'Actions', order: 14.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.print', 'Print', { label: 'Print', group: 'Actions', order: 16, on: ['voucher'] }),
@@ -176,10 +188,11 @@ const bindings: DefaultBinding[] = [
   { commandId: 'voucher.againstOrder', chord: 'Alt+O', scope: 'screen:voucher' },
   { commandId: 'order.close', chord: 'Alt+K', scope: 'screen:voucher' },
   { commandId: 'order.invoice', chord: 'Alt+I', scope: 'screen:voucher' },
+  { commandId: 'quotation.order', chord: 'Alt+Shift+O', scope: 'screen:voucher' },
   { commandId: 'voucher.new.stockJournal', chord: 'F10' },
   { commandId: 'voucher.acceptAndNew', chord: 'Alt+N', scope: 'screen:voucher' },
   // On a voucher list, the keys that make a voucher of that type make it FROM the list (so the list gets the result back).
-  ...LIST_KINDS.map((kind) => ({ commandId: `list.new.${kind}`, chord: LIST_KEYS[kind], scope: 'screen:report' })),
+  ...LIST_KINDS.filter((kind) => LIST_KEYS[kind] !== '').map((kind) => ({ commandId: `list.new.${kind}`, chord: LIST_KEYS[kind], scope: 'screen:report' })),
   { commandId: 'voucher.changeDate', chord: 'F2' },
   { commandId: 'voucher.partyDetails', chord: 'Alt+P', scope: 'screen:voucher' },
   { commandId: 'voucher.cancel', chord: 'Alt+X', scope: 'screen:voucher' },
@@ -193,6 +206,7 @@ const bindings: DefaultBinding[] = [
 const GROUPS: Readonly<Record<ListKind, { group: string; order: number }>> = {
   sales: { group: 'Sales', order: 1 },
   salesOrder: { group: 'Sales', order: 2 },
+  quotation: { group: 'Sales', order: 3 },
   purchase: { group: 'Purchase', order: 10 },
   purchaseOrder: { group: 'Purchase', order: 11 },
   stockJournal: { group: 'Inventory', order: 20 },

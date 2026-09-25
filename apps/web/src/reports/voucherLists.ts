@@ -57,6 +57,7 @@ export function voucherListRows({ vouchers, lines, masters, orders, kind, range,
   // (paid = no longer open).
   const isInvoice = kind === 'sales' || kind === 'purchase';
   const isOrder = kind === 'salesOrder' || kind === 'purchaseOrder';
+  const isQuote = kind === 'quotation';
   const owed = new Map<string, Map<string, bigint>>();
   if (isInvoice) {
     for (const v of vouchers) {
@@ -71,14 +72,14 @@ export function voucherListRows({ vouchers, lines, masters, orders, kind, range,
     .filter((r) => r.baseKind === kind)
     .map((r): VoucherListRow => {
       const v = byId.get(r.voucherId) as Voucher;
-      const c = v.content as unknown as { reference?: string; billNo?: string; partyId?: string; dueDate?: string; lines?: { qty: string; rate: string }[] };
+      const c = v.content as unknown as { reference?: string; billNo?: string; partyId?: string; dueDate?: string; validUntil?: string; lines?: { qty: string; rate: string }[] };
       const cancelled = r.status === 'cancelled';
       const state = isOrder && !cancelled ? orders.state(v.id) : undefined;
-      const value = isOrder ? money((c.lines ?? []).reduce((sum, l) => sum + lineValue(l), 0n)) : r.debit;
+      const value = isOrder || isQuote ? money((c.lines ?? []).reduce((sum, l) => sum + lineValue(l), 0n)) : r.debit;
       // an invoice: what is still owed on its bill, and whether it has fallen due
       const billRef = kind === 'purchase' ? (c.billNo ?? '').trim() : v.number;
       const pending = isInvoice && !cancelled ? money(owed.get(c.partyId ?? '')?.get(billRef) ?? 0n) : money(0n);
-      const due = isInvoice ? (c.dueDate ?? '') : '';
+      const due = isInvoice ? (c.dueDate ?? '') : isQuote ? (c.validUntil ?? '') : '';
       const status = cancelled
         ? 'Cancelled'
         : state
@@ -157,6 +158,16 @@ export function voucherListColumns(kind: BaseKind): ColumnSpec<VoucherListRow>[]
     ];
   }
   if (kind === 'salesOrder') return [date, number, particulars('Customer'), reference, amount('Order value'), statusOf(['Open', 'Partially filled', 'Closed', 'Cancelled'])];
+  if (kind === 'quotation') {
+    return [
+      date,
+      number,
+      particulars('Customer'),
+      reference,
+      amount('Quote value'),
+      { id: 'due', label: 'Valid until', type: 'date', value: (r) => (r.due === '' ? null : r.due), text: (r) => (r.due === '' ? '' : formatDate(r.due)) },
+    ];
+  }
   if (kind === 'purchaseOrder') return [date, number, particulars('Supplier'), reference, amount('Order value'), statusOf(['Open', 'Partially filled', 'Closed', 'Cancelled'])];
   if (kind === 'stockJournal') return [date, number, particulars('Items'), narration];
   return [date, number, particulars('Particulars'), narration, amount('Amount')];

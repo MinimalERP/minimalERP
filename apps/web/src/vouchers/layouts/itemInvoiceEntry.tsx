@@ -1,20 +1,19 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
 import { type Money, type Voucher, billStatusOf, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import type { Books } from '../books/books';
-import { Only } from '../shell/Only';
-import { WindowClose } from '../shell/WindowClose';
-import { useIdleOnBlankClick } from '../shell/idle';
-import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
+import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import type { Books } from '../../books/books';
+import { Only } from '../../shell/Only';
+import { useIdleOnBlankClick } from '../../shell/idle';
+import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../../shell/hooks';
 import type { InboxItem } from '@minimalerp/ports';
-import type { ScreenRef, VoucherMode } from '../shell/router';
-import { inboxBanner, itemSeedOf, partySeedOf, salesFormFromProposal } from '../vouchers/proposalForms';
-import { useLeaveGuard } from '../shell/useLeaveGuard';
-import { Kbd } from '../ui/Kbd';
-import { ListView } from '../ui/ListView';
-import { defaultDate, fyOf, resolveTypeId } from '../vouchers/entryHelpers';
-import { addDays, formatAmount, formatDate, formatQuantity, parseDateInput } from '../vouchers/format';
-import { ENTRY_KINDS, type SalesKind, docProfile, invoiceKindOf } from '../vouchers/kinds';
+import type { ScreenRef, VoucherMode } from '../../shell/router';
+import { inboxBanner, itemSeedOf, partySeedOf, salesFormFromProposal } from '../proposalForms';
+import { useLeaveGuard } from '../../shell/useLeaveGuard';
+import { Kbd } from '../../ui/Kbd';
+import { ListView } from '../../ui/ListView';
+import { defaultDate, resolveTypeId } from '../entryHelpers';
+import { addDays, formatAmount, formatDate, formatQuantity, parseDateInput } from '../format';
+import { ENTRY_KINDS, type ItemDocKind, type SalesKind, docProfile, invoiceKindOf, isSalesKind } from '../kinds';
 import {
   type Option,
   type OrderOption,
@@ -29,6 +28,7 @@ import {
   godownWithStock,
   hiddenItemReason,
   invoiceFormFromOrder,
+  orderFormFromQuotation,
   isBlankSales,
   itemOptions,
   openOrderLines,
@@ -42,13 +42,20 @@ import {
   switchSales,
   trimPlaces,
   withOrderLines,
-} from '../vouchers/salesModel';
-import { useOtherVoucherHandlers } from '../vouchers/otherVoucher';
-import { PartyDetailsDialog } from './PartyDetailsDialog';
-import { FieldsDialog } from './ReportDialogs';
-import type { CreatedMaster } from './MasterFormScreen';
-import type { InvoiceDoc } from '../ui/PrintView';
-import { placeOfSupplyText } from '../ui/printing';
+} from '../salesModel';
+import { useOtherVoucherHandlers } from '../otherVoucher';
+import { PartyDetailsDialog } from '../../screens/PartyDetailsDialog';
+import { FieldsDialog } from '../../screens/ReportDialogs';
+import type { CreatedMaster } from '../../screens/MasterFormScreen';
+import type { InvoiceDoc } from '../../ui/PrintView';
+import { placeOfSupplyText } from '../../ui/printing';
+import {
+  tryCommitVoucherDate,
+  useVoucherDraftPersistence,
+  VoucherNarrationRow,
+  VoucherWorksheetHead,
+  VoucherWorksheetSection,
+} from './worksheetChrome';
 
 const SCOPE = 'screen:voucher';
 const MAX_OPTIONS = 8;
@@ -71,7 +78,7 @@ const focusKeyOf = (field: string): string => {
  * on a purchase, the supplier's invoice number — and the date the bill falls due, and each line for a godown and (optionally) the order line
  * it fills; an order asks each line for its own due date.
  */
-function fieldsOf(form: SalesForm, kind: SalesKind, gstOn = false): Field[] {
+function fieldsOf(form: SalesForm, kind: ItemDocKind, gstOn = false): Field[] {
   const p = docProfile(kind);
   const out: Field[] = [
     { key: 'date', kind: 'date' },
@@ -83,12 +90,13 @@ function fieldsOf(form: SalesForm, kind: SalesKind, gstOn = false): Field[] {
     out.push({ key: 'sledger', kind: 'sledger' });
     if (p.side === 'purchase') out.push({ key: 'billno', kind: 'billno' });
     out.push({ key: 'due', kind: 'due' });
+  } else if (p.quote) {
+    out.push({ key: 'due', kind: 'due' });
   }
   form.lines.forEach((l, i) => {
     out.push({ key: `l${i}.item`, kind: 'item', line: i });
-    // a one-time (written) line has no godown and no order line: its HSN, qty and unit are in its Alt+T form
     if (p.invoice && !l.oneTime) out.push({ key: `l${i}.wh`, kind: 'wh', line: i }, { key: `l${i}.ord`, kind: 'ord', line: i });
-    else out.push({ key: `l${i}.ldue`, kind: 'ldue', line: i });
+    else if (p.order) out.push({ key: `l${i}.ldue`, kind: 'ldue', line: i });
     out.push({ key: `l${i}.qty`, kind: 'qty', line: i }, { key: `l${i}.rate`, kind: 'rate', line: i });
     if (gstOn) out.push({ key: `l${i}.gst`, kind: 'gst', line: i });
   });
@@ -104,6 +112,8 @@ interface Props {
   readonly mode: VoucherMode;
   readonly typeId: string;
   readonly voucher: Voucher | undefined;
+  /** A new sales order starts with the lines of this posted quotation. */
+  readonly fromQuotation?: string | undefined;
   /** A new invoice starts with the pending lines of this sales order. */
   readonly fromOrder?: string | undefined;
   /** A new document made from an AI Inbox proposal (ADR-0023): it posts under the proposal's id. */
@@ -117,16 +127,22 @@ interface Props {
  * header, the entry grid straight under it, narration at the foot, its actions in the panel — and an invoice and its order switch into each
  * other in place (F8 / Shift+F8, F9 / Shift+F9) keeping the party, the reference and the lines. What differs between the four is in `docProfile`.
  */
-export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrder, fromInbox }: Props) {
+export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrder, fromQuotation, fromInbox }: Props) {
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books, keymapStore);
   const masters = books.masters;
   const readOnly = mode === 'display';
-  const propKind = (salesKindOf(masters, typeId) ?? 'sales') as SalesKind;
+  const propKind = (salesKindOf(masters, typeId) ?? 'sales') as ItemDocKind;
   /** The godown and the sales / purchase ledger a new document starts with (the ledger is the one of ITS side). */
-  const extra = (k: SalesKind = propKind) => ({ warehouse: defaultGodown(books), salesLedger: defaultSalesLedger(masters, docProfile(k).side) });
+  const extra = (k: ItemDocKind = propKind) => ({ warehouse: defaultGodown(books), salesLedger: defaultSalesLedger(masters, docProfile(k).side) });
   const blankForm = (): SalesForm => blankSalesForm(crypto.randomUUID(), typeId, defaultDate(masters), crypto.randomUUID(), extra());
   /** A new invoice "for what is pending on that order": its customer, PO and a line per pending order line. Blank if there is nothing to invoice. */
+  const fromQuotationForm = (): SalesForm | undefined => {
+    const quote = fromQuotation ? books.voucher(fromQuotation) : undefined;
+    return quote
+      ? orderFormFromQuotation(quote, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID() })
+      : undefined;
+  };
   const fromOrderForm = (): SalesForm | undefined => {
     const order = fromOrder ? books.voucher(fromOrder) : undefined;
     return order ? invoiceFormFromOrder(order, books.orders, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID(), stock: books.stock, ...extra() }) : undefined;
@@ -142,7 +158,10 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
           order: fromInbox.proposal.fromOrderId ? books.voucher(fromInbox.proposal.fromOrderId) : undefined,
         })
       : undefined;
-  const startForm = (): SalesForm => (voucher ? salesFormFromVoucher(voucher, masters, books.orders) : (mode === 'create' && (inboxForm() ?? fromOrderForm())) || blankForm());
+  const startForm = (): SalesForm =>
+    voucher
+      ? salesFormFromVoucher(voucher, masters, books.orders)
+      : (mode === 'create' && (inboxForm() ?? fromQuotationForm() ?? fromOrderForm())) || blankForm();
   /** A proposal is its own starting point: it neither loads nor leaves a half-entered draft (that belongs to the ordinary New voucher). */
   const drafts = mode === 'create' && !fromInbox;
 
@@ -169,12 +188,11 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
   const rootRef = useRef<HTMLDivElement>(null);
   /** Clicking blank space deactivates the active field until a field is clicked or a key pressed. */
   const { idle, wake } = useIdleOnBlankClick(rootRef);
-  const draftReady = useRef(mode !== 'create');
 
-  const kind = (salesKindOf(masters, form.typeId) ?? 'sales') as SalesKind;
+  const kind = (salesKindOf(masters, form.typeId) ?? 'sales') as ItemDocKind;
   const p = docProfile(kind);
-  /** A company that charges GST: each invoice line has a GST % (from its item), and the tax is stated under the grid. */
-  const gstOn = p.invoice && masters.company.chargeGst === true;
+  /** A company that charges GST: each invoice or quotation line has a GST %, and the tax is stated under the grid. */
+  const gstOn = (p.invoice || p.quote) && masters.company.chargeGst === true;
   const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
   const type = masters.voucherType(form.typeId as never);
   const fields = fieldsOf(form, kind, gstOn);
@@ -185,39 +203,21 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
   const update = (fn: (f: SalesForm) => SalesForm) => setFormState(fn(fresh()));
   const setLine = (i: number, patch: Partial<SalesLineForm>) => update((f) => ({ ...f, lines: f.lines.map((l, k) => (k === i ? { ...l, ...patch } : l)) }));
 
-  // ---- drafts: a half-entered document survives a reload ----
   const draftKey = `sales:${form.typeId}`;
-
-  // Leaving the window — Esc, ×, saving, another screen on top — leaves nothing behind: the next New voucher opens clean. (A page reload never runs
-  // this, so a half-entered document still survives a reload.)
-  const draftKeyNow = useRef(draftKey);
-  draftKeyNow.current = draftKey;
-  useEffect(
-    () => () => {
-      if (drafts) void books.clearDraft(draftKeyNow.current);
-    },
-    [],
-  );
-  useEffect(() => {
-    if (!drafts || frame.state.has('form-loaded')) {
-      draftReady.current = true;
-      return;
-    }
-    frame.state.set('form-loaded', true);
-    void books.loadDraft(draftKey).then((saved) => {
-      const d = saved as SalesForm | undefined;
-      if (d && isBlankSales(fresh()) && d.typeId === typeId && Array.isArray(d.lines)) {
-        setFormState(d);
-        setDateText(formatDate(d.date));
-      }
-      draftReady.current = true;
-    });
-  }, []);
-  useEffect(() => {
-    if (!drafts || !draftReady.current) return;
-    const t = setTimeout(() => void (isBlankSales(form) ? books.clearDraft(draftKey) : books.saveDraft(draftKey, form)), 350);
-    return () => clearTimeout(t);
-  }, [form]);
+  useVoucherDraftPersistence({
+    enabled: drafts,
+    frame,
+    draftKey,
+    books,
+    form,
+    typeId,
+    isBlank: isBlankSales,
+    fresh,
+    setForm: setFormState,
+    setDateText,
+    formDate: (f) => f.date,
+    acceptLoaded: (d) => d.typeId === typeId && Array.isArray(d.lines),
+  });
 
   // ---- the stock and the orders WITHOUT this voucher (what its own lines are checked and shown against), and the engine's verdict ----
   const base = useMemo(() => books.stock.withChange({ remove: [form.id as never] }), [books.stock, form.id]);
@@ -476,12 +476,12 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
   const settle = (): boolean => {
     if (readOnly) return true;
     if (current.kind === 'date') {
-      const y = fyOf(masters, fresh().date);
-      const parsed = parseDateInput(dateText, { start: y?.start ?? fresh().date, end: y?.end ?? fresh().date, base: fresh().date });
-      if (!parsed) {
-        setFieldErrors((e) => ({ ...e, date: 'That is not a date — try 10, 10-5 or 10-5-24' }));
+      const committed = tryCommitVoucherDate(masters, dateText, fresh().date);
+      if (!committed.ok) {
+        setFieldErrors((e) => ({ ...e, date: committed.message }));
         return false;
       }
+      const parsed = committed.date;
       update((f) => ({ ...f, date: parsed, ...(p.invoice && !f.dueTouched ? { due: dueDateFor(masters, f.partyId, parsed), dueText: formatDate(dueDateFor(masters, f.partyId, parsed)) } : {}) }));
       setDateText(formatDate(parsed));
       setFieldErrors((e) => ({ ...e, date: '' }));
@@ -722,7 +722,7 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
 
   /** Between an invoice and its order, in place: the party, reference, party details, narration and lines come along. */
   const switchTo = (target: SalesKind): boolean => {
-    if (mode !== 'create') return false;
+    if (mode !== 'create' || !isSalesKind(kind)) return false;
     const targetType = resolveTypeId(masters, target);
     if (!targetType || targetType === form.typeId) return true;
     void books.clearDraft(draftKey);
@@ -890,7 +890,6 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
   const shortName = p.invoice ? `${type?.name ?? cap(p.side)} Voucher` : (type?.name ?? `${cap(p.side)} Order`);
   const title = mode === 'create' ? `New ${shortName}` : `${mode === 'alter' ? 'Alter' : 'Display'} ${type?.name ?? ''} ${voucher?.number ?? ''}`;
   const cancelled = voucher?.status === 'cancelled';
-  const fullDay = form.date ? new Date(`${form.date}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'UTC' }) : '';
   const showFill = p.order && orderState !== undefined;
 
   const pickerList = (key: string) =>
@@ -1113,6 +1112,12 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
     );
   };
 
+  const salesOrderFromQuote = (): boolean => {
+    if (!voucher) return false;
+    app.navigate({ type: 'voucher', mode: 'create', typeKey: 'salesOrder', fromQuotation: voucher.id });
+    return true;
+  };
+
   /** A new invoice for what this order still has to deliver. */
   const invoicePending = (): boolean => {
     if (!voucher) return false;
@@ -1172,6 +1177,7 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
         <Only scope={SCOPE} command="order.close" run={() => (setConfirm('close'), true)} />
       )}
       {mode !== 'create' && voucher?.status === 'posted' && p.order && orderState?.status === 'open' && <Only scope={SCOPE} command="order.invoice" run={invoicePending} />}
+      {mode !== 'create' && voucher?.status === 'posted' && p.quote && <Only scope={SCOPE} command="quotation.order" run={salesOrderFromQuote} />}
     </>
   );
 
@@ -1188,63 +1194,81 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
     .join(' · ');
 
   return (
-    <section class="screen voucher-screen" aria-labelledby="voucher-title" data-testid="voucher-form" ref={rootRef as never}>
-      <h1 id="voucher-title" class="vtitle">
-        {title}
-        {cancelled && <span class="badge">Cancelled</span>}
-        {orderState && !cancelled && (
-          <span class={orderState.status === 'open' ? 'badge open' : 'badge'} data-testid="order-status">
-            {orderState.status === 'open' ? 'Open' : orderState.reason === 'fulfilled' ? `Closed · ${p.done} in full` : 'Closed'}
-          </span>
-        )}
-      </h1>
-      <WindowClose />
-
-      {banner && (
-        <p class={banner.tone === 'error' ? 'notice error' : banner.tone === 'note' ? 'notice capture' : 'notice'} role={banner.tone === 'error' ? 'alert' : 'status'} data-testid="voucher-banner">
-          {banner.text}
-        </p>
-      )}
-      {general.length > 0 && (
-        <p class="notice error" role="alert">
-          {general.join(' ')}
-        </p>
-      )}
-      {confirm === 'cancel' && (
-        <p class="notice error" role="alert" data-testid="cancel-confirm">
-          Cancel voucher {voucher?.number}? It keeps its number but leaves the books. Press <Kbd chord={chord('voucher.accept') ?? 'Ctrl+A'} /> to confirm, <Kbd chord={chord('app.back') ?? 'Esc'} /> to keep it.
-        </p>
-      )}
-      {confirm === 'close' && (
-        <p class="notice error" role="alert" data-testid="close-confirm">
-          Close order {voucher?.number}? Nothing more can be {p.done} against it; what was {p.done} stays. Press <Kbd chord={chord('voucher.accept') ?? 'Ctrl+A'} /> to confirm, <Kbd chord={chord('app.back') ?? 'Esc'} /> to leave it open.
-        </p>
-      )}
-
-      <div class="vhead">
-        <span class="vtag" data-testid="voucher-type-tag">{type?.name}</span>
-        <span class="vno">
-          No. <strong data-testid="voucher-number">{numberText}</strong>
-        </span>
-        <span class="vspacer" />
-        <span class="vday" data-testid="voucher-weekday">{fullDay}</span>
-        <input
-          data-vf="date"
-          class={cls('vdate', 'date')}
-          type="text"
-          aria-label="Voucher date"
+    <VoucherWorksheetSection
+      rootRef={rootRef}
+      title={
+        <>
+          {title}
+          {cancelled && <span class="badge">Cancelled</span>}
+          {orderState && !cancelled && (
+            <span class={orderState.status === 'open' ? 'badge open' : 'badge'} data-testid="order-status">
+              {orderState.status === 'open' ? 'Open' : orderState.reason === 'fulfilled' ? `Closed · ${p.done} in full` : 'Closed'}
+            </span>
+          )}
+        </>
+      }
+      banner={banner}
+      general={general}
+      notices={
+        <>
+          {confirm === 'cancel' && (
+            <p class="notice error" role="alert" data-testid="cancel-confirm">
+              Cancel voucher {voucher?.number}? It keeps its number but leaves the books. Press <Kbd chord={chord('voucher.accept') ?? 'Ctrl+A'} /> to confirm, <Kbd chord={chord('app.back') ?? 'Esc'} /> to keep it.
+            </p>
+          )}
+          {confirm === 'close' && (
+            <p class="notice error" role="alert" data-testid="close-confirm">
+              Close order {voucher?.number}? Nothing more can be {p.done} against it; what was {p.done} stays. Press <Kbd chord={chord('voucher.accept') ?? 'Ctrl+A'} /> to confirm, <Kbd chord={chord('app.back') ?? 'Esc'} /> to leave it open.
+            </p>
+          )}
+        </>
+      }
+      head={
+        <VoucherWorksheetHead
+          typeName={type?.name}
+          numberText={numberText}
+          formDate={form.date}
+          dateText={dateText}
           readOnly={readOnly}
-          autocomplete="off"
-          value={dateText}
-          onFocus={() => !isFocus('date') && go('date')}
-          onInput={(e) => {
-            setDateText((e.target as HTMLInputElement).value);
+          dateActive={isFocus('date')}
+          onFocusDate={() => !isFocus('date') && go('date')}
+          onInputDate={(text) => {
+            setDateText(text);
             setFieldErrors((x) => ({ ...x, date: '' }));
           }}
+          dateError={errorOf('date')}
         />
-        {errorOf('date')}
-      </div>
-
+      }
+      footer={
+        <>
+          <VoucherNarrationRow
+            active={isFocus('narration')}
+            readOnly={readOnly}
+            value={form.narration}
+            onFocus={() => !isFocus('narration') && go('narration')}
+            onInput={(text) => update((f) => ({ ...f, narration: text }))}
+          />
+          {summary !== '' && (
+            <p class="vparty" data-testid="party-summary">
+              Party details: {summary}
+            </p>
+          )}
+          {modeHandlers}
+          {leave.dialog}
+          {partyOpen && (
+            <PartyDetailsDialog
+              books={books}
+              ledgerIds={form.partyId === '' ? [] : [partyLedgerId(form.partyId, p.role)]}
+              value={form.partyDetails}
+              onDone={(result) => {
+                setPartyOpen(false);
+                if (result !== 'cancel') update((f) => ({ ...f, partyDetails: { ...result, partyId: f.partyId } }));
+              }}
+            />
+          )}
+        </>
+      }
+    >
       <div class="vsale">
         <label class="vlabel" for="v-party">
           Party
@@ -1428,43 +1452,7 @@ export function SalesVoucherEntry({ frame, books, mode, typeId, voucher, fromOrd
         </p>
       )}
 
-      <div class={isFocus('narration') ? 'vnarr active' : 'vnarr'}>
-        <label class="vlabel" for="v-narration">
-          Narration:
-        </label>
-        <input
-          id="v-narration"
-          data-vf="narration"
-          class={cls('vcell', 'narration')}
-          type="text"
-          readOnly={readOnly}
-          autocomplete="off"
-          value={form.narration}
-          onFocus={() => !isFocus('narration') && go('narration')}
-          onInput={(e) => update((f) => ({ ...f, narration: (e.target as HTMLInputElement).value }))}
-        />
-      </div>
-
-      {summary !== '' && (
-        <p class="vparty" data-testid="party-summary">
-          Party details: {summary}
-        </p>
-      )}
-
-      {modeHandlers}
-      {leave.dialog}
-      {partyOpen && (
-        <PartyDetailsDialog
-          books={books}
-          ledgerIds={form.partyId === '' ? [] : [partyLedgerId(form.partyId, p.role)]}
-          value={form.partyDetails}
-          onDone={(result) => {
-            setPartyOpen(false);
-            if (result !== 'cancel') update((f) => ({ ...f, partyDetails: { ...result, partyId: f.partyId } }));
-          }}
-        />
-      )}
-    </section>
+    </VoucherWorksheetSection>
   );
 }
 

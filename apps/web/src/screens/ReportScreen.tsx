@@ -3,39 +3,37 @@ import {
   type ColumnFilter,
   type ColumnSpec,
   type BaseKind,
-  type DayBookRow,
   type GridQuery,
-  type StatementRow,
-  type StockItemId,
   EMPTY_QUERY,
   applyGridQuery,
   cycleSort,
-  dayBookRows,
   hasActiveFilters,
-  ledgerStatement,
   localDate,
-  onlyVoucherTypes,
-  statementView,
   withFilter,
 } from '@minimalerp/domain';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { describeFilter, dayBookColumns, ledgerColumns } from '../reports/definitions';
-import { type TbRow, bookGroupIds, tbColumns, tbRows } from '../reports/booksReports';
-import { type OutstandingBillRow, type PartyRow, billColumns, billRows, outstandingRowClass, partyColumns, partyRows, partyTotals } from '../reports/outstandingReports';
+import { describeFilter } from '../reports/definitions';
+import {
+  type AnyGridRow,
+  type GridReportContext,
+  type GridReportKind,
+  gridReportHeading,
+  gridReportSlice,
+  gridSupportsTypeFilter,
+  gridUsesAsOnDate,
+  ledgerStatementOf,
+  orderGridRows,
+  stockLedgerOfContext,
+} from '../reports/gridRegistry';
+import { asGstReport, asStatementReport, reportTitle } from '../reports/registry';
+import { type OutstandingBillRow, type PartyRow, outstandingRowClass, partyTotals } from '../reports/outstandingReports';
 import { StatementScreen } from './StatementScreen';
 import { GstScreen } from './GstScreen';
-import { type VoucherListRow, listTitle, listTotals, voucherListColumns, voucherListRows, voucherRowClass } from '../reports/voucherLists';
-import { type OrderRow, orderRegisterColumns, newestOrdersFirst, orderRegisterRows, orderRowClass, registerCounts } from '../reports/salesReports';
-import { type SalesRegisterRow, newestInvoicesFirst, salesRegisterColumns, salesRegisterRows } from '../reports/salesRegister';
-import {
-  type StockLedgerRow,
-  type StockSummaryRow,
-  stockLedgerColumns,
-  stockLedgerOf,
-  stockSummaryColumns,
-  stockSummaryRows,
-  summaryTotals,
-} from '../reports/stockReports';
+import { type VoucherListRow, listTotals, voucherRowClass } from '../reports/voucherLists';
+import { type OrderRow, orderRowClass, registerCounts } from '../reports/salesReports';
+import { type SalesRegisterRow } from '../reports/salesRegister';
+import { type StockLedgerRow, type StockSummaryRow, summaryTotals } from '../reports/stockReports';
+import { type TbRow } from '../reports/booksReports';
 import { useCommandHandler, useFrameState, useListNavigation, useServices, useSubscriptions } from '../shell/hooks';
 import { Only } from '../shell/Only';
 import type { ReportKind, ScreenRef } from '../shell/router';
@@ -71,33 +69,11 @@ interface Props {
   readonly groupId?: string | undefined;
 }
 
-type AnyRow = DayBookRow | StatementRow | StockSummaryRow | StockLedgerRow | OrderRow | SalesRegisterRow | VoucherListRow | TbRow | PartyRow | OutstandingBillRow;
+type AnyRow = AnyGridRow;
 /** What identifies a row: a voucher (Day Book, Ledger), an item (Stock Summary), one movement (Stock Ledger) or one order line (Sales Order Register). */
 const rowKeyOf = (r: AnyRow): string => ('key' in r ? r.key : 'voucherId' in r ? r.voucherId : r.itemId);
 
-/** What a report is called before a company is open (the screen only asks you to open one). */
-function titleWithoutBooks(report: ReportKind, kind: string | undefined): string {
-  switch (report) {
-    case 'daybook': return 'Day Book';
-    case 'stock-summary': return 'Stock Summary';
-    case 'stock-item': return 'Stock Ledger';
-    case 'sales-orders': return 'Sales Order Register';
-    case 'purchase-orders': return 'Purchase Order Register';
-    case 'sales-register': return 'Sales Invoice Register';
-    case 'trial-balance': return 'Trial Balance';
-    case 'profit-loss': return 'Profit & Loss';
-    case 'balance-sheet': return 'Balance Sheet';
-    case 'book': return kind === 'bank' ? 'Bank Book' : 'Cash Book';
-    case 'gstr1': return 'GSTR-1';
-    case 'gstr3b': return 'GSTR-3B';
-    case 'gst-purchases': return 'GST Purchases';
-    case 'outstanding': return kind === 'payable' ? 'Outstanding Payables' : 'Outstanding Receivables';
-    default: return 'Ledger';
-  }
-}
-
-/**
- * Day Book and Ledger, on the one grid. This screen owns no report logic: the rows come from the pure book functions, the columns from the
+/** Day Book and Ledger, on the one grid. This screen owns no report logic: the rows come from the pure book functions, the columns from the
  * report's definition, and sorting / filtering / moving are the grid's generic commands — so every report built later gets them too.
  */
 export function ReportScreen({ frame, report, ledgerId: ledgerFromAddress, itemId: itemFromAddress, kind, groupId }: Props) {
@@ -107,15 +83,25 @@ export function ReportScreen({ frame, report, ledgerId: ledgerFromAddress, itemI
   if (!books) {
     return (
       <section class="screen" aria-labelledby="report-title">
-        <h1 id="report-title">{titleWithoutBooks(report, kind)}</h1>
+        <h1 id="report-title">{reportTitle(report, kind)}</h1>
         <p class="lede">Open a company first: press Alt+G and choose “Create Company” or “Load Demo Company”.</p>
       </section>
     );
   }
-  // the two-sided statements have their own drawing; everything else is a list on the one grid
-  if (report === 'profit-loss' || report === 'balance-sheet') return <StatementScreen frame={frame} report={report} />;
-  if (report === 'gstr1' || report === 'gstr3b' || report === 'gst-purchases') return <GstScreen frame={frame} report={report} kind={kind} />;
-  return <ReportBody frame={frame} report={report} ledgerFromAddress={ledgerFromAddress} itemFromAddress={itemFromAddress} kind={kind} groupFromAddress={groupId} />;
+  const statement = asStatementReport(report);
+  if (statement) return <StatementScreen frame={frame} report={statement} />;
+  const gst = asGstReport(report);
+  if (gst) return <GstScreen frame={frame} report={gst} kind={kind} />;
+  return (
+    <ReportBody
+      frame={frame}
+      report={report as GridReportKind}
+      ledgerFromAddress={ledgerFromAddress}
+      itemFromAddress={itemFromAddress}
+      kind={kind}
+      groupFromAddress={groupId}
+    />
+  );
 }
 
 function ReportBody({
@@ -127,7 +113,7 @@ function ReportBody({
   groupFromAddress,
 }: {
   frame: Frame<ScreenRef>;
-  report: ReportKind;
+  report: GridReportKind;
   ledgerFromAddress: string | undefined;
   itemFromAddress: string | undefined;
   kind: string | undefined;
@@ -145,7 +131,7 @@ function ReportBody({
   const [query, setQuery] = useFrameState<GridQuery>(frame, 'query', EMPTY_QUERY);
   // Outstanding is AS ON a date (today, unless changed with F2); the rest cover the financial year.
   const today = todayText();
-  const asOnReport = report === 'outstanding';
+  const asOnReport = gridUsesAsOnDate(report);
   const [period, setPeriod] = useFrameState<Period>(frame, 'period', { from: fy?.start ?? '', to: asOnReport && fy && today >= fy.start && today <= fy.end ? today : (fy?.end ?? '') });
   const [types, setTypes] = useFrameState<string[]>(frame, 'types', []);
   const [chosenLedger, setChosenLedger] = useFrameState<string | undefined>(frame, 'ledger', undefined);
@@ -161,117 +147,33 @@ function ReportBody({
   const range = { from: localDate(period.from), to: localDate(period.to) };
   const typeChoices = useMemo(() => masters.voucherTypes.filter((t) => t.isActive !== false).map((t) => ({ value: t.name, label: t.name })), [masters]);
   const typeIdOfName = (name: string) => masters.voucherTypes.find((t) => t.name === name)?.id ?? name;
-
-  // ---- the data ----
-  const day = useMemo(
-    () => (report === 'daybook' ? dayBookRows({ vouchers: books.vouchers, lines: books.lines, masters, range }) : []),
-    [report, books.vouchers, books.lines, masters, period.from, period.to],
-  );
-  const statement = useMemo(
-    () => (report === 'ledger' && ledgerId ? ledgerStatement({ ledgerId: ledgerId as never, vouchers: books.vouchers, lines: books.lines, masters, range }) : undefined),
-    [report, ledgerId, books.vouchers, books.lines, masters, period.from, period.to],
-  );
-
-  // the stock reports
-  const itemId = itemFromAddress as StockItemId | undefined;
-  const stockRows = useMemo(
-    () => (report === 'stock-summary' ? stockSummaryRows(masters, books.stock, range.from, range.to, books.orders) : []),
-    [report, masters, books.stock, books.orders, period.from, period.to],
-  );
-  const stockLedger = useMemo(
-    () => (report === 'stock-item' && itemId ? stockLedgerOf(masters, books.stock, books.vouchers, itemId, range.from, range.to, books.orders) : undefined),
-    [report, itemId, masters, books.stock, books.vouchers, books.orders, period.from, period.to],
-  );
-
-  // the Sales Order Register: one row per order line (for one item, when the address names it)
-  const orderRows = useMemo(
-    () => (report === 'sales-orders' || report === 'purchase-orders' ? orderRegisterRows(books.orders, masters, range.from, range.to, { itemId: itemFromAddress, side: report === 'purchase-orders' ? 'purchase' : 'sales', asOf: localDate(todayText()) }) : []),
-    [report, books.orders, masters, itemFromAddress, period.from, period.to],
-  );
-
-  // the Sales Register: one row per posted Sales Invoice line
-  const salesRegRows = useMemo(
-    () => (report === 'sales-register' ? salesRegisterRows(books.vouchers, masters, range.from, range.to) : []),
-    [report, books.vouchers, masters, period.from, period.to],
-  );
-
-  // A voucher type's list (Transactions › Sales › Sales Vouchers): one row per voucher of that kind
-  const listKind = kind as BaseKind | undefined;
-  const voucherRows = useMemo(
-    () => (report === 'vouchers' && listKind ? voucherListRows({ vouchers: books.vouchers, lines: books.lines, masters, orders: books.orders, kind: listKind, range, asOf: localDate(todayText()) }) : []),
-    [report, listKind, books.vouchers, books.lines, books.orders, masters, period.from, period.to],
-  );
-
-  // Trial Balance / Cash Book / Bank Book: the children of a group of the chart of accounts
-  const bookKind = report === 'book' && (kind === 'cash' || kind === 'bank') ? kind : undefined;
-  const tbBase = useMemo(() => {
-    if (report === 'trial-balance') return tbRows({ masters, lines: books.lines, range, parentIds: groupFromAddress ? [groupFromAddress as never] : undefined });
-    if (bookKind) return tbRows({ masters, lines: books.lines, range, parentIds: bookGroupIds(masters, bookKind), includeEmpty: true });
-    return [];
-  }, [report, bookKind, groupFromAddress, masters, books.lines, period.from, period.to]);
-
-  // Outstanding receivables / payables: a row per party, or — with a party in the address — a row per bill
-  const side = kind === 'payable' ? 'payable' : 'receivable';
-  const asOn = range.to;
-  const partyBase = useMemo(
-    () => (report === 'outstanding' && !ledgerFromAddress ? partyRows({ vouchers: books.vouchers, lines: books.lines, masters, side, asOn }) : []),
-    [report, ledgerFromAddress, side, books.vouchers, books.lines, masters, period.to],
-  );
-  const billBase = useMemo(
-    () => (report === 'outstanding' && ledgerFromAddress ? billRows({ vouchers: books.vouchers, masters, side, asOn, ledgerId: ledgerFromAddress as never }) : []),
-    [report, ledgerFromAddress, side, books.vouchers, masters, period.to],
-  );
-
   const typeIds = types.map(typeIdOfName);
-  const dayRows = onlyVoucherTypes(day, typeIds);
-  const view = statement ? statementView(statement, typeIds) : undefined;
+  const side = kind === 'payable' ? 'payable' : 'receivable';
+  const listKind = kind as BaseKind | undefined;
 
-  const dayCols = useMemo(() => dayBookColumns(typeChoices), [typeChoices]);
-  const ledCols = useMemo(() => ledgerColumns(typeChoices), [typeChoices]);
-  const sumCols = useMemo(() => stockSummaryColumns(), []);
-  const itemCols = useMemo(() => stockLedgerColumns(typeChoices), [typeChoices]);
-  const orderCols = useMemo(() => orderRegisterColumns(report === 'purchase-orders' ? 'purchase' : 'sales'), [report]);
-  const salesRegCols = useMemo(() => salesRegisterColumns(), []);
-  const listCols = useMemo(() => voucherListColumns(listKind ?? 'journal'), [listKind]);
-  const tbCols = useMemo(() => tbColumns(), []);
-  const partyCols = useMemo(() => partyColumns(side), [side]);
-  const billCols = useMemo(() => billColumns(), []);
-  const columns = (
-    report === 'daybook'
-      ? dayCols
-      : report === 'ledger'
-        ? ledCols
-        : report === 'stock-summary'
-          ? sumCols
-          : report === 'sales-orders' || report === 'purchase-orders'
-            ? orderCols
-            : report === 'sales-register'
-              ? salesRegCols
-              : report === 'vouchers'
-              ? listCols
-              : report === 'trial-balance' || report === 'book'
-                ? tbCols
-                : report === 'outstanding'
-                  ? ledgerFromAddress
-                    ? billCols
-                    : partyCols
-                  : itemCols
-  ) as readonly ColumnSpec<AnyRow>[];
-  const baseRows = (
-    report === 'daybook' ? dayRows : report === 'ledger' ? (view?.rows ?? []) : report === 'stock-summary' ? stockRows : report === 'sales-orders' || report === 'purchase-orders' ? orderRows : report === 'sales-register' ? salesRegRows : report === 'vouchers' ? voucherRows : report === 'trial-balance' || report === 'book' ? tbBase : report === 'outstanding' ? (ledgerFromAddress ? billBase : partyBase) : onlyVoucherTypes(stockLedger?.rows ?? [], typeIds)
-  ) as readonly AnyRow[];
-  // Every list opens NEWEST FIRST (the running balances stay true: they were worked out oldest first). A column sort replaces it; clearing the sort returns to it.
-  const newestFirst = useMemo(
-    () =>
-      report === 'stock-summary' || report === 'trial-balance' || report === 'book' || report === 'outstanding'
-        ? baseRows
-        : report === 'sales-orders' || report === 'purchase-orders'
-          ? newestOrdersFirst(baseRows as readonly OrderRow[])
-          : report === 'sales-register'
-            ? newestInvoicesFirst(baseRows as readonly SalesRegisterRow[])
-            : [...baseRows].reverse(),
-    [report, baseRows],
+  const gridCtx = useMemo(
+    (): GridReportContext => ({
+      report,
+      books,
+      masters,
+      range,
+      ledgerId,
+      ledgerFromAddress,
+      itemFromAddress,
+      kind,
+      groupFromAddress,
+      typeChoices,
+      typeIds,
+    }),
+    [report, books, masters, range.from, range.to, ledgerId, ledgerFromAddress, itemFromAddress, kind, groupFromAddress, typeChoices, typeIds],
   );
+
+  const { columns, baseRows, rowOrder } = useMemo(() => gridReportSlice(gridCtx), [gridCtx]);
+  const ledgerStatement = useMemo(() => ledgerStatementOf(gridCtx), [gridCtx]);
+  const stockLedger = useMemo(() => stockLedgerOfContext(gridCtx), [gridCtx]);
+  const stockItem = itemFromAddress ? masters.stockItem(itemFromAddress as never) : undefined;
+
+  const newestFirst = useMemo(() => orderGridRows(rowOrder, baseRows), [rowOrder, baseRows]);
   const rows = useMemo(() => applyGridQuery(newestFirst, columns, query), [newestFirst, columns, query]);
   const safeRow = Math.min(row, Math.max(0, rows.length - 1));
   const safeCol = Math.min(col, columns.length - 1);
@@ -349,46 +251,7 @@ function ReportBody({
   // ---- header pieces ----
   const ledger = ledgerId ? masters.ledger(ledgerId as never) : undefined;
   const group = ledger ? masters.groups.get(ledger.groupId)?.name : undefined;
-  const stockItem = itemId ? masters.stockItem(itemId) : undefined;
-  const listTypeName = listKind ? (masters.voucherTypes.find((t) => t.baseKind === listKind && t.isSystem)?.name ?? masters.voucherTypes.find((t) => t.baseKind === listKind)?.name ?? listKind) : '';
-  const groupOpened = groupFromAddress ? masters.groups.get(groupFromAddress as never) : undefined;
-  const partyOpened = ledgerFromAddress && report === 'outstanding' ? masters.ledger(ledgerFromAddress as never) : undefined;
-  const title =
-    report === 'trial-balance'
-      ? groupOpened
-        ? `Trial Balance: ${groupOpened.name}`
-        : 'Trial Balance'
-      : report === 'book'
-        ? bookKind === 'cash'
-          ? 'Cash Book'
-          : 'Bank Book'
-        : report === 'outstanding'
-          ? partyOpened
-            ? `Outstanding: ${partyOpened.name}`
-            : side === 'payable'
-              ? 'Outstanding Payables'
-              : 'Outstanding Receivables'
-          : report === 'vouchers'
-      ? listTitle(listTypeName)
-      : report === 'daybook'
-      ? 'Day Book'
-      : report === 'stock-summary'
-        ? 'Stock Summary'
-        : report === 'stock-item'
-          ? stockItem
-            ? `Stock: ${stockItem.name}`
-            : 'Stock Ledger'
-          : report === 'sales-orders' || report === 'purchase-orders'
-            ? stockItem
-              ? `${report === 'purchase-orders' ? 'Purchase' : 'Sales'} orders: ${stockItem.name}`
-              : report === 'purchase-orders'
-                ? 'Purchase Order Register'
-                : 'Sales Order Register'
-            : report === 'sales-register'
-              ? 'Sales Invoice Register'
-              : ledger
-                ? `Ledger: ${ledger.name}`
-                : 'Ledger';
+  const title = useMemo(() => gridReportHeading(gridCtx), [gridCtx]);
   const chord = (id: string) => keymapStore.keymap.chordsFor(id)[0];
 
   const chips: { key: string; text: string; clear: () => void }[] = [
@@ -497,9 +360,9 @@ function ReportBody({
         {group && <> · under {group}</>}
       </p>
 
-      {report === 'ledger' && statement && (
+      {report === 'ledger' && ledgerStatement && (
         <p class="report-figures" data-testid="ledger-opening">
-          Opening balance <strong>{formatBalance(statement.opening)}</strong>
+          Opening balance <strong>{formatBalance(ledgerStatement.opening)}</strong>
         </p>
       )}
       {report === 'stock-item' && stockLedger && stockItem && (
@@ -689,15 +552,15 @@ function ReportBody({
             {report === 'daybook' ? 'Totals' : hasActiveFilters(query) || types.length > 0 ? 'Filtered total' : 'Total'} debit <strong>{formatAmount(shownDebit)}</strong> credit <strong>{formatAmount(shownCredit)}</strong>
           </>
         )}
-        {report === 'ledger' && statement && (
+        {report === 'ledger' && ledgerStatement && (
           <>
-            {' · '}Closing balance <strong data-testid="ledger-closing">{formatBalance(statement.closing)}</strong>
+            {' · '}Closing balance <strong data-testid="ledger-closing">{formatBalance(ledgerStatement.closing)}</strong>
           </>
         )}
       </p>
 
       {report === 'vouchers' && listKind && <Only scope={SCOPE} command={`list.new.${listKind}`} run={newVoucher} />}
-      {(report === 'daybook' || report === 'ledger' || report === 'stock-item') && <Only scope={SCOPE} command="report.types" run={() => (setDialog('types'), true)} />}
+      {gridSupportsTypeFilter(report) && <Only scope={SCOPE} command="report.types" run={() => (setDialog('types'), true)} />}
       <Only scope={SCOPE} command="report.print" run={() => (print.printReport(buildReportDoc()), true)} />
       {dialog === 'filter' && filterDialog()}
       {dialog === 'types' && (

@@ -119,7 +119,7 @@ describe('the shipped configuration is internally consistent', () => {
     expect(top(s)).toEqual({ type: 'report', report: 'trial-balance', groupId: 'g-1' });
   });
 
-  it('the purchase documents are real: F9 and Shift+F9, their lists in the Purchase group, their order register — and only the debit note is still planned there', () => {
+  it('the purchase documents are real: F9 and Shift+F9, their lists in the Purchase group, their order register — planned debit note and receipt note stay badged', () => {
     const { services: s } = boot();
     for (const [id, kind] of [['voucher.new.purchase', 'purchase'], ['voucher.new.purchaseOrder', 'purchaseOrder']] as const) {
       expect(s.registry.get(id)?.badge, id).toBeUndefined();
@@ -134,6 +134,7 @@ describe('the shipped configuration is internally consistent', () => {
       ['Purchase Vouchers', undefined],
       ['Purchase Orders', undefined],
       ['New Debit Note', 'Phase 7'],
+      ['New Receipt Note', 'Phase 8'],
     ]);
     s.app.goHome();
     expect(s.registry.run('report.purchaseOrders')).toBe(true);
@@ -149,7 +150,7 @@ describe('the shipped configuration is internally consistent', () => {
   it('every planned command opens the planned screen for itself', () => {
     const { services: s } = boot();
     const planned = s.registry.all().filter((c: Command<AppContext>) => c.badge && c.run);
-    // Phases 4–9 made the masters, vouchers, the reports and GST real, so only the credit and debit notes stand in as "planned" now.
+    // Phases 4–9 made the masters, vouchers, the reports and GST real; credit/debit notes and Phase-8 documents stay planned until built.
     expect(planned.length).toBeGreaterThan(1);
     for (const c of planned) {
       s.app.goHome();

@@ -1,10 +1,9 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
 import { type OpenBill, type Voucher, type VoucherKindRegistry, defaultVoucherKinds, formatMoney, partyLedgerId } from '@minimalerp/domain';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
 import { Only } from '../shell/Only';
-import { WindowClose } from '../shell/WindowClose';
 import { useIdleOnBlankClick } from '../shell/idle';
 import { useLeaveGuard } from '../shell/useLeaveGuard';
 import type { InboxItem } from '@minimalerp/ports';
@@ -12,15 +11,15 @@ import { entryFormFromProposal, inboxBanner, partySeedOf } from '../vouchers/pro
 import type { ScreenRef, VoucherMode } from '../shell/router';
 import { Kbd } from '../ui/Kbd';
 import { ListView } from '../ui/ListView';
-import { defaultDate, fyOf, resolveTypeId } from '../vouchers/entryHelpers';
+import { defaultDate, resolveTypeId, voucherLayoutOf } from '../vouchers/entryHelpers';
 import { PartyDetailsDialog } from './PartyDetailsDialog';
 import { ChooseOneDialog } from './ReportDialogs';
 import { type EntryKind, SALES_KINDS, kindTitle } from '../vouchers/kinds';
-import { SalesVoucherEntry } from './SalesVoucherScreen';
-import { StockVoucherEntry } from './StockVoucherScreen';
+import { ItemInvoiceEntry } from '../vouchers/layouts/itemInvoiceEntry';
+import { StockVoucherEntry } from '../vouchers/layouts/stockEntry';
 import { useOtherVoucherHandlers } from '../vouchers/otherVoucher';
 import { amountToSettle, billsToOffer, defaultAllocations, settleableBills, unallocated } from '../vouchers/bills';
-import { formatAmount, formatBalance, formatCashBalance, formatDate, parseDateInput } from '../vouchers/format';
+import { formatAmount, formatBalance, formatCashBalance, formatDate } from '../vouchers/format';
 import type { LedgerDoc } from '../ui/PrintView';
 import {
   type AllocForm,
@@ -43,6 +42,14 @@ import {
   toMinor,
 } from '../vouchers/model';
 import type { CreatedMaster } from './MasterFormScreen';
+import {
+  tryCommitVoucherDate,
+  useVoucherDraftPersistence,
+  VoucherModeHandlers,
+  VoucherNarrationRow,
+  VoucherWorksheetHead,
+  VoucherWorksheetSection,
+} from '../vouchers/layouts/worksheetChrome';
 
 const SCOPE = 'screen:voucher';
 const MAX_OPTIONS = 8;
@@ -95,13 +102,15 @@ interface Props {
   readonly typeKey?: string | undefined;
   /** display / alter: the voucher. */
   readonly id?: string | undefined;
+  /** create: a sales order starts from this posted quotation. */
+  readonly fromQuotation?: string | undefined;
   /** create, sales invoice: the sales order whose pending lines it starts with. */
   readonly fromOrder?: string | undefined;
   /** create: an AI Inbox proposal it starts from (and posts under the id of). */
   readonly fromInbox?: InboxItem | undefined;
 }
 
-export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromInbox }: Props) {
+export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotation, fromInbox }: Props) {
   const { books: host, keymapStore } = useServices();
   useSubscriptions(host, keymapStore);
   const books = host.current;
@@ -125,13 +134,12 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromInbox }
     );
   }
   const typeId = voucher ? voucher.voucherTypeId : resolveTypeId(books.masters, typeKey ?? '');
-  // A stock voucher (Stock Journal) has its own columns but the same worksheet: it is drawn by StockVoucherEntry.
-  if (typeId && kinds.get(books.masters.voucherType(typeId as never)?.baseKind as never)?.layout === 'stock') {
-    return <StockVoucherEntry frame={frame} books={books} mode={mode} typeId={typeId} voucher={voucher} />;
+  const layout = typeId ? voucherLayoutOf(books.masters, typeId, kinds) : undefined;
+  if (layout === 'stock') {
+    return <StockVoucherEntry frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} />;
   }
-  // The sales documents (Sales Order, Sales Invoice) are item lines: they have their own columns on the same worksheet.
-  if (typeId && kinds.get(books.masters.voucherType(typeId as never)?.baseKind as never)?.layout === 'item-invoice') {
-    return <SalesVoucherEntry frame={frame} books={books} mode={mode} typeId={typeId} voucher={voucher} fromOrder={fromOrder} fromInbox={mode === 'create' ? fromInbox : undefined} />;
+  if (layout === 'item-invoice') {
+    return <ItemInvoiceEntry frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} fromOrder={fromOrder} fromQuotation={fromQuotation} fromInbox={mode === 'create' ? fromInbox : undefined} />;
   }
   if (!typeId || !layoutOf(books.masters, typeId, kinds)) {
     return (
@@ -190,7 +198,6 @@ function VoucherEntry({ frame, books, mode, typeId, voucher, fromInbox }: EntryP
   const rootRef = useRef<HTMLDivElement>(null);
   /** Clicking blank space deactivates the active field until a field is clicked or a key pressed. */
   const { idle, wake } = useIdleOnBlankClick(rootRef);
-  const draftReady = useRef(mode !== 'create');
 
   const layout = layoutOf(masters, form.typeId, kinds) as Layout;
   const type = masters.voucherType(form.typeId as never);
@@ -206,39 +213,21 @@ function VoucherEntry({ frame, books, mode, typeId, voucher, fromInbox }: EntryP
   const setLine = (i: number, patch: Partial<VoucherForm['lines'][number]>) =>
     update((f) => ({ ...f, lines: f.lines.map((l, k) => (k === i ? { ...l, ...patch } : l)) }));
 
-  // ---- drafts: a half-entered voucher survives a reload ----
   const draftKey = `type:${form.typeId}`;
-
-  // Leaving the window — Esc, ×, saving, another screen on top — leaves nothing behind: the next New voucher opens clean. (A page reload never runs
-  // this, so a half-entered document still survives a reload.)
-  const draftKeyNow = useRef(draftKey);
-  draftKeyNow.current = draftKey;
-  useEffect(
-    () => () => {
-      if (drafts) void books.clearDraft(draftKeyNow.current);
-    },
-    [],
-  );
-  useEffect(() => {
-    if (!drafts || frame.state.has('form-loaded')) {
-      draftReady.current = true;
-      return;
-    }
-    frame.state.set('form-loaded', true);
-    void books.loadDraft(draftKey).then((saved) => {
-      const d = saved as VoucherForm | undefined;
-      if (d && isBlank(fresh()) && d.typeId === typeId) {
-        setFormState(d);
-        setDateText(formatDate(d.date));
-      }
-      draftReady.current = true;
-    });
-  }, []);
-  useEffect(() => {
-    if (!drafts || !draftReady.current) return;
-    const t = setTimeout(() => void (isBlank(form) ? books.clearDraft(draftKey) : books.saveDraft(draftKey, form)), 350);
-    return () => clearTimeout(t);
-  }, [form]);
+  useVoucherDraftPersistence({
+    enabled: drafts,
+    frame,
+    draftKey,
+    books,
+    form,
+    typeId,
+    isBlank,
+    fresh,
+    setForm: setFormState,
+    setDateText,
+    formDate: (f) => f.date,
+    acceptLoaded: (d) => d.typeId === typeId,
+  });
 
   // ---- what each problem says, and where ----
   const preview = useMemo(() => previewVoucher(form, layout, masters, kinds), [form, layout, masters]);
@@ -338,14 +327,13 @@ function VoucherEntry({ frame, books, mode, typeId, voucher, fromInbox }: EntryP
     if (readOnly) return true;
     const errKey = current.kind === 'account' ? 'account' : `line.${current.line}.ledger`;
     if (current.kind === 'date') {
-      const y = fyOf(masters, fresh().date);
-      const parsed = parseDateInput(dateText, { start: y?.start ?? fresh().date, end: y?.end ?? fresh().date, base: fresh().date });
-      if (!parsed) {
-        setFieldErrors((e) => ({ ...e, date: 'That is not a date — try 10, 10-5 or 10-5-24' }));
+      const committed = tryCommitVoucherDate(masters, dateText, fresh().date);
+      if (!committed.ok) {
+        setFieldErrors((e) => ({ ...e, date: committed.message }));
         return false;
       }
-      update((f) => ({ ...f, date: parsed }));
-      setDateText(formatDate(parsed));
+      update((f) => ({ ...f, date: committed.date }));
+      setDateText(formatDate(committed.date));
       setFieldErrors((e) => ({ ...e, date: '' }));
       return true;
     }
@@ -1097,65 +1085,113 @@ function VoucherEntry({ frame, books, mode, typeId, voucher, fromInbox }: EntryP
     );
   };
 
-  // Keys that only make sense in some modes are registered only in those modes, so the bottom bar never offers one that would do nothing.
   const modeHandlers = (
-    <ModeHandlers
+    <VoucherModeHandlers
       switchTo={mode === 'create' ? switchTo : undefined}
       onAlter={mode === 'display' && voucher?.status === 'posted' ? () => app.navigate({ type: 'voucher', mode: 'alter', id: (voucher as Voucher).id }) : undefined}
       onCancel={mode !== 'create' && voucher?.status === 'posted' ? () => setConfirm('cancel') : undefined}
     />
   );
 
-  const fullDay = form.date ? new Date(`${form.date}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'UTC' }) : '';
-
   return (
-    <section class="screen voucher-screen" aria-labelledby="voucher-title" data-testid="voucher-form" ref={rootRef as never}>
-      <h1 id="voucher-title" class="vtitle">
-        {title}
-        {cancelled && <span class="badge">Cancelled</span>}
-      </h1>
-      <WindowClose />
-
-      {banner && (
-        <p class={banner.tone === 'error' ? 'notice error' : banner.tone === 'note' ? 'notice capture' : 'notice'} role={banner.tone === 'error' ? 'alert' : 'status'} data-testid="voucher-banner">
-          {banner.text}
-        </p>
-      )}
-      {general.length > 0 && (
-        <p class="notice error" role="alert">
-          {general.join(' ')}
-        </p>
-      )}
-      {confirm === 'cancel' && (
-        <p class="notice error" role="alert" data-testid="cancel-confirm">
-          Cancel voucher {voucher?.number}? It keeps its number but leaves the books. Press <Kbd chord={chord('voucher.accept') ?? 'Ctrl+A'} /> to confirm, <Kbd chord={chord('app.back') ?? 'Esc'} /> to keep it.
-        </p>
-      )}
-
-      <div class="vhead">
-        <span class="vtag" data-testid="voucher-type-tag">{type?.name}</span>
-        <span class="vno">
-          No. <strong data-testid="voucher-number">{numberText}</strong>
-        </span>
-        <span class="vspacer" />
-        <span class="vday" data-testid="voucher-weekday">{fullDay}</span>
-        <input
-          data-vf="date"
-          class={cls('vdate', 'date', !!issueAt('date'))}
-          type="text"
-          aria-label="Voucher date"
+    <VoucherWorksheetSection
+      rootRef={rootRef}
+      title={
+        <>
+          {title}
+          {cancelled && <span class="badge">Cancelled</span>}
+        </>
+      }
+      banner={banner}
+      general={general}
+      notices={
+        confirm === 'cancel' ? (
+          <p class="notice error" role="alert" data-testid="cancel-confirm">
+            Cancel voucher {voucher?.number}? It keeps its number but leaves the books. Press <Kbd chord={chord('voucher.accept') ?? 'Ctrl+A'} /> to confirm, <Kbd chord={chord('app.back') ?? 'Esc'} /> to keep it.
+          </p>
+        ) : undefined
+      }
+      head={
+        <VoucherWorksheetHead
+          typeName={type?.name}
+          numberText={numberText}
+          formDate={form.date}
+          dateText={dateText}
           readOnly={readOnly}
-          autocomplete="off"
-          value={dateText}
-          onFocus={() => !isFocus('date') && go('date')}
-          onInput={(e) => {
-            setDateText((e.target as HTMLInputElement).value);
+          dateActive={isFocus('date')}
+          dateInvalid={!!issueAt('date')}
+          onFocusDate={() => !isFocus('date') && go('date')}
+          onInputDate={(text) => {
+            setDateText(text);
             setFieldErrors((x) => ({ ...x, date: '' }));
           }}
+          dateError={errorOf('date')}
         />
-        {errorOf('date')}
-      </div>
-
+      }
+      footer={
+        <>
+          <VoucherNarrationRow
+            active={isFocus('narration')}
+            readOnly={readOnly}
+            value={form.narration}
+            onFocus={() => !isFocus('narration') && go('narration')}
+            onInput={(text) => update((f) => ({ ...f, narration: text }))}
+            cellClass={cls('vcell', 'narration', false)}
+          />
+          {form.partyDetails && (
+            <p class="vparty" data-testid="party-summary">
+              Party details: {form.partyDetails.mailingName ?? 'entered'}
+              {form.partyDetails.gstin ? ` · ${form.partyDetails.gstin}` : ''}
+              {form.partyDetails.placeOfSupply ? ` · place of supply ${form.partyDetails.placeOfSupply}` : ''}
+            </p>
+          )}
+          {modeHandlers}
+          {!readOnly && <Only scope={SCOPE} command="voucher.changeDate" run={changeDate} />}
+          {(!readOnly || confirm === 'cancel') && <Only scope={SCOPE} command="voucher.accept" run={acceptKey} />}
+          {!readOnly && mode === 'create' && <Only scope={SCOPE} command="voucher.acceptAndNew" run={acceptAndNew} />}
+          {pickerOn && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
+          {!readOnly && <Only scope={SCOPE} command="voucher.partyDetails" run={openPartyDetails} />}
+          {!readOnly && current.line !== undefined && (form.lines.length > 1 || current.part !== undefined) && <Only scope={SCOPE} command="voucher.removeLine" run={removeLine} />}
+          {voucher && (
+            <Only
+              scope={SCOPE}
+              command="voucher.print"
+              run={() => {
+                const doc = buildPrintDoc();
+                if (doc) print.printVoucher(doc);
+                return true;
+              }}
+            />
+          )}
+          {leave.dialog}
+          {createAsking && (
+            <ChooseOneDialog
+              title="Create what?"
+              options={[
+                { value: 'ledger', label: 'Ledger', hint: 'an expense, income, tax or other account' },
+                { value: 'party', label: 'Customer / Vendor (Party)', hint: 'with its billing and shipping address — its ledger is made for you' },
+              ]}
+              onDone={(picked) => {
+                setCreateAsking(false);
+                if (picked === 'ledger') createLedger();
+                else if (picked === 'party') createParty();
+              }}
+            />
+          )}
+          {partyOpen && (
+            <PartyDetailsDialog
+              books={books}
+              ledgerIds={fresh().lines.map((l) => l.ledgerId)}
+              value={form.partyDetails}
+              onDone={(details) => {
+                setPartyOpen(false);
+                if (details !== 'cancel') update((f) => ({ ...f, partyDetails: details }));
+              }}
+            />
+          )}
+        </>
+      }
+    >
       {layout === 'single-entry' && (
         <div class={isFocus('account') ? 'vaccount active' : 'vaccount'}>
           <label class="vlabel" for="v-account">
@@ -1230,101 +1266,7 @@ function VoucherEntry({ frame, books, mode, typeId, voucher, fromInbox }: EntryP
           <span class="vc-x" />
         </div>
       </div>
-
-      <div class={isFocus('narration') ? 'vnarr active' : 'vnarr'}>
-        <label class="vlabel" for="v-narration">
-          Narration:
-        </label>
-        <input
-          id="v-narration"
-          data-vf="narration"
-          class={cls('vcell', 'narration', false)}
-          type="text"
-          readOnly={readOnly}
-          autocomplete="off"
-          value={form.narration}
-          onFocus={() => !isFocus('narration') && go('narration')}
-          onInput={(e) => update((f) => ({ ...f, narration: (e.target as HTMLInputElement).value }))}
-        />
-      </div>
-
-      {form.partyDetails && (
-        <p class="vparty" data-testid="party-summary">
-          Party details: {form.partyDetails.mailingName ?? 'entered'}
-          {form.partyDetails.gstin ? ` · ${form.partyDetails.gstin}` : ''}
-          {form.partyDetails.placeOfSupply ? ` · place of supply ${form.partyDetails.placeOfSupply}` : ''}
-        </p>
-      )}
-
-      {modeHandlers}
-      {!readOnly && <Only scope={SCOPE} command="voucher.changeDate" run={changeDate} />}
-      {(!readOnly || confirm === 'cancel') && <Only scope={SCOPE} command="voucher.accept" run={acceptKey} />}
-      {!readOnly && mode === 'create' && <Only scope={SCOPE} command="voucher.acceptAndNew" run={acceptAndNew} />}
-      {pickerOn && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
-      {!readOnly && <Only scope={SCOPE} command="voucher.partyDetails" run={openPartyDetails} />}
-      {!readOnly && current.line !== undefined && (form.lines.length > 1 || current.part !== undefined) && <Only scope={SCOPE} command="voucher.removeLine" run={removeLine} />}
-      {voucher && (
-        <Only
-          scope={SCOPE}
-          command="voucher.print"
-          run={() => {
-            const doc = buildPrintDoc();
-            if (doc) print.printVoucher(doc);
-            return true;
-          }}
-        />
-      )}
-      {leave.dialog}
-      {createAsking && (
-        <ChooseOneDialog
-          title="Create what?"
-          options={[
-            { value: 'ledger', label: 'Ledger', hint: 'an expense, income, tax or other account' },
-            { value: 'party', label: 'Customer / Vendor (Party)', hint: 'with its billing and shipping address — its ledger is made for you' },
-          ]}
-          onDone={(picked) => {
-            setCreateAsking(false);
-            if (picked === 'ledger') createLedger();
-            else if (picked === 'party') createParty();
-          }}
-        />
-      )}
-      {partyOpen && (
-        <PartyDetailsDialog
-          books={books}
-          ledgerIds={fresh().lines.map((l) => l.ledgerId)}
-          value={form.partyDetails}
-          onDone={(details) => {
-            setPartyOpen(false);
-            if (details !== 'cancel') update((f) => ({ ...f, partyDetails: details }));
-          }}
-        />
-      )}
-    </section>
+    </VoucherWorksheetSection>
   );
 }
 
-/** Registers the keys that belong to one mode only. Renders nothing. */
-function ModeHandlers(props: { switchTo?: ((kind: EntryKind) => boolean) | undefined; onAlter?: (() => void) | undefined; onCancel?: (() => void) | undefined }) {
-  const { switchTo, onAlter, onCancel } = props;
-  return (
-    <>
-      {switchTo && <SwitchHandlers switchTo={switchTo} />}
-      {onAlter && <OneHandler command="master.alter" run={onAlter} />}
-      {onCancel && <OneHandler command="voucher.cancel" run={onCancel} />}
-    </>
-  );
-}
-
-function OneHandler({ command, run }: { command: string; run: () => void }) {
-  useCommandHandler(SCOPE, command, () => (run(), true));
-  return null;
-}
-
-function SwitchHandlers({ switchTo }: { switchTo: (kind: EntryKind) => boolean }) {
-  useCommandHandler(SCOPE, 'voucher.switch.contra', () => switchTo('contra'));
-  useCommandHandler(SCOPE, 'voucher.switch.payment', () => switchTo('payment'));
-  useCommandHandler(SCOPE, 'voucher.switch.receipt', () => switchTo('receipt'));
-  useCommandHandler(SCOPE, 'voucher.switch.journal', () => switchTo('journal'));
-  return null;
-}

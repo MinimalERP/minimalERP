@@ -38,6 +38,7 @@ const TYPES: readonly { base: BaseKind; name: string; prefix: string }[] = [
   { base: 'stockOpening', name: 'Opening Stock', prefix: 'OS' },
   { base: 'sales', name: 'Sales', prefix: 'SAL' },
   { base: 'salesOrder', name: 'Sales Order', prefix: 'SO' },
+  { base: 'quotation', name: 'Quotation', prefix: 'QT' },
   { base: 'purchase', name: 'Purchase', prefix: 'PUR' },
   { base: 'purchaseOrder', name: 'Purchase Order', prefix: 'PO' },
 ];

@@ -141,6 +141,8 @@ Reconciliation invariants tested on every report change: TB Dr = Cr · Assets = 
 | 9 | Production readiness: year-end close, roles UI, audit viewer, CSV import, print/PDF, restore drill, load tests | Carry-forward reconciles; restore drill | |
 | 10+ | Manufacturing (BOM, production, job work) — separate plan | | |
 
+Current shipped vs remaining detail (credit notes, delivery challan, GRN, …): **[product-roadmap.md](product-roadmap.md)**.
+
 ## 11. Testing
 
 Vitest + fast-check (domain properties, golden posting fixtures) · shared repository contract suite run against memory and Supabase adapters ·

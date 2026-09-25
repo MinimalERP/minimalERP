@@ -26,9 +26,10 @@ import {
   parseRate,
   prepareVoucher,
   valueOf,
+  orderBookOf,
 } from '@minimalerp/domain';
 import { addDays, formatDate } from './format';
-import { type DocSide, type SalesKind, docProfile, isSalesKind } from './kinds';
+import { type DocSide, type ItemDocKind, type SalesKind, docProfile, isItemDocKind } from './kinds';
 
 /**
  * The Sales Order / Sales Invoice form as the screen holds it: plain strings, so it can live in the screen-stack frame and be saved as a
@@ -144,9 +145,9 @@ export const blankSalesForm = (
   lines: [blankSalesLine(lineKey, extra.warehouse, date)],
 });
 
-export const salesKindOf = (masters: Masters, typeId: string): SalesKind | undefined => {
+export const salesKindOf = (masters: Masters, typeId: string): ItemDocKind | undefined => {
   const base = masters.voucherType(typeId as never)?.baseKind;
-  return base !== undefined && isSalesKind(base) ? base : undefined;
+  return base !== undefined && isItemDocKind(base) ? base : undefined;
 };
 
 const isEmptyLine = (l: SalesLineForm): boolean => l.itemId === '' && l.itemLabel.trim() === '' && l.qty.trim() === '' && l.rate.trim() === '';
@@ -278,7 +279,7 @@ export interface BuiltSalesDraft {
   readonly kept: readonly number[];
 }
 
-export function formToSalesDraft(form: SalesForm, kind: SalesKind, masters?: Masters): BuiltSalesDraft {
+export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: Masters): BuiltSalesDraft {
   const kept: number[] = [];
   form.lines.forEach((l, i) => {
     if (!isEmptyLine(l)) kept.push(i);
@@ -298,7 +299,14 @@ export function formToSalesDraft(form: SalesForm, kind: SalesKind, masters?: Mas
     }
     return docProfile(kind).order
       ? { id: l.key, ...common, dueDate: l.due }
-      : {
+      : docProfile(kind).quote
+        ? {
+            id: l.key,
+            ...common,
+            ...((l.gstRate ?? '').trim() !== '' ? { gstRate: (l.gstRate ?? '').trim() } : {}),
+            ...((l.hsn ?? '').trim() !== '' ? { hsn: (l.hsn ?? '').trim() } : {}),
+          }
+        : {
           ...common,
           warehouseId: l.warehouseId,
           ...(l.orderId !== '' && l.orderLineId !== '' ? { orderRef: { orderId: l.orderId, lineId: l.orderLineId } } : {}),
@@ -318,9 +326,11 @@ export function formToSalesDraft(form: SalesForm, kind: SalesKind, masters?: Mas
   };
   const p = docProfile(kind);
   // the GST the invoice states: derived with the same function the engine re-checks it with (nothing when GST is off or no line has a rate)
-  const gst = masters && p.invoice ? deriveGstHeader(masters, p.side, { partyId: form.partyId, partyDetails: form.partyDetails, lines: lines as unknown as { qty: string; rate: string; gstRate?: string }[] }) : undefined;
+  const gst = masters && (p.invoice || p.quote) ? deriveGstHeader(masters, p.side, { partyId: form.partyId, partyDetails: form.partyDetails, lines: lines as unknown as { qty: string; rate: string; gstRate?: string }[] }) : undefined;
   return {
-    draft: p.order
+    draft: p.quote
+      ? { ...base, ...(form.due.trim() !== '' ? { validUntil: form.due } : {}), ...(gst ? { gst } : {}), lines }
+      : p.order
       ? { ...base, ...(form.closed ? { closed: true } : {}) }
       : p.side === 'sales'
         ? { ...base, salesLedgerId: form.salesLedgerId, dueDate: form.due, ...(gst ? { gst } : {}), ...(form.ewayBillNo.trim() !== '' ? { ewayBillNo: form.ewayBillNo.trim() } : {}) }
@@ -385,6 +395,7 @@ const HEADER: Readonly<Record<string, SalesFieldKey>> = {
   purchaseLedgerId: 'sledger',
   billNo: 'billno',
   dueDate: 'due',
+  validUntil: 'due',
   narration: 'narration',
 };
 
@@ -408,7 +419,7 @@ export function lineAmount(l: Pick<SalesLineForm, 'qty' | 'rate'>): Money | unde
 }
 
 /** Problems a person can see without asking the engine — said kindly, on the right cell. */
-function localIssues(form: SalesForm, kind: SalesKind, kept: readonly number[]): SalesFormIssue[] {
+function localIssues(form: SalesForm, kind: ItemDocKind, kept: readonly number[]): SalesFormIssue[] {
   const out: SalesFormIssue[] = [];
   const p = docProfile(kind);
   if (form.partyId === '') out.push({ field: 'party', message: `Choose the ${p.noun}` });
@@ -442,7 +453,7 @@ function localIssues(form: SalesForm, kind: SalesKind, kept: readonly number[]):
  */
 export function previewSales(
   form: SalesForm,
-  kind: SalesKind,
+  kind: ItemDocKind,
   masters: Masters,
   stock: StockBook,
   orders: OrderBook,
@@ -518,6 +529,7 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     purchaseLedgerId?: string;
     billNo?: string;
     dueDate?: string;
+    validUntil?: string;
     closed?: boolean;
     lines?: { id?: string; itemId?: string; description?: string; unit?: string; warehouseId?: string; qty: string; rate: string; dueDate?: string; gstRate?: string; hsn?: string; orderRef?: { orderId: string; lineId: string } }[];
   };
@@ -553,8 +565,8 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     salesLedgerId: c.salesLedgerId ?? c.purchaseLedgerId ?? '',
     salesLedgerLabel: (c.salesLedgerId ?? c.purchaseLedgerId) ? (masters.ledger((c.salesLedgerId ?? c.purchaseLedgerId) as never)?.name ?? '') : '',
     billNo: c.billNo ?? '',
-    due: c.dueDate ?? voucher.date,
-    dueText: formatDate(c.dueDate ?? voucher.date),
+    due: c.validUntil ?? c.dueDate ?? voucher.date,
+    dueText: formatDate(c.validUntil ?? c.dueDate ?? voucher.date),
     dueTouched: true,
     closed: c.closed === true,
     lines: lines.length > 0 ? lines : [blankSalesLine('l1')],
@@ -759,6 +771,44 @@ export function invoiceFormFromOrder(
     due,
     dueText: formatDate(due),
     lines: linesFromOrder(pending, masters, args.newKey, (itemId, qty) => (args.stock ? godownWithStock(masters, args.stock, itemId, date, args.warehouse, qty) : args.warehouse)),
+  };
+}
+
+/**
+ * A new sales order from a posted quotation: the customer, reference and party details carry over; each quoted line becomes an order line
+ * with a fresh line id and a due date from the quote’s “valid until” (or the order date when none). The quote number fills an empty
+ * reference and is noted in the narration.
+ */
+export function orderFormFromQuotation(
+  quote: Voucher,
+  masters: Masters,
+  args: { id: string; typeId: string; date: string; newKey: () => string },
+): SalesForm | undefined {
+  if (masters.voucherType(quote.voucherTypeId)?.baseKind !== 'quotation') return undefined;
+  if (quote.status !== 'posted') return undefined;
+  const src = salesFormFromVoucher(quote, masters, orderBookOf([], masters));
+  const kept = src.lines.filter((l) => !isEmptyLine(l));
+  if (kept.length === 0) return undefined;
+  const date = args.date < quote.date ? quote.date : args.date;
+  const lineDue = src.due !== '' && src.due >= date ? src.due : date;
+  const blank = blankSalesForm(args.id, args.typeId, date, args.newKey());
+  const note = `From quotation ${quote.number}`;
+  return {
+    ...blank,
+    partyId: src.partyId,
+    partyLabel: src.partyLabel,
+    reference: src.reference.trim() !== '' ? src.reference : quote.number,
+    partyDetails: src.partyDetails,
+    narration: src.narration.trim() !== '' ? `${src.narration.trim()} · ${note}` : note,
+    lines: kept.map((l) => ({
+      ...blankSalesLine(args.newKey(), undefined, lineDue),
+      itemId: l.itemId,
+      itemLabel: l.itemLabel,
+      qty: l.qty,
+      rate: l.rate,
+      due: lineDue,
+      dueText: formatDate(lineDue),
+    })),
   };
 }
 

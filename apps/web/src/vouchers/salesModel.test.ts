@@ -22,6 +22,7 @@ import {
   openOrdersOf,
   orderCallName,
   partyDetailsOfParty,
+  orderFormFromQuotation,
   previewSales,
   salesFormFromVoucher,
   salesKindOf,
@@ -314,5 +315,35 @@ describe('the party details a customer brings', () => {
     expect(dueDateFor(books.masters, party('ABC Industries'), '2026-05-01')).toBe('2026-05-31'); // 30 days
     expect(dueDateFor(books.masters, party('Sharma Traders'), '2026-05-01')).toBe('2026-06-15'); // 45 days
     expect(dueDateFor(books.masters, 'nobody', '2026-05-01')).toBe('2026-05-01');
+  });
+});
+
+describe('from quotation to sales order', () => {
+  it('carries the customer, lines and valid-until due dates into a new order form', async () => {
+    const books = await demo();
+    const p = books.masters.party(party('ABC Industries') as never)!;
+    const details = partyDetailsOfParty(p);
+    const posted = await books.post({
+      id: crypto.randomUUID(),
+      voucherTypeId: typeOf(books, 'quotation'),
+      date: '2026-05-10',
+      partyId: p.id,
+      partyDetails: details,
+      validUntil: '2026-06-01',
+      lines: [{ id: 'l1', itemId: item('Mounting Bracket'), qty: '10', rate: '55' }],
+    });
+    if (!posted.ok) throw new Error(JSON.stringify(posted.issues));
+    const form = orderFormFromQuotation(posted.value.voucher, books.masters, {
+      id: 'new1',
+      typeId: typeOf(books, 'salesOrder'),
+      date: '2026-05-12',
+      newKey: () => 'k',
+    });
+    expect(form?.partyId).toBe(p.id);
+    expect(form?.reference).toBe(posted.value.voucher.number);
+    expect(form?.lines).toHaveLength(1);
+    expect(form?.lines[0]?.qty).toBe('10');
+    expect(form?.lines[0]?.due).toBe('2026-06-01');
+    expect(previewSales(form!, 'salesOrder', books.masters, books.stock, books.orders).ok).toBe(true);
   });
 });

@@ -52,6 +52,7 @@ export { stockJournalKind, stockJournalDraftSchema, type StockJournalDraft } fro
 export { stockOpeningKind, stockOpeningDraftSchema, type StockOpeningDraft } from './vouchers/kinds/stockOpening';
 export { salesKind, salesDraftSchema, type SalesDraft } from './vouchers/kinds/sales';
 export { salesOrderKind, salesOrderDraftSchema, type SalesOrderDraft } from './vouchers/kinds/salesOrder';
+export { quotationKind, quotationDraftSchema, type QuotationDraft } from './vouchers/kinds/quotation';
 export { purchaseKind, purchaseDraftSchema, type PurchaseDraft } from './vouchers/kinds/purchase';
 export { purchaseOrderKind, purchaseOrderDraftSchema, type PurchaseOrderDraft } from './vouchers/kinds/purchaseOrder';
 export {

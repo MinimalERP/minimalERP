@@ -46,8 +46,8 @@ describe('a new company', () => {
     expect(m.gstRates.map((r) => r.ratePercent)).toEqual(['0', '5', '12', '18', '28']);
     expect(m.units.map((u) => u.symbol)).toEqual(['Nos', 'Kg', 'Ltr', 'Mtr', 'Box']);
     expect(m.warehouses).toHaveLength(1);
-    expect(m.voucherTypes.map((t) => t.baseKind)).toEqual(['contra', 'payment', 'receipt', 'journal', 'opening', 'stockJournal', 'stockOpening', 'sales', 'salesOrder', 'purchase', 'purchaseOrder']);
-    expect(m.series).toHaveLength(11);
+    expect(m.voucherTypes.map((t) => t.baseKind)).toEqual(['contra', 'payment', 'receipt', 'journal', 'opening', 'stockJournal', 'stockOpening', 'sales', 'salesOrder', 'quotation', 'purchase', 'purchaseOrder']);
+    expect(m.series).toHaveLength(12);
   });
 
   it('has a financial year running exactly one year from the start date', () => {
@@ -59,7 +59,7 @@ describe('a new company', () => {
   });
 
   it('numbers each voucher type from 0001 with a readable prefix', () => {
-    expect(m.series.map((s) => s.prefix)).toEqual(['CON/24-25/', 'PAY/24-25/', 'REC/24-25/', 'JRN/24-25/', 'OB/', 'STJ/24-25/', 'OS/', 'SAL/24-25/', 'SO/24-25/', 'PUR/24-25/', 'PO/24-25/']);
+    expect(m.series.map((s) => s.prefix)).toEqual(['CON/24-25/', 'PAY/24-25/', 'REC/24-25/', 'JRN/24-25/', 'OB/', 'STJ/24-25/', 'OS/', 'SAL/24-25/', 'SO/24-25/', 'QT/24-25/', 'PUR/24-25/', 'PO/24-25/']);
   });
 
   it('is deterministic for the same ids', () => {

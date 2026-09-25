@@ -1,5 +1,17 @@
-import type { Masters } from '@minimalerp/domain';
+import type { Masters, VoucherKindRegistry, VoucherLayout } from '@minimalerp/domain';
+import { defaultVoucherKinds } from '@minimalerp/domain';
 import { todayText } from './format';
+
+/** The domain layout for a voucher type (single-entry, item-invoice, stock, …). One lookup for routing in VoucherScreen. */
+export function voucherLayoutOf(
+  masters: Masters,
+  typeId: string,
+  registry: VoucherKindRegistry = defaultVoucherKinds(),
+): VoucherLayout | undefined {
+  const type = masters.voucherType(typeId as never);
+  const kind = type ? registry.get(type.baseKind) : undefined;
+  return kind?.layout;
+}
 
 /** A voucher type from what a screen address says: a base kind ("payment") or a voucher type's id. */
 export function resolveTypeId(masters: Masters, key: string): string | undefined {

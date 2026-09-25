@@ -31,6 +31,7 @@ export type ScreenRef =
       readonly mode: VoucherMode;
       readonly typeKey?: string;
       readonly id?: string;
+      readonly fromQuotation?: string;
       readonly fromOrder?: string;
       /** A new voucher made from an AI Inbox proposal (ADR-0023): it posts under the proposal's id. Not part of the address. */
       readonly fromInbox?: InboxItem;

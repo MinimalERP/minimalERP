@@ -60,6 +60,7 @@ describe('migrations', () => {
     // Phase 8 adds the Purchase and Purchase Order kinds the same way: owner 39, accountant 38, and a clerk may post both: 11.
     // The AI Inbox (ADR-0023) lets owner and accountant send documents (inbox.submit): owner 40, accountant 39; and adds the `automation`
     // role of the Gmail add-on: it submits and reads (master, voucher, report) and posts nothing: 4.
-    expect(byRole).toEqual({ accountant: 39, automation: 4, clerk: 11, owner: 40, viewer: 3 });
+    // Quotation adds three permissions for owner and accountant and clerk post: owner 43, accountant 42, clerk 12.
+    expect(byRole).toEqual({ accountant: 42, automation: 4, clerk: 12, owner: 43, viewer: 3 });
   });
 });

@@ -5,6 +5,7 @@ import { openingKind } from './kinds/opening';
 import { purchaseKind } from './kinds/purchase';
 import { purchaseOrderKind } from './kinds/purchaseOrder';
 import { salesKind } from './kinds/sales';
+import { quotationKind } from './kinds/quotation';
 import { salesOrderKind } from './kinds/salesOrder';
 import { stockJournalKind } from './kinds/stockJournal';
 import { stockOpeningKind } from './kinds/stockOpening';
@@ -42,6 +43,7 @@ export function defaultVoucherKinds(): VoucherKindRegistry {
     .register(stockJournalKind)
     .register(stockOpeningKind)
     .register(salesOrderKind)
+    .register(quotationKind)
     .register(salesKind)
     .register(purchaseOrderKind)
     .register(purchaseKind);
