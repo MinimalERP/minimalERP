@@ -61,7 +61,6 @@ export function docProfile(kind: ItemDocKind): DocProfile {
       quote: true,
       refLabel: 'Reference',
       refAria: 'Your reference for this quote',
-      billDue: 'Valid until',
     };
   }
   const invoice = kind === 'sales' || kind === 'purchase';

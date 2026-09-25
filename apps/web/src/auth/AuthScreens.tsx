@@ -1,6 +1,7 @@
 import type { AuthGateway, AuthSession } from '@minimalerp/ports';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { type Landing, passwordProblem } from './config';
+import { Busy } from '../ui/Busy';
 
 /**
  * What a person sees before they are signed in. There is no "create an account" here: the site is invite-only, so an account exists
@@ -203,6 +204,15 @@ function SetPassword({ auth, invited, onSignedIn }: { auth: AuthGateway; invited
         </button>
       </div>
     </form>
+  );
+}
+
+/** Shown while the books are being opened (or the sign-in is being read): the same animation as saving. */
+export function StartupLoading({ label = 'Opening your books…' }: { label?: string }) {
+  return (
+    <main class="startup-busy" data-testid="startup-loading">
+      <Busy label={label} />
+    </main>
   );
 }
 

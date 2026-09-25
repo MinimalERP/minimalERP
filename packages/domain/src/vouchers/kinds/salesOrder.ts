@@ -17,6 +17,8 @@ export const salesOrderDraftSchema = z.object({
   ...draftBaseShape,
   ...documentShape,
   closed: z.boolean().optional(),
+  /** The posted quotation this order was made from (Alt+Shift+O on the quote), if any. */
+  quotationId: z.string().uuid().optional(),
   lines: z.array(orderLineSchema),
 });
 export type SalesOrderDraft = z.output<typeof salesOrderDraftSchema>;

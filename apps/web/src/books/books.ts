@@ -228,6 +228,13 @@ export class Books {
     for (const l of [...this.listeners]) l();
   }
 
+  /** Refresh (the top bar's button): the masters AND the vouchers again from where the books live — what someone else saved meanwhile. */
+  async reload(): Promise<void> {
+    const [masters] = await Promise.all([this.backend.load(this.companyId), this.loadData()]);
+    this.snapshot = masters;
+    for (const l of [...this.listeners]) l();
+  }
+
   /**
    * Runs many changes (loading a demo company, an import) and reloads and announces ONCE at the end, instead of after every one.
    * Each change is still validated and committed on its own; only the screens' refresh is deferred.

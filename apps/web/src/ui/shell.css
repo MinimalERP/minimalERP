@@ -23,6 +23,9 @@
 .crumbs { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; color: var(--c-text-muted); }
 .crumbs .sep { opacity: 0.6; }
 .crumbs .here { color: var(--c-text); font-weight: 600; }
+.crumb-link { all: unset; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crumb-link:hover { color: var(--c-accent); text-decoration: underline; }
+.goto-button .busy-ring { width: 0.9em; height: 0.9em; }
 .crumbs span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar .spacer { flex: 1; }
 .company { color: var(--c-text-muted); font-size: var(--fs-sm); }
@@ -170,6 +173,21 @@
 }
 @media (prefers-reduced-motion: reduce) { .saving-spinner { animation-duration: 2.4s; } }
 @keyframes saving-spin { to { transform: rotate(360deg); } }
+/* ---- Busy (ui/Busy.tsx): the one animation for opening the books and for saving ---- */
+.busy { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 220px; }
+.busy-line { display: flex; align-items: center; gap: var(--sp-3); }
+.busy-ring {
+  width: 1.3em; height: 1.3em; flex-shrink: 0;
+  border: 2px solid var(--c-border); border-top-color: var(--c-accent); border-radius: 50%;
+  animation: saving-spin 0.8s linear infinite;
+}
+.busy-bar { position: relative; display: block; height: 3px; overflow: hidden; border-radius: 2px; background: var(--c-border); }
+.busy-bar-fill { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: 2px; background: var(--c-accent); animation: busy-sweep 1.2s ease-in-out infinite; }
+@keyframes busy-sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) { .busy-ring { animation-duration: 2.4s; } .busy-bar-fill { animation-duration: 3.6s; } }
+.startup-busy { display: grid; place-items: center; min-height: 100vh; min-height: 100dvh; padding: var(--sp-4); box-sizing: border-box; }
+.startup-busy .busy { font-size: var(--fs-lg); }
+.saving-panel .busy { min-width: 200px; }
 .saving-icon { font-size: 1.2em; line-height: 1; flex-shrink: 0; }
 .saving-icon.saving-ok { color: var(--c-success); }
 .saving-icon.saving-bad { color: var(--c-negative); }
@@ -442,6 +460,8 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 @media (min-width: 641px) { .gst-summary { white-space: nowrap; } }
 .vhdr.sales-order, .vtot.sales-order, .sales-order .vrow { grid-template-columns: minmax(0, 1fr) 10em 8em 9em 10em 1.8em; }
 .vhdr.sales-order.with-fill, .vtot.sales-order.with-fill, .sales-order.with-fill .vrow { grid-template-columns: minmax(0, 1fr) 10em 8em 9em 10em 6em 1.8em; }
+.vhdr.sales-quote, .vtot.sales-quote, .sales-quote .vrow { grid-template-columns: minmax(0, 1fr) 8em 9em 10em 1.8em; }
+.vhdr.sales-quote.with-gst, .vtot.sales-quote.with-gst, .sales-quote.with-gst .vrow { grid-template-columns: minmax(0, 1fr) 8em 9em 6em 10em 1.8em; }
 .vc-order, .vc-due { position: relative; min-width: 0; }
 /* the × sits in the title bar's right corner, outside the heading (its text stays just the title) */
 .voucher-screen, .form-screen { position: relative; }

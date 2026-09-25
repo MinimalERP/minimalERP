@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { type Issue, IssueCode, issue } from '../../errors';
-import { draftBaseShape, localDateSchema } from '../drafts';
+import { draftBaseShape } from '../drafts';
 import { defineVoucherKind } from '../kind';
 import { customerProblems, documentShape, lineValueProblems } from './documents';
 import { grandTotalParts, gstHeaderSchema, invoiceGst, roundOffProblems } from './gstDoc';
@@ -21,14 +21,12 @@ const quoteLineSchema = z.object({
 });
 
 /**
- * Quotation: what you offered a customer — items, quantities and rates — before they order or you invoice. It is a document: it posts
- * nothing to the accounts and nothing to the stock. GST may be stated on it when the company charges GST, for the printed quote only.
+ * Quotation: what you offered a customer — items, quantities and rates, no dates — before they order. It is a document: it posts
+ * nothing to the accounts and nothing to the stock. Once a sales order is made from it, the quote is kept as it was (see salesOrder.quotationId). GST may be stated on it when the company charges GST, for the printed quote only.
  */
 export const quotationDraftSchema = z.object({
   ...draftBaseShape,
   ...documentShape,
-  /** Until when the quote is meant to hold (optional). */
-  validUntil: localDateSchema.optional(),
   gst: gstHeaderSchema.optional(),
   lines: z.array(quoteLineSchema),
 });
@@ -47,9 +45,6 @@ export const quotationKind = defineVoucherKind<QuotationDraft>({
     if (draft.lines.length === 0) problems.push(issue(IssueCode.TooFewLines, 'A quotation needs at least one line', 'lines'));
     problems.push(...invoiceGst(draft, masters, 'sales').problems);
     problems.push(...roundOffProblems(masters, grandTotalParts(draft.lines, draft.gst).roundOff));
-    if (draft.validUntil !== undefined && draft.validUntil < draft.date) {
-      problems.push(issue(IssueCode.SalesDocInvalid, `Valid until is before the quotation date (${draft.date})`, 'validUntil'));
-    }
 
     const ids = new Set<string>();
     draft.lines.forEach((l, i) => {

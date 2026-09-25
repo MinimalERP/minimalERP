@@ -13,7 +13,7 @@ import { MemoryBackend } from '@minimalerp/adapter-memory';
 import { SupabaseAuth, SupabaseBooksBackend, type SupabaseLike } from '@minimalerp/adapter-supabase';
 import type { AuthSession } from '@minimalerp/ports';
 import { render } from 'preact';
-import { AuthScreen, StartupProblem } from './auth/AuthScreens';
+import { AuthScreen, StartupLoading, StartupProblem } from './auth/AuthScreens';
 import { type CloudConfig, cloudConfig, landingOf } from './auth/config';
 import { chooseLocalBooks, chooseOnlineBooks, prefersLocalBooks } from './auth/mode';
 import { BooksHost } from './books/books';
@@ -86,6 +86,7 @@ async function startLocal(localBooks?: LocalBooks): Promise<void> {
       saving,
     }),
   );
+  render(<StartupLoading />, root());
   await books.restore();
   mountApp(books, saving, undefined, localBooks);
 }
@@ -124,6 +125,7 @@ async function startCloud(config: CloudConfig): Promise<void> {
       saving,
     });
     const host = new BooksHost(factory);
+    render(<StartupLoading />, root());
     try {
       host.adopt(await factory.restore());
     } catch (error) {
@@ -153,6 +155,7 @@ async function startCloud(config: CloudConfig): Promise<void> {
     render(<AuthScreen auth={auth} landing={landing} signedInByLink={signedInByLink} onSignedIn={(s) => void enter(s)} onUseLocal={useLocal} />, root());
   };
 
+  render(<StartupLoading label="Starting…" />, root());
   const session = await auth.session(); // waits for the library to read an invitation link, if that is how the person came
   if (session && (landing.kind === 'invite' || landing.kind === 'recovery')) showSignIn(true); // signed in by the link; still needs a password
   else if (session) await enter(session);

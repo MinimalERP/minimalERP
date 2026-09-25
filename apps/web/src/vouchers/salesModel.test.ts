@@ -23,6 +23,7 @@ import {
   orderCallName,
   partyDetailsOfParty,
   orderFormFromQuotation,
+  orderOfQuotation,
   previewSales,
   salesFormFromVoucher,
   salesKindOf,
@@ -319,7 +320,7 @@ describe('the party details a customer brings', () => {
 });
 
 describe('from quotation to sales order', () => {
-  it('carries the customer, lines and valid-until due dates into a new order form', async () => {
+  it('carries the customer and lines into a new order (due on the order date), and the posted order locks the quote', async () => {
     const books = await demo();
     const p = books.masters.party(party('ABC Industries') as never)!;
     const details = partyDetailsOfParty(p);
@@ -329,21 +330,38 @@ describe('from quotation to sales order', () => {
       date: '2026-05-10',
       partyId: p.id,
       partyDetails: details,
-      validUntil: '2026-06-01',
       lines: [{ id: 'l1', itemId: item('Mounting Bracket'), qty: '10', rate: '55' }],
     });
     if (!posted.ok) throw new Error(JSON.stringify(posted.issues));
-    const form = orderFormFromQuotation(posted.value.voucher, books.masters, {
-      id: 'new1',
+    const quote = posted.value.voucher;
+    expect(salesFormFromVoucher(quote, books.masters, books.orders).lines).toHaveLength(1);
+    expect(orderOfQuotation(quote.id, books.vouchers)).toBeUndefined();
+
+    const form = orderFormFromQuotation(quote, books.masters, {
+      id: crypto.randomUUID(),
       typeId: typeOf(books, 'salesOrder'),
       date: '2026-05-12',
-      newKey: () => 'k',
+      newKey: () => crypto.randomUUID(),
     });
     expect(form?.partyId).toBe(p.id);
-    expect(form?.reference).toBe(posted.value.voucher.number);
+    expect(form?.reference).toBe(quote.number);
+    expect(form?.quotationId).toBe(quote.id);
     expect(form?.lines).toHaveLength(1);
     expect(form?.lines[0]?.qty).toBe('10');
-    expect(form?.lines[0]?.due).toBe('2026-06-01');
+    expect(form?.lines[0]?.due).toBe('2026-05-12');
     expect(previewSales(form!, 'salesOrder', books.masters, books.stock, books.orders).ok).toBe(true);
+
+    const order = await books.post(formToSalesDraft(form!, 'salesOrder', books.masters).draft);
+    if (!order.ok) throw new Error(JSON.stringify(order.issues));
+    expect((order.value.voucher.content as unknown as { quotationId?: string }).quotationId).toBe(quote.id);
+    expect(orderOfQuotation(quote.id, books.vouchers)?.number).toBe(order.value.voucher.number);
+  });
+
+  it('a quotation states no dates at all', () => {
+    const form = { ...blankSalesForm('q1', 'qt', '2026-05-10', 'l1'), partyId: 'c1', lines: [{ ...blankSalesLine('l1', undefined, '2026-05-10'), itemId: 'i1', qty: '1', rate: '5' }] };
+    const draft = formToSalesDraft(form, 'quotation').draft as Record<string, unknown> & { lines: Record<string, unknown>[] };
+    expect(draft).not.toHaveProperty('validUntil');
+    expect(draft).not.toHaveProperty('dueDate');
+    expect(draft.lines[0]).not.toHaveProperty('dueDate');
   });
 });

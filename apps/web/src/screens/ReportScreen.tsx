@@ -147,7 +147,7 @@ function ReportBody({
   const range = { from: localDate(period.from), to: localDate(period.to) };
   const typeChoices = useMemo(() => masters.voucherTypes.filter((t) => t.isActive !== false).map((t) => ({ value: t.name, label: t.name })), [masters]);
   const typeIdOfName = (name: string) => masters.voucherTypes.find((t) => t.name === name)?.id ?? name;
-  const typeIds = types.map(typeIdOfName);
+  const typeIds = useMemo(() => types.map(typeIdOfName), [types, masters]);
   const side = kind === 'payable' ? 'payable' : 'receivable';
   const listKind = kind as BaseKind | undefined;
 

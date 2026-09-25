@@ -44,7 +44,7 @@ describe('the four documents: what differs is one profile', () => {
     expect(docProfile('sales')).toMatchObject({ side: 'sales', invoice: true, role: 'customer', noun: 'customer', ledgerGroup: 'sales-accounts', refLabel: 'Cust PO / ref', done: 'delivered' });
     expect(docProfile('purchase')).toMatchObject({ side: 'purchase', invoice: true, role: 'vendor', noun: 'supplier', ledgerGroup: 'purchase-accounts', refLabel: 'PO / ref', done: 'received' });
     expect(docProfile('purchaseOrder')).toMatchObject({ order: true, invoice: false, quote: false, refLabel: 'Supplier ref' });
-    expect(docProfile('quotation')).toMatchObject({ side: 'sales', invoice: false, order: false, quote: true, billDue: 'Valid until' });
+    expect(docProfile('quotation')).toMatchObject({ side: 'sales', invoice: false, order: false, quote: true });
     expect([invoiceKindOf('purchase'), orderKindOf('purchase'), invoiceKindOf('sales'), orderKindOf('sales')]).toEqual(['purchase', 'purchaseOrder', 'sales', 'salesOrder']);
   });
 

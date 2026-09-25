@@ -1,3 +1,4 @@
+import { Busy } from '../ui/Busy';
 import { useScope, useServices, useSubscriptions } from './hooks';
 
 const SCOPE = 'overlay:saving';
@@ -23,12 +24,7 @@ export function SavingOverlay() {
   return (
     <div class="overlay-backdrop saving-backdrop" data-testid="saving-overlay">
       <div class="palette dialog saving-panel" role={view.phase === 'failed' ? 'alertdialog' : 'status'} aria-live="polite" aria-modal={view.phase === 'failed' || undefined} data-testid={`saving-${view.phase}`}>
-        {view.phase === 'saving' && (
-          <>
-            <span class="saving-spinner" aria-hidden="true" />
-            <span>Saving…</span>
-          </>
-        )}
+        {view.phase === 'saving' && <Busy label="Saving…" announce={false} />}
         {view.phase === 'saved' && (
           <>
             <span class="saving-icon saving-ok" aria-hidden="true">

@@ -29,6 +29,7 @@ import {
   hiddenItemReason,
   invoiceFormFromOrder,
   orderFormFromQuotation,
+  orderOfQuotation,
   isBlankSales,
   itemOptions,
   openOrderLines,
@@ -90,8 +91,6 @@ function fieldsOf(form: SalesForm, kind: ItemDocKind, gstOn = false): Field[] {
     out.push({ key: 'sledger', kind: 'sledger' });
     if (p.side === 'purchase') out.push({ key: 'billno', kind: 'billno' });
     out.push({ key: 'due', kind: 'due' });
-  } else if (p.quote) {
-    out.push({ key: 'due', kind: 'due' });
   }
   form.lines.forEach((l, i) => {
     out.push({ key: `l${i}.item`, kind: 'item', line: i });
@@ -131,8 +130,10 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books, keymapStore);
   const masters = books.masters;
-  const readOnly = mode === 'display';
   const propKind = (salesKindOf(masters, typeId) ?? 'sales') as ItemDocKind;
+  /** A quotation that has become a sales order is kept as it was: it opens read-only and cannot be altered, cancelled or converted again. */
+  const convertedTo = voucher && propKind === 'quotation' ? orderOfQuotation(voucher.id, books.vouchers) : undefined;
+  const readOnly = mode === 'display' || convertedTo !== undefined;
   /** The godown and the sales / purchase ledger a new document starts with (the ledger is the one of ITS side). */
   const extra = (k: ItemDocKind = propKind) => ({ warehouse: defaultGodown(books), salesLedger: defaultSalesLedger(masters, docProfile(k).side) });
   const blankForm = (): SalesForm => blankSalesForm(crypto.randomUUID(), typeId, defaultDate(masters), crypto.randomUUID(), extra());
@@ -1018,7 +1019,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
               )}
             </div>
           </>
-        ) : (
+        ) : p.quote ? null : (
           <div class="vc-due">
             <input
               data-vf={`l${i}.ldue`}
@@ -1169,19 +1170,19 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           }}
         />
       )}
-      {mode === 'display' && voucher?.status === 'posted' && (
+      {mode === 'display' && voucher?.status === 'posted' && !convertedTo && (
         <Only scope={SCOPE} command="master.alter" run={() => (app.navigate({ type: 'voucher', mode: 'alter', id: voucher.id }), true)} />
       )}
-      {mode !== 'create' && voucher?.status === 'posted' && <Only scope={SCOPE} command="voucher.cancel" run={() => (setConfirm('cancel'), true)} />}
+      {mode !== 'create' && voucher?.status === 'posted' && !convertedTo && <Only scope={SCOPE} command="voucher.cancel" run={() => (setConfirm('cancel'), true)} />}
       {mode !== 'create' && voucher?.status === 'posted' && p.order && !form.closed && (
         <Only scope={SCOPE} command="order.close" run={() => (setConfirm('close'), true)} />
       )}
       {mode !== 'create' && voucher?.status === 'posted' && p.order && orderState?.status === 'open' && <Only scope={SCOPE} command="order.invoice" run={invoicePending} />}
-      {mode !== 'create' && voucher?.status === 'posted' && p.quote && <Only scope={SCOPE} command="quotation.order" run={salesOrderFromQuote} />}
+      {mode !== 'create' && voucher?.status === 'posted' && p.quote && !convertedTo && <Only scope={SCOPE} command="quotation.order" run={salesOrderFromQuote} />}
     </>
   );
 
-  const gridClass = `${p.invoice ? 'sales-invoice' : 'sales-order'}${showFill ? ' with-fill' : ''}${gstOn ? ' with-gst' : ''}`;
+  const gridClass = `${p.invoice ? 'sales-invoice' : p.quote ? 'sales-quote' : 'sales-order'}${showFill ? ' with-fill' : ''}${gstOn ? ' with-gst' : ''}`;
   const details = form.partyDetails;
   const summary = [
     details?.mailingName,
@@ -1200,6 +1201,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         <>
           {title}
           {cancelled && <span class="badge">Cancelled</span>}
+          {convertedTo && !cancelled && (
+            <span class="badge" data-testid="quote-status">
+              Sales order {convertedTo.number}
+            </span>
+          )}
           {orderState && !cancelled && (
             <span class={orderState.status === 'open' ? 'badge open' : 'badge'} data-testid="order-status">
               {orderState.status === 'open' ? 'Open' : orderState.reason === 'fulfilled' ? `Closed · ${p.done} in full` : 'Closed'}
@@ -1385,7 +1391,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
               <span class="vc-godown">{p.side === 'purchase' ? 'Receive into' : 'Godown'}</span>
               <span class="vc-order">Against order</span>
             </>
-          ) : (
+          ) : p.quote ? null : (
             <span class="vc-due">Due date</span>
           )}
           <span class="vc-qty num">Qty</span>
@@ -1403,7 +1409,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
               <span class="vc-godown" />
               <span class="vc-order" />
             </>
-          ) : (
+          ) : p.quote ? null : (
             <span class="vc-due" />
           )}
           <span class="vc-qty" />

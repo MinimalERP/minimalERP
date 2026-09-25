@@ -90,6 +90,8 @@ export interface SalesForm {
   dueTouched: boolean;
   /** Order: closed by hand — nothing more can be delivered against it. */
   closed: boolean;
+  /** Sales order: the quotation it was made from (kept across alterations). */
+  quotationId?: string;
   lines: SalesLineForm[];
 }
 
@@ -329,9 +331,9 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
   const gst = masters && (p.invoice || p.quote) ? deriveGstHeader(masters, p.side, { partyId: form.partyId, partyDetails: form.partyDetails, lines: lines as unknown as { qty: string; rate: string; gstRate?: string }[] }) : undefined;
   return {
     draft: p.quote
-      ? { ...base, ...(form.due.trim() !== '' ? { validUntil: form.due } : {}), ...(gst ? { gst } : {}), lines }
+      ? { ...base, ...(gst ? { gst } : {}), lines }
       : p.order
-      ? { ...base, ...(form.closed ? { closed: true } : {}) }
+      ? { ...base, ...(form.closed ? { closed: true } : {}), ...(form.quotationId ? { quotationId: form.quotationId } : {}) }
       : p.side === 'sales'
         ? { ...base, salesLedgerId: form.salesLedgerId, dueDate: form.due, ...(gst ? { gst } : {}), ...(form.ewayBillNo.trim() !== '' ? { ewayBillNo: form.ewayBillNo.trim() } : {}) }
         : { ...base, purchaseLedgerId: form.salesLedgerId, billNo: form.billNo.trim(), dueDate: form.due, ...(gst ? { gst } : {}) },
@@ -395,7 +397,6 @@ const HEADER: Readonly<Record<string, SalesFieldKey>> = {
   purchaseLedgerId: 'sledger',
   billNo: 'billno',
   dueDate: 'due',
-  validUntil: 'due',
   narration: 'narration',
 };
 
@@ -529,8 +530,8 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     purchaseLedgerId?: string;
     billNo?: string;
     dueDate?: string;
-    validUntil?: string;
     closed?: boolean;
+    quotationId?: string;
     lines?: { id?: string; itemId?: string; description?: string; unit?: string; warehouseId?: string; qty: string; rate: string; dueDate?: string; gstRate?: string; hsn?: string; orderRef?: { orderId: string; lineId: string } }[];
   };
   const item = (id: string | undefined) => (id === undefined ? '' : (masters.stockItem(id as never)?.name ?? ''));
@@ -565,10 +566,11 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     salesLedgerId: c.salesLedgerId ?? c.purchaseLedgerId ?? '',
     salesLedgerLabel: (c.salesLedgerId ?? c.purchaseLedgerId) ? (masters.ledger((c.salesLedgerId ?? c.purchaseLedgerId) as never)?.name ?? '') : '',
     billNo: c.billNo ?? '',
-    due: c.validUntil ?? c.dueDate ?? voucher.date,
-    dueText: formatDate(c.validUntil ?? c.dueDate ?? voucher.date),
+    due: c.dueDate ?? voucher.date,
+    dueText: formatDate(c.dueDate ?? voucher.date),
     dueTouched: true,
     closed: c.closed === true,
+    ...(c.quotationId ? { quotationId: c.quotationId } : {}),
     lines: lines.length > 0 ? lines : [blankSalesLine('l1')],
   };
 }
@@ -776,8 +778,8 @@ export function invoiceFormFromOrder(
 
 /**
  * A new sales order from a posted quotation: the customer, reference and party details carry over; each quoted line becomes an order line
- * with a fresh line id and a due date from the quote’s “valid until” (or the order date when none). The quote number fills an empty
- * reference and is noted in the narration.
+ * with a fresh line id, due on the order date (the person sets the real dates on the order). The quote number fills an empty reference
+ * and is noted in the narration; the order remembers the quote (`quotationId`), which keeps the quote as it was from then on.
  */
 export function orderFormFromQuotation(
   quote: Voucher,
@@ -790,7 +792,6 @@ export function orderFormFromQuotation(
   const kept = src.lines.filter((l) => !isEmptyLine(l));
   if (kept.length === 0) return undefined;
   const date = args.date < quote.date ? quote.date : args.date;
-  const lineDue = src.due !== '' && src.due >= date ? src.due : date;
   const blank = blankSalesForm(args.id, args.typeId, date, args.newKey());
   const note = `From quotation ${quote.number}`;
   return {
@@ -800,16 +801,20 @@ export function orderFormFromQuotation(
     reference: src.reference.trim() !== '' ? src.reference : quote.number,
     partyDetails: src.partyDetails,
     narration: src.narration.trim() !== '' ? `${src.narration.trim()} · ${note}` : note,
+    quotationId: quote.id,
     lines: kept.map((l) => ({
-      ...blankSalesLine(args.newKey(), undefined, lineDue),
+      ...blankSalesLine(args.newKey(), undefined, date),
       itemId: l.itemId,
       itemLabel: l.itemLabel,
       qty: l.qty,
       rate: l.rate,
-      due: lineDue,
-      dueText: formatDate(lineDue),
     })),
   };
+}
+
+/** The posted sales order made from this quotation, if any (a cancelled order frees the quote again). */
+export function orderOfQuotation(quoteId: string, vouchers: readonly Voucher[]): Voucher | undefined {
+  return vouchers.find((v) => v.status === 'posted' && (v.content as unknown as { quotationId?: string }).quotationId === quoteId);
 }
 
 /**

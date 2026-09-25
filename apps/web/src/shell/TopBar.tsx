@@ -2,6 +2,7 @@ import { FORMS, titleOf } from '../books/forms';
 import { PLURALS } from '../books/books';
 import { kindTitle } from '../vouchers/kinds';
 import { Kbd } from '../ui/Kbd';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { PANEL_SCREENS } from './ActionPanel';
 import { useServices, useSubscriptions } from './hooks';
 import type { ScreenRef } from './router';
@@ -40,12 +41,49 @@ export function useScreenTitle() {
 }
 
 export function TopBar() {
-  const { screens, keymapStore, app, books, ui } = useServices();
+  const { screens, keymapStore, app, books, ui, registry, scopes } = useServices();
   useSubscriptions(screens, keymapStore, books, ui);
   const titleOf = useScreenTitle();
   const goto = keymapStore.keymap.chordsFor('goto.open')[0];
+  const [refreshing, setRefreshing] = useState(false);
 
   const trail = screens.all;
+
+  // A click on an earlier crumb closes the windows above it one at a time, exactly as the × does — so a window with something entered
+  // still asks "Close and leave?", and the walk stops there. One window per render: the next top screen's keys are registered by then.
+  const target = useRef<number | undefined>(undefined);
+  const closeOne = () => {
+    const depth = screens.depth;
+    const active = scopes.snapshot();
+    registry.dispatch('app.close', { scopes: active.ids, modal: active.modal });
+    if (screens.depth === depth) target.current = undefined; // it asked (or could not close): stop here
+  };
+  useEffect(() => {
+    if (target.current === undefined) return;
+    if (screens.depth <= target.current) {
+      target.current = undefined;
+      return;
+    }
+    const t = setTimeout(closeOne, 0);
+    return () => clearTimeout(t);
+  }, [trail.length]);
+  const goToCrumb = (i: number) => {
+    if (i >= trail.length - 1) return;
+    target.current = i + 1;
+    closeOne();
+  };
+
+  const refresh = async () => {
+    if (refreshing || !books.current) return;
+    setRefreshing(true);
+    try {
+      await books.current.reload();
+    } catch (error) {
+      console.error('Could not refresh the books', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
   return (
     <header class="topbar">
       <span class="brand">MinimalERP</span>
@@ -53,7 +91,13 @@ export function TopBar() {
         {trail.map((frame, i) => (
           <span key={frame.id} class={i === trail.length - 1 ? 'here' : ''} aria-current={i === trail.length - 1 ? 'page' : undefined}>
             {i > 0 && <span class="sep"> › </span>}
-            {titleOf(frame.screen)}
+            {i === trail.length - 1 ? (
+              titleOf(frame.screen)
+            ) : (
+              <button type="button" class="crumb-link" data-testid="crumb" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onClick={() => goToCrumb(i)}>
+                {titleOf(frame.screen)}
+              </button>
+            )}
           </span>
         ))}
       </nav>
@@ -82,6 +126,21 @@ export function TopBar() {
       {PANEL_SCREENS.includes(screens.top.screen.type) && (
         <button type="button" class="goto-button keys-toggle" onClick={() => ui.toggleKeys()} aria-pressed={ui.keysOpen} aria-label="Keys">
           <span>Keys</span>
+        </button>
+      )}
+      {books.current && (
+        <button
+          type="button"
+          class="goto-button"
+          data-testid="refresh"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => void refresh()}
+          disabled={refreshing}
+          aria-label="Refresh"
+          title="Load the books again (what others saved meanwhile)"
+        >
+          {refreshing && <span class="busy-ring" aria-hidden="true" />}
+          <span>{refreshing ? 'Refreshing…' : 'Refresh'}</span>
         </button>
       )}
       <button type="button" class="goto-button" onClick={() => app.openGoTo()} aria-label="Go To">
