@@ -40,6 +40,7 @@ import {
   type LocalDate,
 } from '@minimalerp/domain';
 import type {
+  ChangeFeed,
   DocumentSender,
   InboxGateway,
   InboxItem,
@@ -59,6 +60,7 @@ import type {
   OrderRepository,
   StockQuery,
   StockRepository,
+  VoucherChange,
   VoucherRepository,
 } from '@minimalerp/ports';
 
@@ -124,7 +126,8 @@ export class MemoryBackend
     StockRepository,
     OrderRepository,
     InboxGateway,
-    DocumentSender
+    DocumentSender,
+    ChangeFeed
 {
   private readonly vouchers = new Map<VoucherId, Voucher>();
   private readonly journalByVoucher = new Map<VoucherId, readonly JournalLine[]>();
@@ -270,6 +273,14 @@ export class MemoryBackend
     const all: StockMovement[] = [];
     for (const movements of this.stockByVoucher.values()) for (const m of movements) if (only === undefined || only.has(m.itemId)) all.push(m);
     return all;
+  }
+
+  /** What one change left behind: the voucher, its journal lines and its stock movements (see ChangeFeed). */
+  async changeOf(companyId: CompanyId, voucherId: VoucherId): Promise<VoucherChange | undefined> {
+    this.requireCompany(companyId);
+    const voucher = this.vouchers.get(voucherId);
+    if (!voucher) return undefined;
+    return { voucher, lines: this.journalByVoucher.get(voucherId) ?? [], movements: this.stockByVoucher.get(voucherId) ?? [] };
   }
 
   /** The stock book as it stands: every posted voucher's movements (a cancelled voucher has none). Rebuilt only when stock changed. */

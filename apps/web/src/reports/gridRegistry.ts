@@ -79,6 +79,10 @@ export interface GridReportSlice {
   readonly columns: readonly ColumnSpec<AnyGridRow>[];
   readonly baseRows: readonly AnyGridRow[];
   readonly rowOrder: GridRowOrder;
+  /** Ledger: the statement the rows came from (its opening and closing balance are shown around the grid). */
+  readonly statement?: ReturnType<typeof ledgerStatement> | undefined;
+  /** Stock item: its stock ledger (opening, current, committed, …). */
+  readonly stockLedger?: ReturnType<typeof stockLedgerOf> | undefined;
 }
 
 export function orderGridRows(order: GridRowOrder, rows: readonly AnyGridRow[]): readonly AnyGridRow[] {
@@ -113,7 +117,7 @@ export function gridReportSlice(ctx: GridReportContext): GridReportSlice {
         ? ledgerStatement({ ledgerId: ledgerId as never, vouchers: books.vouchers, lines: books.lines, masters, range })
         : undefined;
       const view = statement ? statementView(statement, typeIds) : undefined;
-      return { columns: ledgerColumns(typeChoices), baseRows: view?.rows ?? [], rowOrder: 'newest-first' };
+      return { columns: ledgerColumns(typeChoices), baseRows: view?.rows ?? [], rowOrder: 'newest-first', statement };
     }
     case 'stock-summary':
       return {
@@ -130,6 +134,7 @@ export function gridReportSlice(ctx: GridReportContext): GridReportSlice {
         columns: stockLedgerColumns(typeChoices),
         baseRows: onlyVoucherTypes(ledger?.rows ?? [], typeIds),
         rowOrder: 'newest-first',
+        stockLedger: ledger,
       };
     }
     case 'sales-orders':
@@ -188,24 +193,6 @@ export function gridReportSlice(ctx: GridReportContext): GridReportSlice {
         rowOrder: 'natural',
       };
   }
-}
-
-/** Ledger statement figures shown above/below the grid (opening / closing balance). */
-export function ledgerStatementOf(ctx: GridReportContext) {
-  if (ctx.report !== 'ledger' || !ctx.ledgerId) return undefined;
-  return ledgerStatement({
-    ledgerId: ctx.ledgerId as never,
-    vouchers: ctx.books.vouchers,
-    lines: ctx.books.lines,
-    masters: ctx.masters,
-    range: ctx.range,
-  });
-}
-
-/** Stock ledger book for the stock-item report (opening, current, committed, …). */
-export function stockLedgerOfContext(ctx: GridReportContext) {
-  if (ctx.report !== 'stock-item' || !ctx.itemFromAddress) return undefined;
-  return stockLedgerOf(ctx.masters, ctx.books.stock, ctx.books.vouchers, ctx.itemFromAddress as never, ctx.range.from, ctx.range.to, ctx.books.orders);
 }
 
 /** Heading on the report screen (after a company is open). */

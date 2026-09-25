@@ -20,7 +20,7 @@ import {
   stockMovementFromWire,
   voucherFromWire,
 } from '@minimalerp/domain';
-import type { DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
+import type { AlterRequest, CancelRequest, ChangeFeed, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
 
 /** What arrives with a change's own answer: the parts of the books the browser is about to reload. */
@@ -45,8 +45,12 @@ type Delivered = { readonly companyId: string; readonly at: number } & { -readon
  */
 const FRESH_MS = 5_000;
 
-/** The actions whose answers the server can send fresh books along with (see the function's contract). */
-const CHANGES = new Set(['post', 'alter', 'cancel', 'master', 'companies', 'company-create']);
+/**
+ * The actions whose answers the server can send fresh books along with (see the function's contract). A voucher change (post, alter,
+ * cancel) is not among them: its own answer already carries the voucher with its journal and stock rows, and the screens patch their copy
+ * with just that (see `changeOf`) instead of taking the whole company again.
+ */
+const CHANGES = new Set(['master', 'companies', 'company-create']);
 
 /** A company this account belongs to. */
 export interface CompanySummary {
@@ -64,7 +68,7 @@ export interface CompanySummary {
  */
 export class SupabaseBooksBackend
   extends SupabasePostingGateway
-  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender
+  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, ChangeFeed
 {
   private readonly kinds = defaultVoucherKinds();
   /** The masters of the last `load`, for turning stored vouchers back into what the screens hold (see `readable`). */
@@ -75,6 +79,44 @@ export class SupabaseBooksBackend
    * going out again. Each part is used once, only for the company it is about, and only if it is recent.
    */
   private delivered: Delivered | undefined;
+  /** The voucher the last change left behind, read back like `list` reads it; handed over once by `changeOf`. */
+  private lastChange: { readonly companyId: string; readonly change: VoucherChange } | undefined;
+
+  override async post(request: PostRequest): Promise<Result<PostOutcome>> {
+    return this.keep(request.companyId, await super.post(request));
+  }
+
+  override async alter(request: AlterRequest): Promise<Result<PostOutcome>> {
+    return this.keep(request.companyId, await super.alter(request));
+  }
+
+  override async cancel(request: CancelRequest): Promise<Result<Voucher>> {
+    const r = await super.cancel(request);
+    this.lastChange = undefined;
+    if (r.ok) {
+      this.delivered = undefined; // what arrived before the change no longer answers anything
+      const [voucher] = await this.readable(request.companyId, [r.value]);
+      if (voucher) this.lastChange = { companyId: request.companyId, change: { voucher, lines: [], movements: [] } }; // a cancelled voucher has none
+    }
+    return r;
+  }
+
+  /** The voucher a change just made, with its journal and stock — once, and only for the company and voucher it is about. */
+  async changeOf(companyId: CompanyId, voucherId: VoucherId): Promise<VoucherChange | undefined> {
+    const last = this.lastChange;
+    this.lastChange = undefined;
+    return last && last.companyId === companyId && last.change.voucher.id === voucherId ? last.change : undefined;
+  }
+
+  private async keep(companyId: CompanyId, r: Result<PostOutcome>): Promise<Result<PostOutcome>> {
+    this.lastChange = undefined;
+    if (r.ok) {
+      this.delivered = undefined; // what arrived before the change no longer answers anything
+      const [voucher] = await this.readable(companyId, [r.value.voucher]);
+      if (voucher) this.lastChange = { companyId, change: { voucher, lines: r.value.plan.journal, movements: r.value.plan.stock } };
+    }
+    return r;
+  }
 
   /** The companies this account belongs to (none until the person creates theirs). */
   async companies(): Promise<Result<readonly CompanySummary[]>> {

@@ -24,6 +24,7 @@ import {
   localDate,
 } from '@minimalerp/domain';
 import type {
+  ChangeFeed,
   DocumentSender,
   InboxGateway,
   InboxItem,
@@ -35,6 +36,7 @@ import type {
   PostOutcome,
   PostingGateway,
   StockRepository,
+  VoucherChange,
   VoucherRepository,
 } from '@minimalerp/ports';
 import type { KeyValueStore } from './store';
@@ -44,7 +46,7 @@ export { newCompanyIssues } from '@minimalerp/domain';
 export type { NewCompany };
 
 /** Everything the screens need from a backend: master commands, posting, and reading masters back. Adapters provide it. */
-export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender {}
+export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, Partial<ChangeFeed> {}
 
 /** A backend whose state can be saved as a log of changes and rebuilt from it (the in-browser demo backend). */
 export interface LocalBackend extends BooksBackend {
@@ -59,6 +61,26 @@ export interface LocalBackend extends BooksBackend {
 export interface SavedCompany extends NewCompany {
   /** Makes every seeded id unique to this company yet reproducible, so the change log replays onto the same ids. */
   readonly idSeed: string;
+}
+
+/**
+ * The journal with one voucher's lines replaced, kept in the order the backends list it (date, then voucher id, then line number): a
+ * voucher's lines all carry its date, so they go in as one block where that date and id belong.
+ */
+export function withVoucherLines(journal: readonly JournalLine[], voucherId: VoucherId, lines: readonly JournalLine[]): readonly JournalLine[] {
+  const kept = journal.filter((l) => l.voucherId !== voucherId);
+  if (lines.length === 0) return kept;
+  const block = [...lines].sort((a, b) => a.lineNo - b.lineNo);
+  const date = block[0]!.date;
+  let lo = 0;
+  let hi = kept.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const l = kept[mid]!;
+    if (l.date < date || (l.date === date && l.voucherId < voucherId)) lo = mid + 1;
+    else hi = mid;
+  }
+  return [...kept.slice(0, lo), ...block, ...kept.slice(lo)];
 }
 
 export function seedMasters(saved: SavedCompany, options: { systemLedgers?: boolean } = {}): Masters {
@@ -85,6 +107,7 @@ export class Books {
   private stockBook: StockBookType = StockBook.empty;
   private orderCache: { readonly at: readonly Voucher[]; readonly masters: Masters; readonly book: OrderBookType } | undefined;
   private balanceCache: { at: readonly JournalLine[]; map: Map<string, bigint> } | undefined;
+  private byIdCache: { readonly at: readonly Voucher[]; readonly map: ReadonlyMap<string, Voucher> } | undefined;
   private readonly listeners = new Set<() => void>();
   /** While > 0, changes do not reload and announce themselves one by one (see `bulk`). */
   private bulkDepth = 0;
@@ -132,7 +155,8 @@ export class Books {
   }
 
   voucher(id: string): Voucher | undefined {
-    return this.posted.find((v) => v.id === id);
+    if (this.byIdCache?.at !== this.posted) this.byIdCache = { at: this.posted, map: new Map(this.posted.map((v) => [v.id, v])) };
+    return this.byIdCache.map.get(id);
   }
 
   /** A ledger's balance, signed, debit positive. Derived from the journal, never stored. */
@@ -161,7 +185,7 @@ export class Books {
   async post(draft: unknown): Promise<Result<PostOutcome>> {
     return this.saving.track(async () => {
       const result = await this.backend.post({ companyId: this.companyId, draft });
-      if (result.ok && !result.value.replayed) await this.reloadAfterChange();
+      if (result.ok && !result.value.replayed) await this.reloadAfterChange(result.value.voucher.id);
       return result;
     });
   }
@@ -169,7 +193,7 @@ export class Books {
   async alter(voucherId: string, expectedVersion: number, draft: unknown): Promise<Result<PostOutcome>> {
     return this.saving.track(async () => {
       const result = await this.backend.alter({ companyId: this.companyId, voucherId: voucherId as VoucherId, expectedVersion, draft });
-      if (result.ok) await this.reloadAfterChange();
+      if (result.ok) await this.reloadAfterChange(voucherId as VoucherId);
       return result;
     });
   }
@@ -177,15 +201,29 @@ export class Books {
   async cancel(voucherId: string, expectedVersion: number): Promise<Result<Voucher>> {
     return this.saving.track(async () => {
       const result = await this.backend.cancel({ companyId: this.companyId, voucherId: voucherId as VoucherId, expectedVersion });
-      if (result.ok) await this.reloadAfterChange();
+      if (result.ok) await this.reloadAfterChange(voucherId as VoucherId);
       return result;
     });
   }
 
-  private async reloadAfterChange(): Promise<void> {
+  /**
+   * After a change: patch the one voucher it touched (its row, journal lines and stock movements) when the backend can say what that is —
+   * the answer to the change already carried it, so nothing more crosses the network and nothing else is re-read. Otherwise everything is
+   * loaded again, as before.
+   */
+  private async reloadAfterChange(voucherId: VoucherId): Promise<void> {
     if (this.bulkDepth > 0) return;
-    await this.loadData();
+    const change = await this.backend.changeOf?.(this.companyId, voucherId);
+    if (change) this.applyChange(change);
+    else await this.loadData();
     for (const l of [...this.listeners]) l();
+  }
+
+  private applyChange({ voucher, lines, movements }: VoucherChange): void {
+    const at = this.posted.findIndex((v) => v.id === voucher.id);
+    this.posted = at === -1 ? [...this.posted, voucher] : this.posted.map((v, i) => (i === at ? voucher : v)); // new vouchers come last, as in `list`
+    this.journal = withVoucherLines(this.journal, voucher.id, lines);
+    this.stockBook = this.stockBook.withChange({ remove: [voucher.id], add: movements });
   }
 
   // ---- drafts: a half-entered voucher survives a reload ----

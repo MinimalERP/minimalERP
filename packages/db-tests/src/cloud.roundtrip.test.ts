@@ -25,11 +25,12 @@ const handler = createPostingHandler({
 });
 
 /** A Supabase client whose only working part is `functions.invoke`, wired straight to the handler as `userId`. */
-const browserAs = (userId: string, calls: string[] = []): SupabaseBooksBackend => {
+const browserAs = (userId: string, calls: string[] = [], bodies: Record<string, unknown>[] = []): SupabaseBooksBackend => {
   const client: SupabaseLike = {
     functions: {
       invoke: async (_name, { body }) => {
         calls.push(String(body['action'])); // one entry per network round trip
+        bodies.push(body);
         const res = await handler(
           new Request('http://localhost/functions/v1/post-voucher', {
             method: 'POST',
@@ -125,68 +126,84 @@ describe('how many round trips a person waits for (each one is 0.5-1 s from Indi
     expect(calls).toEqual(['companies']);
   });
 
-  it('posting a voucher and showing the books again is ONE request', async () => {
+  it('posting a voucher and showing it is ONE request, and its answer carries only that voucher (not the whole books)', async () => {
     const calls: string[] = [];
-    const b = browserAs(w.ownerId, calls);
+    const sent: Record<string, unknown>[] = [];
+    const b = browserAs(w.ownerId, calls, sent);
     const id = asCompanyId(w.companyId);
     await b.load(id); // (the app already has the masters when it posts)
     calls.length = 0;
+    sent.length = 0;
 
     const posted = await b.post({ companyId: id, draft: draft('rt-fast', '12.00') });
     if (!posted.ok) throw new Error(JSON.stringify(posted.issues));
-    const [vouchers, lines] = await Promise.all([b.list(id), b.lines({ companyId: id }), b.stockMovements({ companyId: id })]);
+    const change = await b.changeOf(id, w.vid('rt-fast') as never); // what Books patches its copy with
     expect(calls).toEqual(['post']);
-    // and what it shows is up to date, not what was there before
-    expect(vouchers.some((v) => v.id === w.vid('rt-fast'))).toBe(true);
-    expect(lines.filter((l) => l.voucherId === w.vid('rt-fast'))).toHaveLength(2);
+    expect(sent[0]).not.toHaveProperty('fresh'); // the server is not asked for the whole books
+    expect(change?.voucher.number).toMatch(/^PAY\//);
+    expect((change?.voucher.content as unknown as { lines: { amount: unknown }[] }).lines[0]?.amount).toBe(1200n); // read back like `list` reads it
+    expect(change?.lines.map((l) => l.amount)).toEqual([1200n, 1200n]);
+    expect(change?.movements).toEqual([]);
   });
 
-  it('accepting a master form (a change, then the masters again) is ONE request, and the new record is in it', async () => {
-    const calls: string[] = [];
-    const b = browserAs(w.ownerId, calls);
-    const id = asCompanyId(w.companyId);
-    const before = await b.load(id);
-    const group = before.groups.all.find((g) => g.name === 'Bank Accounts');
-    expect(group).toBeDefined();
-    calls.length = 0;
-
-    const made = await b.execute({ companyId: id, command: { op: 'create', kind: 'ledger', id: randomUUID(), data: { name: 'Fast Bank', groupId: group!.id } } });
-    if (!made.ok) throw new Error(JSON.stringify(made.issues));
-    const after = await b.load(id);
-    expect(calls).toEqual(['master']);
-    expect(after.ledgers.some((l) => l.name === 'Fast Bank')).toBe(true);
-  });
-
-  it('a delivered part answers ONE question: asking again goes to the server (so nothing is ever shown stale)', async () => {
-    const calls: string[] = [];
-    const b = browserAs(w.ownerId, calls);
+  it('a cancellation hands over the voucher with no lines; an alteration its new lines', async () => {
+    const b = browserAs(w.ownerId);
     const id = asCompanyId(w.companyId);
     await b.load(id);
-    await b.post({ companyId: id, draft: draft('rt-once', '1.00') });
+    const posted = await b.post({ companyId: id, draft: draft('rt-alter', '5.00') });
+    if (!posted.ok) throw new Error(JSON.stringify(posted.issues));
+    await b.changeOf(id, posted.value.voucher.id);
+    const altered = await b.alter({ companyId: id, voucherId: posted.value.voucher.id, expectedVersion: posted.value.voucher.version, draft: draft('rt-alter', '7.00') });
+    if (!altered.ok) throw new Error(JSON.stringify(altered.issues));
+    expect((await b.changeOf(id, posted.value.voucher.id))?.lines.map((l) => l.amount)).toEqual([700n, 700n]);
+    const cancelled = await b.cancel({ companyId: id, voucherId: altered.value.voucher.id, expectedVersion: altered.value.voucher.version });
+    if (!cancelled.ok) throw new Error(JSON.stringify(cancelled.issues));
+    const change = await b.changeOf(id, altered.value.voucher.id);
+    expect(change?.voucher.status).toBe('cancelled');
+    expect(change?.lines).toEqual([]);
+  });
+
+  it('a change is handed over ONCE, and only for its own company and voucher (so nothing is ever shown stale)', async () => {
+    const b = browserAs(w.ownerId);
+    const id = asCompanyId(w.companyId);
+    await b.load(id);
+    const posted = await b.post({ companyId: id, draft: draft('rt-once', '1.00') });
+    if (!posted.ok) throw new Error(JSON.stringify(posted.issues));
+    expect(await b.changeOf(asCompanyId(randomUUID()), posted.value.voucher.id)).toBeUndefined(); // another company: never (and it is gone)
+    expect(await b.changeOf(id, posted.value.voucher.id)).toBeUndefined();
+    await b.post({ companyId: id, draft: draft('rt-once-2', '1.00') });
+    expect(await b.changeOf(id, posted.value.voucher.id)).toBeUndefined(); // not the voucher the last change made
+    await b.post({ companyId: id, draft: draft('rt-once-3', '1.00') });
+    expect(await b.changeOf(id, w.vid('rt-once-3') as never)).toBeDefined();
+    expect(await b.changeOf(id, w.vid('rt-once-3') as never)).toBeUndefined(); // used once
+  });
+
+  it('a change made soon after opening the books is never hidden by what the opening delivered', async () => {
+    const calls: string[] = [];
+    const b = browserAs(w.ownerId, calls);
+    const id = asCompanyId(w.companyId);
+    await b.companies(); // delivers the books as they were
+    await b.post({ companyId: id, draft: draft('rt-after-open', '1.00') });
     calls.length = 0;
-    await b.list(id); // from what came with the post
-    await b.list(id); // asked again: the server
-    expect(calls).toEqual(['vouchers']);
+    const vouchers = await b.list(id);
+    expect(calls).toEqual(['vouchers']); // asked the server, not the delivered copy from before the post
+    expect(vouchers.some((v) => v.id === w.vid('rt-after-open'))).toBe(true);
   });
 
   it('a question about PART of the journal is never answered from the delivered whole', async () => {
     const calls: string[] = [];
     const b = browserAs(w.ownerId, calls);
-    const id = asCompanyId(w.companyId);
-    await b.load(id);
-    await b.post({ companyId: id, draft: draft('rt-part', '2.00') });
+    await b.companies(); // delivers the whole books
     calls.length = 0;
-    const one = await b.lines({ companyId: id, voucherId: w.vid('rt-part') });
+    const one = await b.lines({ companyId: asCompanyId(w.companyId), voucherId: w.vid('rt-once') as never });
     expect(one).toHaveLength(2);
     expect(calls).toEqual(['lines']);
   });
 
-  it('what came with a change for one company never answers a question about another', async () => {
+  it('what came with an answer for one company never answers a question about another', async () => {
     const calls: string[] = [];
     const b = browserAs(w.ownerId, calls);
-    const id = asCompanyId(w.companyId);
-    await b.load(id);
-    await b.post({ companyId: id, draft: draft('rt-other', '3.00') });
+    await b.companies();
     calls.length = 0;
     await expect(b.list(asCompanyId(randomUUID()))).rejects.toThrow(/Not permitted/); // went to the server, which refused
     expect(calls).toEqual(['vouchers']);

@@ -21,9 +21,7 @@ import {
   gridReportSlice,
   gridSupportsTypeFilter,
   gridUsesAsOnDate,
-  ledgerStatementOf,
   orderGridRows,
-  stockLedgerOfContext,
 } from '../reports/gridRegistry';
 import { asGstReport, asStatementReport, reportTitle } from '../reports/registry';
 import { type OutstandingBillRow, type PartyRow, outstandingRowClass, partyTotals } from '../reports/outstandingReports';
@@ -168,9 +166,7 @@ function ReportBody({
     [report, books, masters, range.from, range.to, ledgerId, ledgerFromAddress, itemFromAddress, kind, groupFromAddress, typeChoices, typeIds],
   );
 
-  const { columns, baseRows, rowOrder } = useMemo(() => gridReportSlice(gridCtx), [gridCtx]);
-  const ledgerStatement = useMemo(() => ledgerStatementOf(gridCtx), [gridCtx]);
-  const stockLedger = useMemo(() => stockLedgerOfContext(gridCtx), [gridCtx]);
+  const { columns, baseRows, rowOrder, statement: ledgerStatement, stockLedger } = useMemo(() => gridReportSlice(gridCtx), [gridCtx]);
   const stockItem = itemFromAddress ? masters.stockItem(itemFromAddress as never) : undefined;
 
   const newestFirst = useMemo(() => orderGridRows(rowOrder, baseRows), [rowOrder, baseRows]);

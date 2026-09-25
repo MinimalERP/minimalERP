@@ -130,6 +130,21 @@ export interface StockRepository {
   stockMovements(query: StockQuery): Promise<readonly StockMovement[]>;
 }
 
+/** One voucher as it stands after a change, with its journal lines and stock movements (none once cancelled). */
+export interface VoucherChange {
+  readonly voucher: Voucher;
+  readonly lines: readonly JournalLine[];
+  readonly movements: readonly StockMovement[];
+}
+
+/**
+ * What a change touched, so the screens can patch their copy of the books instead of reloading all of it. Undefined when the backend
+ * cannot say cheaply (then the caller reloads everything, as before).
+ */
+export interface ChangeFeed {
+  changeOf(companyId: CompanyId, voucherId: VoucherId): Promise<VoucherChange | undefined>;
+}
+
 export interface OrderQuery {
   readonly companyId: CompanyId;
   /** Only the deliveries against these sales orders. Omitted: every delivery in the company. */

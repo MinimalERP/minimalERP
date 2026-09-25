@@ -290,3 +290,58 @@ describe('search documents', () => {
     expect(before.some((d) => d.title === 'Fresh Party')).toBe(false);
   });
 });
+
+describe('after a voucher change, the books are patched with just that voucher', () => {
+  const plain = (x: unknown) => JSON.stringify(x, (_k, v: unknown) => (typeof v === 'bigint' ? v.toString() : v));
+  const stateOf = (b: Books) =>
+    plain({
+      vouchers: b.vouchers,
+      lines: b.lines,
+      stock: [...b.stock.movements].sort((x, y) => (x.voucherId < y.voucherId ? -1 : x.voucherId > y.voucherId ? 1 : x.lineNo - y.lineNo)),
+    });
+
+  it('a post, an alteration and a cancellation each leave exactly what a full reload would, without reading the whole company', async () => {
+    const host = newHost();
+    const demo = await loadDemoCompany(host);
+    if (!demo.ok) throw new Error(JSON.stringify(demo.issues));
+    const books = demo.value;
+    const { salesFormFromVoucher, formToSalesDraft } = await import('../vouchers/salesModel');
+    const invoice = books.vouchers.find((v) => v.status === 'posted' && books.masters.voucherType(v.voucherTypeId)?.baseKind === 'sales');
+    if (!invoice) throw new Error('the demo has a sales invoice');
+    const form = salesFormFromVoucher(invoice, books.masters, books.orders);
+
+    let listed = 0;
+    const backend = books.backend as unknown as { list: (...a: unknown[]) => Promise<unknown> };
+    const list = backend.list.bind(backend);
+    backend.list = (...a) => ((listed += 1), list(...a));
+
+    const check = async () => {
+      const patched = stateOf(books);
+      await books.loadData();
+      expect(patched).toBe(stateOf(books));
+    };
+
+    // a new invoice: appended, with its lines and stock
+    const copy = { ...form, id: deterministicUuid('patch|new'), lines: form.lines.map((l, i) => ({ ...l, key: `n${i}`, orderId: '', orderLineId: '', orderLabel: '' })) };
+    const posted = await books.post(formToSalesDraft(copy, 'sales', books.masters).draft);
+    expect(posted.ok, posted.ok ? '' : plain(posted.issues)).toBe(true);
+    expect(listed).toBe(0);
+    await check();
+    listed = 0;
+
+    // altered in place: its lines replaced
+    const altered = await books.alter(invoice.id, invoice.version, formToSalesDraft({ ...form, narration: 'patched' }, 'sales', books.masters).draft);
+    expect(altered.ok, altered.ok ? '' : plain(altered.issues)).toBe(true);
+    expect(listed).toBe(0);
+    await check();
+    listed = 0;
+
+    // cancelled: it stays, with no lines and no stock
+    const now = books.voucher(invoice.id)!;
+    const cancelled = await books.cancel(now.id, now.version);
+    expect(cancelled.ok).toBe(true);
+    expect(listed).toBe(0);
+    expect(books.lines.some((l) => l.voucherId === invoice.id)).toBe(false);
+    await check();
+  });
+});
