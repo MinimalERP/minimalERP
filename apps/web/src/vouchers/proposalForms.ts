@@ -157,9 +157,6 @@ export function partySeedOf(p: Proposal): Record<string, string> {
   };
 }
 
-/** The unit the document printed for each line, by line (the form does not hold it; Alt+C on the item reads it from here). */
-export const unitsOfProposal = (p: Proposal): readonly (string | undefined)[] => p.lines.map((l) => l.unit);
-
 /** The note a window opened from the AI Inbox starts with: where it came from, and everything the reading could not settle. */
 export function inboxBanner(item: InboxItem | undefined): { text: string; tone: 'note' } | undefined {
   if (!item) return undefined;

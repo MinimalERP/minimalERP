@@ -29,7 +29,11 @@ Nothing here changes posting authority, commands, keyboard rules, or the data mo
 | A3 | Extract shared **worksheet chrome** into `vouchers/layouts/worksheetChrome.tsx` | Done (section, head, notices, narration, draft hook, date parse, mode handlers) |
 | A4 | Rename `SalesVoucherEntry` → `ItemInvoiceEntry` (covers purchase + orders) | Done |
 
-Deferred: merging the three entry implementations into one component — only if A3 proves the shared skeleton is stable.
+| A5 | Move the accounting entry out of `screens/VoucherScreen.tsx` into `vouchers/layouts/ledgerEntry.tsx`; `VoucherScreen` is the router only | Done |
+| A6 | `vouchers/layouts/worksheetKit.tsx`: what the three layouts had each written out — field focus and movement (`useFieldFocus`), problems on cells (`useFieldIssues`), the text cell (`Cell`), popup lists (`matchOptions`, `usePickerState`, `PickerList`) and saving (`useVoucherSave`: accept, save-and-new, cancel, a layout's own confirmations) | Done |
+
+Still per layout, on purpose: each one's fields, pickers' options, columns and Esc chain (they differ in what they restore). The three are not
+merged into one component: a layout is its own columns and rules; what they share is in the kit.
 
 ## Phase B — Reports
 

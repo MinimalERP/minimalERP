@@ -56,7 +56,7 @@ const rowC = new Int16Array(96);
  * `editDistance(a, b) <= max`, without allocating and without finishing the table once every path is already too
  * expensive. Searching thousands of records per keystroke is dominated by this test, and almost every record fails it early.
  */
-export function withinEdits(a: string, b: string, max: number): boolean {
+function withinEdits(a: string, b: string, max: number): boolean {
   const n = a.length;
   const m = b.length;
   if (Math.abs(n - m) > max) return false;

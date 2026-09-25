@@ -12,7 +12,7 @@ const HOST: Partial<Record<ReportKind, ReportHost>> = {
 };
 
 /** Where to route a report kind. Unknown kinds use the shared grid host. */
-export function reportHost(report: ReportKind): ReportHost {
+function reportHost(report: ReportKind): ReportHost {
   return HOST[report] ?? 'grid';
 }
 

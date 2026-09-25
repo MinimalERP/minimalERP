@@ -2,7 +2,6 @@ import type { EntityDoc } from '@minimalerp/command';
 import {
   type MasterKind,
   type Masters,
-  MASTER_LABELS,
   formatMoney,
   isMasterActive,
   listMasters,
@@ -184,5 +183,3 @@ export function summaryOf(kind: MasterKind, masters: Masters, record: unknown): 
   const extra = kind === 'party' && typeof r.creditLimit === 'bigint' ? ` · limit ${formatMoney(r.creditLimit as never)}` : '';
   return { title: d.title || masterRecordName(record as never), subtitle: (d.subtitle ?? '') + extra, inactive: !isMasterActive(kind, record as never) };
 }
-
-export const kindLabel = (kind: MasterKind): string => MASTER_LABELS[kind];

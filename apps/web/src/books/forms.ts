@@ -415,7 +415,7 @@ export function optionsFor(field: FieldSpec, masters: Masters, exclude?: string,
 }
 
 /** Active documents of one kind, for a picker. */
-export function pickerDocs(masters: Masters, target: MasterKind): readonly EntityDoc[] {
+function pickerDocs(masters: Masters, target: MasterKind): readonly EntityDoc[] {
   return entityDocsOf(masters).filter((d) => (d.args as { kind: MasterKind }).kind === target && !d.inactive);
 }
 

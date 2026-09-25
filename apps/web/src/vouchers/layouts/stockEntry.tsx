@@ -1,6 +1,6 @@
-import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
+import type { Frame } from '@minimalerp/command';
 import { type Voucher, formatRate, parseQty, parseRate, rateOf, valueOf } from '@minimalerp/domain';
-import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useMemo, useRef } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { Only } from '../../shell/Only';
 import { useIdleOnBlankClick } from '../../shell/idle';
@@ -8,7 +8,6 @@ import { useCommandHandler, useFrameState, useServices, useSubscriptions } from 
 import type { ScreenRef, VoucherMode } from '../../shell/router';
 import { useLeaveGuard } from '../../shell/useLeaveGuard';
 import { Kbd } from '../../ui/Kbd';
-import { ListView } from '../../ui/ListView';
 import { godownWithStock, hiddenItemReason } from '../salesModel';
 import { defaultDate } from '../entryHelpers';
 import { formatAmount, formatDate, formatQuantity } from '../format';
@@ -33,9 +32,9 @@ import {
   VoucherWorksheetHead,
   VoucherWorksheetSection,
 } from './worksheetChrome';
+import { Cell, type CellHost, PickerList, type PickOption, focusKeyOf, matchOptions, useFieldFocus, useFieldIssues, usePickerState, useVoucherSave } from './worksheetKit';
 
 const SCOPE = 'screen:voucher';
-const MAX_OPTIONS = 8;
 
 type Kind = 'date' | 'side' | 'item' | 'wh' | 'qty' | 'rate' | 'narration';
 interface Field {
@@ -43,12 +42,6 @@ interface Field {
   readonly kind: Kind;
   readonly line?: number;
 }
-
-/** A problem's cell (`line.2.qty`) → the key of the field that shows it (`l2.qty`). */
-const focusKeyOf = (field: string): string => {
-  const m = /^line\.(\d+)\.(\w+)$/.exec(field);
-  return m ? `l${m[1]}.${m[2]}` : field;
-};
 
 /** Date first (F2 only), then each line: In/Out, item, godown, quantity and — for an In — its rate; then the narration. */
 function fieldsOf(form: StockForm): Field[] {
@@ -61,11 +54,7 @@ function fieldsOf(form: StockForm): Field[] {
   return out;
 }
 
-interface Option {
-  readonly id: string;
-  readonly name: string;
-  readonly sub: string;
-}
+type Option = PickOption;
 
 interface Props {
   readonly frame: Frame<ScreenRef>;
@@ -92,21 +81,15 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
   const [focusKey, setFocusKey] = useFrameState<string>(frame, 'focus', mode === 'create' ? 'l0.side' : 'date');
   const [dateText, setDateText] = useFrameState<string>(frame, 'dateText', formatDate(form.date));
   const [showErrors, setShowErrors] = useFrameState<boolean>(frame, 'showErrors', false);
-  const [pick, setPick] = useState({ index: 0, touched: false });
-  const [pickerClosed, setPickerClosed] = useState<string | undefined>(undefined);
-  const [banner, setBanner] = useState<{ text: string; tone: 'error' | 'ok' | 'note' } | undefined>(undefined);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [confirm, setConfirm] = useState<'cancel' | undefined>(undefined);
   const leave = useLeaveGuard('This stock journal has not been saved.');
-  const [busy, setBusy] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   /** Clicking blank space deactivates the active field until a field is clicked or a key pressed. */
   const { idle, wake } = useIdleOnBlankClick(rootRef);
 
   const type = masters.voucherType(form.typeId as never);
   const fields = fieldsOf(form);
-  const at = Math.max(0, fields.findIndex((f) => f.key === focusKey));
-  const current = fields[at] as Field;
+  const picker = usePickerState(focusKey);
+  const { current, go, nextKey, prevKey, isFocus } = useFieldFocus({ fields, focusKey, setFocusKey, rootRef, idle, wake, deps: [mode, form.lines.length], onGo: picker.reset });
 
   const fresh = (): StockForm => (frame.state.get('form') as StockForm | undefined) ?? form;
   const update = (fn: (f: StockForm) => StockForm) => setFormState(fn(fresh()));
@@ -151,24 +134,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
       });
     return { kind: 'stock', docTitle: type.name, number: voucher.number, date: voucher.date, lines, narration: form.narration || undefined };
   };
-  const issueAt = (key: string): string | undefined => fieldErrors[key] || (showErrors ? preview.issues.find((i) => i.field === key)?.message : undefined);
-  const general = showErrors ? preview.issues.filter((i) => i.field === 'general').map((i) => i.message) : [];
-
-  // ---- focus ----
-  useLayoutEffect(() => {
-    if (idle) return;
-    const el = rootRef.current?.querySelector<HTMLInputElement>(`[data-vf="${current.key}"]`);
-    el?.focus();
-    if (el && el.type === 'text') el.select();
-  }, [focusKey, mode, form.lines.length, idle]);
-  const go = (key: string) => {
-    wake();
-    setPick({ index: 0, touched: false });
-    setPickerClosed(undefined);
-    setFocusKey(key);
-  };
-  const nextKey = (from = at): string | undefined => fields[from + 1]?.key;
-  const prevKey = (from = at): string | undefined => fields[from - 1]?.key;
+  const { setFieldErrors, setError, clearError, issueAt, errorOf, general } = useFieldIssues({ issues: preview.issues, showErrors });
 
   // ---- pickers: stock items and godowns ----
   const itemOptions: Option[] = useMemo(
@@ -188,15 +154,10 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
   const typedLabel = pickerKind === 'item' ? (line?.itemLabel ?? '') : pickerKind === 'wh' ? (line?.warehouseLabel ?? '') : '';
   const storedId = pickerKind === 'item' ? (line?.itemId ?? '') : pickerKind === 'wh' ? (line?.warehouseId ?? '') : '';
   const storedName = options.find((o) => o.id === storedId)?.name ?? '';
-  const pickerDismissed = pickerClosed !== undefined && pickerClosed === current.key;
-  const hits: Option[] = useMemo(() => {
-    if (!pickerOn) return [];
-    const typed = typedLabel.trim();
-    if (typed === '' || typed === storedName) return []; // a list opens when something is typed, and offers only what matches
-    const docs: EntityDoc[] = options.map((o) => ({ key: o.id, kind: '', scope: 'v', title: o.name, subtitle: o.sub, commandId: '', args: o.id }));
-    return searchEntities(docs, typed, { limit: MAX_OPTIONS }).map((h) => options.find((o) => o.id === h.key) as Option);
-  }, [pickerOn, options, typedLabel, storedName]);
-  const pickIndex = Math.min(pick.index, Math.max(0, hits.length - 1));
+  const pickerDismissed = picker.dismissed;
+  // a list opens when something is typed, and offers only what matches
+  const hits: Option[] = useMemo(() => (pickerOn ? matchOptions(options, typedLabel, storedName) : []), [pickerOn, options, typedLabel, storedName]);
+  const pickIndex = Math.min(picker.pick.index, Math.max(0, hits.length - 1));
 
   /** What the book holds of an item on the voucher's date, said the way a person reads it: "120 Kg @ ₹58.00". */
   const stockOf = (itemId: string): { qty: string; rate: string | undefined } | undefined => {
@@ -234,16 +195,16 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
         ...(l.direction === 'in' && l.rate.trim() === '' && s?.rate ? { rate: s.rate } : {}),
         ...(from && from.id !== l.warehouseId ? { warehouseId: from.id, warehouseLabel: from.label } : {}),
       });
-      setFieldErrors((e) => ({ ...e, [`line.${f.line}.item`]: '' }));
+      clearError(`line.${f.line}.item`);
     } else if (f.kind === 'wh') {
       setLine(f.line, { warehouseId: o.id, warehouseLabel: o.name });
-      setFieldErrors((e) => ({ ...e, [`line.${f.line}.wh`]: '' }));
+      clearError(`line.${f.line}.wh`);
     }
   };
 
   const movePick = (delta: number): boolean => {
     if (!pickerOn || hits.length === 0) return false;
-    setPick({ index: (pickIndex + delta + hits.length) % hits.length, touched: true });
+    picker.setPick({ index: (pickIndex + delta + hits.length) % hits.length, touched: true });
     return true;
   };
 
@@ -253,12 +214,12 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
     if (current.kind === 'date') {
       const committed = tryCommitVoucherDate(masters, dateText, fresh().date);
       if (!committed.ok) {
-        setFieldErrors((e) => ({ ...e, date: committed.message }));
+        setError('date', committed.message);
         return false;
       }
       update((f) => ({ ...f, date: committed.date }));
       setDateText(formatDate(committed.date));
-      setFieldErrors((e) => ({ ...e, date: '' }));
+      clearError('date');
       return true;
     }
     if (pickerOn && current.line !== undefined) {
@@ -266,7 +227,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
       const choice = hits[pickIndex];
       const idKey = pickerKind === 'item' ? 'itemId' : 'warehouseId';
       const labelKey = pickerKind === 'item' ? 'itemLabel' : 'warehouseLabel';
-      if (pick.touched && choice) {
+      if (picker.pick.touched && choice) {
         choose(choice);
         return true;
       }
@@ -279,7 +240,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
         choose(choice);
         return true;
       }
-      setFieldErrors((e) => ({ ...e, [`line.${current.line}.${pickerKind === 'item' ? 'item' : 'wh'}`]: 'No match — press Alt+C to create it' }));
+      setError(`line.${current.line}.${pickerKind === 'item' ? 'item' : 'wh'}`, 'No match — press Alt+C to create it');
       return false;
     }
     return true;
@@ -360,7 +321,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
   });
   useCommandHandler(SCOPE, 'nav.down', () => {
     if (flipSide()) return true;
-    if (pickerOn && pickerDismissed) return (setPickerClosed(undefined), true);
+    if (pickerOn && pickerDismissed) return (picker.setClosed(undefined), true);
     return pickerOn && hits.length > 0 ? movePick(1) : next();
   });
   useCommandHandler(SCOPE, 'nav.up', () => {
@@ -409,6 +370,31 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
     return true;
   };
 
+  // ---- accept / cancel ----
+  const save = useVoucherSave({
+    books,
+    mode,
+    voucher,
+    readOnly,
+    typeName: type?.name ?? 'Stock Journal',
+    draftKey,
+    settle,
+    preview: () => preview,
+    showFirstProblem: (issues) => {
+      const first = issues.find((i) => i.field !== 'general');
+      if (first) go(focusKeyOf(first.field));
+    },
+    refused: 'The stock journal was refused',
+    setShowErrors,
+    setFieldErrors,
+    // ready for the next one: same type and date, fresh lines
+    startNew: () => {
+      setFormState(blankStockForm(crypto.randomUUID(), form.typeId, fresh().date, defaultWarehouse(masters)));
+      go('l0.side');
+    },
+  });
+  const { accept, acceptAndNew, acceptKey, confirm, setConfirm, banner } = save;
+
   const dirty = mode !== 'display' && (mode === 'create' ? !isBlankStock(form) : JSON.stringify(form) !== JSON.stringify(stockFormFromVoucher(voucher as Voucher, masters)));
 
   /**
@@ -422,7 +408,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
       return true;
     }
     if (pickerOn && !pickerDismissed && (hits.length > 0 || typedLabel.trim() !== '')) {
-      setPickerClosed(current.key);
+      picker.setClosed(current.key);
       return true;
     }
     if (mode !== 'display') {
@@ -432,7 +418,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
           setLine(current.line, pickerKind === 'item' ? { itemLabel: storedName } : { warehouseLabel: storedName });
         }
         go(previous);
-        if (previous.endsWith('.item') || previous.endsWith('.wh')) setPickerClosed(previous);
+        if (previous.endsWith('.item') || previous.endsWith('.wh')) picker.setClosed(previous);
         return true;
       }
     }
@@ -448,116 +434,26 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
     return true;
   });
 
-  // ---- accept / cancel ----
-  const accept = async (closeAfter = true): Promise<void> => {
-    if (busy || readOnly) return;
-    if (!settle()) return;
-    setShowErrors(true);
-    setBanner(undefined);
-    const p = preview;
-    if (!p.ok) {
-      const first = p.issues.find((i) => i.field !== 'general');
-      if (first) go(focusKeyOf(first.field));
-      return;
-    }
-    setBusy(true);
-    try {
-      const r = mode === 'alter' && voucher ? await books.alter(voucher.id, voucher.version, p.draft) : await books.post(p.draft);
-      if (!r.ok) {
-        const first = r.issues[0];
-        setBanner({ text: first?.message ?? 'The stock journal was refused', tone: 'error' });
-        return;
-      }
-      if (mode === 'alter') {
-        app.back();
-        return;
-      }
-      await books.clearDraft(draftKey);
-      // Saved: the window closes back to where it was opened from, handing over what it made (a voucher list highlights it). "Save and new" (Alt+N) stays instead.
-      if (closeAfter) {
-        app.back({ id: r.value.voucher.id, number: r.value.voucher.number, typeName: type?.name ?? 'Voucher' });
-        return;
-      }
-      // ready for the next one: same type and date, fresh lines
-      const date = fresh().date;
-      setFormState(blankStockForm(crypto.randomUUID(), form.typeId, date, defaultWarehouse(masters)));
-      setShowErrors(false);
-      setFieldErrors({});
-      setBanner({ text: `${type?.name ?? 'Stock Journal'} ${r.value.voucher.number} saved.`, tone: 'ok' });
-      go('l0.side');
-    } finally {
-      setBusy(false);
-    }
-  };
-  const cancelVoucher = async (): Promise<void> => {
-    if (!voucher || busy) return;
-    setBusy(true);
-    try {
-      const r = await books.cancel(voucher.id, voucher.version);
-      setConfirm(undefined);
-      if (!r.ok) setBanner({ text: r.issues[0]?.message ?? 'It could not be cancelled', tone: 'error' });
-      else app.back();
-    } finally {
-      setBusy(false);
-    }
-  };
-  const acceptAndNew = (): boolean => {
-    if (readOnly || mode !== 'create') return false;
-    void accept(false);
-    return true;
-  };
-  const acceptKey = (): boolean => {
-    if (confirm === 'cancel') {
-      void cancelVoucher();
-      return true;
-    }
-    if (readOnly) return false;
-    void accept();
-    return true;
-  };
-
   // ---- rendering ----
   const chord = (id: string) => keymapStore.keymap.chordsFor(id)[0];
-  const errorOf = (key: string) => {
-    const m = issueAt(key);
-    return m ? (
-      <span class="field-error" role="alert">
-        {m}
-      </span>
-    ) : null;
-  };
-  const isFocus = (key: string) => !idle && key === current.key;
   const cls = (base: string, key: string) => `${base}${isFocus(key) ? ' active' : ''}${issueAt(key) ? ' invalid' : ''}`;
+  const host: CellHost = { readOnly, isFocus, go, cls };
   const numberText = voucher ? voucher.number : 'assigned on save';
   const title = mode === 'create' ? `New ${type?.name ?? 'Stock Journal'} Voucher` : `${mode === 'alter' ? 'Alter' : 'Display'} ${type?.name ?? ''} ${voucher?.number ?? ''}`;
   const cancelled = voucher?.status === 'cancelled';
-  const pickerList = (key: string) =>
-    isFocus(key) && pickerOn && !pickerDismissed && hits.length > 0 ? (
-      <div class="picker" data-testid="picker">
-        <ListView
-          items={hits}
-          index={pickIndex}
-          itemKey={(o) => o.id}
-          label={pickerKind === 'item' ? 'Stock items' : 'Godowns'}
-          onActivate={(n) => {
-            const o = hits[n];
-            if (o) choose(o);
-          }}
-          renderItem={(o) => (
-            <>
-              <span class="row-title">{o.name}</span>
-              <span class="row-desc">{o.sub}</span>
-              {pickerKind === 'item' && <span class="row-meta amt">{stockOf(o.id)?.qty}</span>}
-            </>
-          )}
-        />
-      </div>
-    ) : isFocus(key) && pickerOn && !pickerDismissed && typedLabel.trim() !== '' && typedLabel.trim() !== storedName ? (
-      <div class="picker picker-empty" data-testid="picker">
-        No match — <Kbd chord={chord('master.createInline') ?? 'Alt+C'} /> creates “{typedLabel.trim()}”
-        {pickerKind === 'item' && hiddenItemReason(masters, typedLabel) && <div data-testid="hidden-item">{hiddenItemReason(masters, typedLabel)}</div>}
-      </div>
-    ) : null;
+  const pickerList = (key: string) => (
+    <PickerList
+      show={isFocus(key) && pickerOn && !pickerDismissed}
+      hits={hits}
+      index={pickIndex}
+      label={pickerKind === 'item' ? 'Stock items' : 'Godowns'}
+      onChoose={(o) => choose(o)}
+      typed={typedLabel}
+      storedName={storedName}
+      meta={(o) => pickerKind === 'item' && <span class="row-meta amt">{stockOf(o.id)?.qty}</span>}
+      hint={pickerKind === 'item' && hiddenItemReason(masters, typedLabel) && <div data-testid="hidden-item">{hiddenItemReason(masters, typedLabel)}</div>}
+    />
+  );
 
   const lineRow = (l: StockLineForm, i: number) => {
     const s = l.itemId !== '' ? stockOf(l.itemId) : undefined;
@@ -579,23 +475,16 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
           />
         </div>
         <div class="vc-ledger">
-          <input
-            data-vf={`l${i}.item`}
-            class={cls('vcell', `l${i}.item`)}
-            type="text"
-            role="combobox"
-            aria-label={`Line ${i + 1} stock item`}
-            aria-expanded={isFocus(`l${i}.item`) && !readOnly}
-            readOnly={readOnly}
-            autocomplete="off"
-            spellcheck={false}
+          <Cell
+            host={host}
+            field={`l${i}.item`}
+            variant="combo"
+            label={`Line ${i + 1} stock item`}
             value={l.itemLabel}
-            onFocus={() => !isFocus(`l${i}.item`) && go(`l${i}.item`)}
-            onInput={(e) => {
-              setPick({ index: 0, touched: true });
-              setPickerClosed(undefined);
-              setLine(i, { itemLabel: (e.target as HTMLInputElement).value });
-              setFieldErrors((x) => ({ ...x, [`line.${i}.item`]: '' }));
+            onInput={(text) => {
+            picker.typed();
+            setLine(i, { itemLabel: text });
+            clearError(`line.${i}.item`);
             }}
           />
           {errorOf(`line.${i}.item`)}
@@ -609,42 +498,31 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
           {pickerList(`l${i}.item`)}
         </div>
         <div class="vc-godown">
-          <input
-            data-vf={`l${i}.wh`}
-            class={cls('vcell', `l${i}.wh`)}
-            type="text"
-            role="combobox"
-            aria-label={`Line ${i + 1} godown`}
-            aria-expanded={isFocus(`l${i}.wh`) && !readOnly}
-            readOnly={readOnly}
-            autocomplete="off"
-            spellcheck={false}
+          <Cell
+            host={host}
+            field={`l${i}.wh`}
+            variant="combo"
+            label={`Line ${i + 1} godown`}
             value={l.warehouseLabel}
-            onFocus={() => !isFocus(`l${i}.wh`) && go(`l${i}.wh`)}
-            onInput={(e) => {
-              setPick({ index: 0, touched: true });
-              setPickerClosed(undefined);
-              setLine(i, { warehouseLabel: (e.target as HTMLInputElement).value });
-              setFieldErrors((x) => ({ ...x, [`line.${i}.wh`]: '' }));
+            onInput={(text) => {
+            picker.typed();
+            setLine(i, { warehouseLabel: text });
+            clearError(`line.${i}.wh`);
             }}
           />
           {errorOf(`line.${i}.wh`)}
           {pickerList(`l${i}.wh`)}
         </div>
         <div class="vc-qty">
-          <input
-            data-vf={`l${i}.qty`}
-            class={cls('vcell num', `l${i}.qty`)}
-            type="text"
-            inputMode="decimal"
-            aria-label={`Line ${i + 1} quantity`}
-            readOnly={readOnly}
-            autocomplete="off"
+          <Cell
+            host={host}
+            field={`l${i}.qty`}
+            variant="num"
+            label={`Line ${i + 1} quantity`}
             value={l.qty}
-            onFocus={() => !isFocus(`l${i}.qty`) && go(`l${i}.qty`)}
-            onInput={(e) => {
-              setLine(i, { qty: (e.target as HTMLInputElement).value });
-              setFieldErrors((x) => ({ ...x, [`line.${i}.qty`]: '' }));
+            onInput={(text) => {
+            setLine(i, { qty: text });
+            clearError(`line.${i}.qty`);
             }}
           />
           {errorOf(`line.${i}.qty`)}
@@ -652,19 +530,15 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
         <div class="vc-rate">
           {l.direction === 'in' ? (
             <>
-              <input
-                data-vf={`l${i}.rate`}
-                class={cls('vcell num', `l${i}.rate`)}
-                type="text"
-                inputMode="decimal"
-                aria-label={`Line ${i + 1} rate`}
-                readOnly={readOnly}
-                autocomplete="off"
+              <Cell
+                host={host}
+                field={`l${i}.rate`}
+                variant="num"
+                label={`Line ${i + 1} rate`}
                 value={l.rate}
-                onFocus={() => !isFocus(`l${i}.rate`) && go(`l${i}.rate`)}
-                onInput={(e) => {
-                  setLine(i, { rate: (e.target as HTMLInputElement).value });
-                  setFieldErrors((x) => ({ ...x, [`line.${i}.rate`]: '' }));
+                onInput={(text) => {
+                setLine(i, { rate: text });
+                clearError(`line.${i}.rate`);
                 }}
               />
               {errorOf(`line.${i}.rate`)}
@@ -743,7 +617,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
           onFocusDate={() => !isFocus('date') && go('date')}
           onInputDate={(text) => {
             setDateText(text);
-            setFieldErrors((x) => ({ ...x, date: '' }));
+            clearError('date');
           }}
           dateError={errorOf('date')}
         />

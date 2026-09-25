@@ -89,7 +89,7 @@ const isEmptyLine = (l: LineForm): boolean => l.ledgerId === '' && l.label.trim(
  * and the bank gets the received part. `tdsOfAllocation` is the TDS a row states (0 when it states none, or not as an amount).
  */
 const tdsOfAllocation = (a: AllocForm): bigint => (a.kind === 'against' && (a.tds ?? '').trim() !== '' ? (toMinor(a.tds ?? '') ?? 0n) : 0n);
-export const tdsOfLine = (l: LineForm): bigint => l.allocations.reduce((sum, a) => sum + tdsOfAllocation(a), 0n);
+const tdsOfLine = (l: LineForm): bigint => l.allocations.reduce((sum, a) => sum + tdsOfAllocation(a), 0n);
 /** `text` (an amount) plus `extra` paise, as an amount; text that is not an amount is returned as typed so the form can say so. */
 function plusMinor(text: string, extra: bigint): string {
   const n = toMinor(text);

@@ -27,7 +27,7 @@ import { type VoucherListRow, listTitle, voucherListColumns, voucherListRows } f
 import { type OrderRow, orderRegisterColumns, newestOrdersFirst, orderRegisterRows } from './salesReports';
 import { type SalesRegisterRow, newestInvoicesFirst, salesRegisterColumns, salesRegisterRows } from './salesRegister';
 import { type StockLedgerRow, type StockSummaryRow, stockLedgerColumns, stockLedgerOf, stockSummaryColumns, stockSummaryRows } from './stockReports';
-import { asGstReport, asStatementReport, type GstReportKind, type StatementReportKind } from './registry';
+import type { GstReportKind, StatementReportKind } from './registry';
 import { todayText } from '../vouchers/format';
 
 export type GridReportKind = Exclude<ReportKind, StatementReportKind | GstReportKind>;
@@ -46,10 +46,6 @@ export type AnyGridRow =
 
 /** Default row order before the user sorts a column. */
 export type GridRowOrder = 'natural' | 'newest-first' | 'newest-orders' | 'newest-invoices';
-
-export function isGridReport(report: ReportKind): report is GridReportKind {
-  return asStatementReport(report) === undefined && asGstReport(report) === undefined;
-}
 
 /** Outstanding is as-on a date; other grid reports use a from→to period. */
 export function gridUsesAsOnDate(report: GridReportKind): boolean {

@@ -513,12 +513,6 @@ export function trimPlaces(text: string): string {
   return text.includes('.') ? text.replace(/0+$/, '').replace(/\.$/, '') : text;
 }
 
-/** The rate as a person reads it: at least two places, more only when it has them. */
-export const shownRate = (text: string): string => {
-  const r = parseRate(text);
-  return r === undefined ? text : formatRate(r);
-};
-
 export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders: OrderBook): SalesForm {
   const c = voucher.content as unknown as {
     narration?: string;
@@ -696,7 +690,7 @@ export function godownWithStock(
 }
 
 /** Invoice lines for order lines (a delivery, or on the purchase side a receipt): each carries the order line's item, what is pending, the agreed rate, and the reference to it. */
-export function linesFromOrder(
+function linesFromOrder(
   options: readonly OrderOption[],
   masters: Masters,
   newKey: () => string,

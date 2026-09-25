@@ -11,7 +11,7 @@ import type { EntryKind } from '../kinds';
 
 export type VoucherBanner = { readonly text: string; readonly tone: 'error' | 'ok' | 'note' };
 
-export function voucherWeekday(date: string): string {
+function voucherWeekday(date: string): string {
   return date ? new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'UTC' }) : '';
 }
 
@@ -98,7 +98,7 @@ export function VoucherWorksheetSection(props: {
   );
 }
 
-export function VoucherWorksheetNotices(props: {
+function VoucherWorksheetNotices(props: {
   readonly banner?: VoucherBanner | undefined;
   readonly general: readonly string[];
   readonly extra?: ComponentChildren;

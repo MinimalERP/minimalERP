@@ -12,7 +12,6 @@ import {
   type Voucher,
   type VoucherId,
   IssueCode,
-  asCompanyId,
   deterministicUuid,
   orderBookOf,
   StockBook,
@@ -358,7 +357,7 @@ export class Books {
  * Sets an item's opening stock by posting the `stockOpening` voucher for it. Like a ledger's opening balance the voucher id is derived
  * from what it is for, so asking twice is a safe replay rather than a second lot of stock.
  */
-export async function postOpeningStockFor(
+async function postOpeningStockFor(
   books: Books,
   itemId: string,
   warehouseId: string,
@@ -462,8 +461,6 @@ export class BooksHost {
     for (const l of [...this.listeners]) l();
   }
 }
-
-export const companyIdOf = (masters: Masters): CompanyId => asCompanyId(masters.company.id);
 
 /** Human label for a master kind's list screen ("Ledgers", "Stock Items"). */
 export const PLURALS: Readonly<Record<MasterKind, string>> = {

@@ -2,7 +2,6 @@
 export const ENTRY_KINDS = ['contra', 'payment', 'receipt', 'journal'] as const;
 export type EntryKind = (typeof ENTRY_KINDS)[number];
 export const KIND_TITLES: Readonly<Record<EntryKind, string>> = { contra: 'Contra', payment: 'Payment', receipt: 'Receipt', journal: 'Journal' };
-export const isEntryKind = (s: string): s is EntryKind => (ENTRY_KINDS as readonly string[]).includes(s);
 
 /**
  * The item-line documents: the Sales Invoice and Order, and the Purchase Invoice and Order. They share one window; an invoice and its order
