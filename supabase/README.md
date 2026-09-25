@@ -16,6 +16,8 @@ migrations/                      forward-only, timestamp-named SQL. Never edit a
 functions/post-voucher/          the Edge Function (Deno): auth + DB glue around handler.bundle.js (also the daily report: action `digest`)
 functions/intake/                the AI Inbox's way in (ADR-0023): reads a sent document with Gemini, queues a proposal. Needs the secrets
                                  GEMINI_API_KEY and GEMINI_MODEL; see integrations/google-apps-script/README.md
+functions/dash/                  minimalDASH's one way in for changes (jobs, their mails and parts): names the person, calls dash_apply
+                                 (github.com/MinimalERP/minimalDASH; tables dash_*, migration 20261009000100)
 tests/support/                   supabase_prelude.sql — TEST ONLY, emulates the Supabase platform
 ```
 
@@ -48,6 +50,7 @@ supabase db push --project-ref <ref>                                    # applie
 pnpm build:functions
 supabase functions deploy post-voucher --project-ref <ref>              # the function serves the writes AND the reads/company actions
 supabase functions deploy intake --project-ref <ref>                    # the AI Inbox (ADR-0023)
+supabase functions deploy dash --project-ref <ref>                      # minimalDASH's changes
 supabase secrets set GEMINI_API_KEY=<key> GEMINI_MODEL=<model> --project-ref <ref>
 ```
 `supabase/config.toml` is created by `supabase init` (needs the Supabase CLI). The function needs no secrets set by hand:
