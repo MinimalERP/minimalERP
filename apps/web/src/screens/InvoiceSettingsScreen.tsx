@@ -1,5 +1,6 @@
 import type { Frame } from '@minimalerp/command';
-import type { Issue } from '@minimalerp/domain';
+import { DEFAULT_MAIL_TEMPLATES, type Issue, MAIL_KINDS, MAIL_PLACEHOLDERS, type MailKind } from '@minimalerp/domain';
+import { Fragment } from 'preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
 import { useLeaveGuard } from '../shell/useLeaveGuard';
@@ -12,7 +13,16 @@ import { Kbd } from '../ui/Kbd';
  * address), because it is edited far less often and by a different concern — how documents look, not who the company is.
  * Everything here is optional: a blank field is simply left off the printed invoice, never printed empty.
  */
-const FIELDS = [
+interface Field {
+  readonly key: string;
+  readonly label: string;
+  readonly hint: string | undefined;
+  readonly multiline: boolean;
+  readonly placeholder?: string;
+  readonly heading?: string;
+}
+
+const PRINT_FIELDS: readonly Field[] = [
   { key: 'phone', label: 'Phone', hint: undefined, multiline: false },
   { key: 'email', label: 'Email', hint: undefined, multiline: false },
   { key: 'bankName', label: 'Bank name', hint: undefined, multiline: false },
@@ -21,7 +31,16 @@ const FIELDS = [
   { key: 'bankBranch', label: 'Branch', hint: undefined, multiline: false },
   { key: 'invoiceNote', label: 'Thank-you note', hint: 'A short line under the total, e.g. “Thank you for your business.”', multiline: false },
   { key: 'invoiceTerms', label: 'Terms', hint: 'Printed as you type it — line breaks are kept.', multiline: true },
-] as const;
+];
+
+/** The email each kind of voucher is sent with (Alt+E on it): a subject and a body, blank = the default shown greyed. */
+const MAIL_NAMES: Readonly<Record<MailKind, string>> = { sales: 'Sales Invoice', salesOrder: 'Sales Order', quotation: 'Quotation', purchase: 'Purchase', purchaseOrder: 'Purchase Order' };
+const PLACEHOLDER_HINT = `Leave blank for the default. These are filled from the voucher: ${MAIL_PLACEHOLDERS.map((p) => `{${p}}`).join(' ')}`;
+const MAIL_FIELDS: readonly Field[] = MAIL_KINDS.flatMap((k, i): Field[] => [
+  { key: `mail.${k}.subject`, label: `${MAIL_NAMES[k]}: subject`, hint: PLACEHOLDER_HINT, multiline: false, placeholder: DEFAULT_MAIL_TEMPLATES[k].subject, ...(i === 0 ? { heading: 'Email templates' } : {}) },
+  { key: `mail.${k}.body`, label: `${MAIL_NAMES[k]}: message`, hint: PLACEHOLDER_HINT, multiline: true, placeholder: DEFAULT_MAIL_TEMPLATES[k].body },
+]);
+const FIELDS: readonly Field[] = [...PRINT_FIELDS, ...MAIL_FIELDS];
 
 const SCOPE = 'screen:invoice-settings';
 
@@ -40,6 +59,12 @@ export function InvoiceSettingsScreen({ frame }: { frame: Frame<ScreenRef> }) {
     bankBranch: company?.bankBranch ?? '',
     invoiceNote: company?.invoiceNote ?? '',
     invoiceTerms: company?.invoiceTerms ?? '',
+    ...Object.fromEntries(
+      MAIL_KINDS.flatMap((k) => [
+        [`mail.${k}.subject`, company?.emailTemplates?.[k]?.subject ?? ''],
+        [`mail.${k}.body`, company?.emailTemplates?.[k]?.body ?? ''],
+      ]),
+    ),
   };
   const [values, setValues] = useFrameState<Record<string, string>>(frame, 'values', initial);
   const [baseline] = useFrameState<string>(frame, 'baseline', JSON.stringify(initial));
@@ -75,7 +100,8 @@ export function InvoiceSettingsScreen({ frame }: { frame: Frame<ScreenRef> }) {
           stateCode: company.stateCode,
           address: company.address,
           chargeGst: company.chargeGst,
-          ...values,
+          ...Object.fromEntries(PRINT_FIELDS.map((f) => [f.key, values[f.key] ?? ''])),
+          emailTemplates: Object.fromEntries(MAIL_KINDS.map((k) => [k, { subject: values[`mail.${k}.subject`] ?? '', body: values[`mail.${k}.body`] ?? '' }])),
         },
       });
       if (result.ok) {
@@ -85,7 +111,7 @@ export function InvoiceSettingsScreen({ frame }: { frame: Frame<ScreenRef> }) {
       const next: Record<string, string> = {};
       const general: string[] = [];
       for (const i of result.issues as readonly Issue[]) {
-        const key = i.path?.split('.')[0];
+        const key = i.path?.startsWith('emailTemplates.') ? `mail.${i.path.split('.').slice(1, 3).join('.')}` : i.path?.split('.')[0];
         if (key && FIELDS.some((f) => f.key === key) && next[key] === undefined) next[key] = i.message;
         else general.push(i.message);
       }
@@ -132,8 +158,8 @@ export function InvoiceSettingsScreen({ frame }: { frame: Frame<ScreenRef> }) {
       {leave.dialog}
       <h1 id="invpdf-title">Invoice / PDF Settings</h1>
       <p class="lede">
-        What a printed voucher carries beyond the transaction itself — phone, email, bank details, a thank-you note and terms. Every field is
-        optional: leave one blank and it is simply left off the print, never shown empty.
+        What a printed voucher carries beyond the transaction itself — phone, email, bank details, a thank-you note and terms — and the email
+        each kind of voucher is sent with. Every field is optional: a blank one is left off the print, and a blank template uses the default.
       </p>
       {banner && (
         <p class="notice error" role="alert">
@@ -147,7 +173,9 @@ export function InvoiceSettingsScreen({ frame }: { frame: Frame<ScreenRef> }) {
       )}
       <form ref={formRef} class="form" onSubmit={(e) => e.preventDefault()} autocomplete="off">
         {FIELDS.map((f, i) => (
-          <div key={f.key} class={i === at ? 'field-row active' : 'field-row'}>
+          <Fragment key={f.key}>
+          {f.heading && <h2 class="form-section">{f.heading}</h2>}
+          <div class={i === at ? 'field-row active' : 'field-row'}>
             <label class="field-label" for={`ip-${f.key}`}>
               {f.label}
             </label>
@@ -159,6 +187,7 @@ export function InvoiceSettingsScreen({ frame }: { frame: Frame<ScreenRef> }) {
                   class={errors[f.key] ? 'field-input invalid' : 'field-input'}
                   rows={4}
                   spellcheck={true}
+                  placeholder={f.placeholder}
                   aria-invalid={errors[f.key] ? true : undefined}
                   onFocus={() => i !== at && setFocus(i)}
                   onInput={(e) => {
@@ -174,6 +203,7 @@ export function InvoiceSettingsScreen({ frame }: { frame: Frame<ScreenRef> }) {
                   data-field={f.key}
                   class={errors[f.key] ? 'field-input invalid' : 'field-input'}
                   type="text"
+                  placeholder={f.placeholder}
                   value={values[f.key] ?? ''}
                   autocomplete="off"
                   spellcheck={false}
@@ -194,6 +224,7 @@ export function InvoiceSettingsScreen({ frame }: { frame: Frame<ScreenRef> }) {
               {!errors[f.key] && f.hint && i === at && <span class="field-hint">{f.hint}</span>}
             </div>
           </div>
+          </Fragment>
         ))}
       </form>
       <div class="toolbar">

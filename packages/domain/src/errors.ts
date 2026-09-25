@@ -94,6 +94,12 @@ export const IssueCode = {
   BillRefInUse: 'BILL_REF_IN_USE',
   /** Infrastructure: a master change was checked against data that changed underneath it. Callers re-check and retry. */
   MastersChanged: 'MASTERS_CHANGED',
+  /** Emailing a voucher: an address that is not its party's, no address, no subject, or an attachment that is not a PDF / too big. */
+  MailInvalid: 'MAIL_INVALID',
+  /** Emailing is not set up on the server (the Gmail script's address and secret are not configured). */
+  MailNotSetUp: 'MAIL_NOT_SET_UP',
+  /** The mail was handed to Gmail and Gmail (or the script) refused it. */
+  MailFailed: 'MAIL_FAILED',
 } as const;
 
 export type IssueCodeValue = (typeof IssueCode)[keyof typeof IssueCode];

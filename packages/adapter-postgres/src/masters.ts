@@ -173,6 +173,7 @@ export function masterRecordToRow(kind: MasterKind, record: MasterRecord): Row {
         id: c.id, name: c.name, gstin: nul(c.gstin), state_code: nul(c.stateCode), address: nul(c.address), charge_gst: c.chargeGst === true,
         phone: nul(c.phone), email: nul(c.email), bank_name: nul(c.bankName), bank_account_no: nul(c.bankAccountNo),
         bank_ifsc: nul(c.bankIfsc), bank_branch: nul(c.bankBranch), invoice_note: nul(c.invoiceNote), invoice_terms: nul(c.invoiceTerms),
+        email_templates: c.emailTemplates ?? null,
       };
     }
   }

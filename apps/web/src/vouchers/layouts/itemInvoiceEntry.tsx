@@ -1,5 +1,5 @@
 import type { Frame } from '@minimalerp/command';
-import { type Money, type Voucher, billStatusOf, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type Money, type Voucher, billStatusOf, isMailKind, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
 import { useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { Only } from '../../shell/Only';
@@ -46,6 +46,7 @@ import {
 import { useOtherVoucherHandlers } from '../otherVoucher';
 import { PartyDetailsDialog } from '../../screens/PartyDetailsDialog';
 import { FieldsDialog } from '../../screens/ReportDialogs';
+import { MailDialog } from '../MailDialog';
 import type { CreatedMaster } from '../../screens/MasterFormScreen';
 import type { InvoiceDoc } from '../../ui/PrintView';
 import { placeOfSupplyText } from '../../ui/printing';
@@ -170,6 +171,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const [dateText, setDateText] = useFrameState<string>(frame, 'dateText', formatDate(form.date));
   const [showErrors, setShowErrors] = useFrameState<boolean>(frame, 'showErrors', false);
   const [partyOpen, setPartyOpen] = useState(false);
+  /** The email window (Alt+Shift+E on a saved document). */
+  const [mailOpen, setMailOpen] = useState(false);
   /** The line whose one-time form (Alt+T) is open. */
   const [oneTimeFor, setOneTimeFor] = useState<number | undefined>(undefined);
   const leave = useLeaveGuard('This document has not been saved.');
@@ -186,7 +189,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const fields = fieldsOf(form, kind, gstOn);
   const picker = usePickerState(focusKey);
   // a dialog (party details) has the focus while it is open; the field gets it back when it closes
-  const { current, go, nextKey, prevKey, isFocus } = useFieldFocus({ fields, focusKey, setFocusKey, rootRef, idle, wake, paused: partyOpen, deps: [mode, form.lines.length], onGo: picker.reset });
+  const { current, go, nextKey, prevKey, isFocus } = useFieldFocus({ fields, focusKey, setFocusKey, rootRef, idle, wake, paused: partyOpen || mailOpen, deps: [mode, form.lines.length], onGo: picker.reset });
 
   const fresh = (): SalesForm => (frame.state.get('form') as SalesForm | undefined) ?? form;
   const update = (fn: (f: SalesForm) => SalesForm) => setFormState(fn(fresh()));
@@ -1064,6 +1067,17 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       )}
       {mode !== 'create' && voucher?.status === 'posted' && p.order && orderState?.status === 'open' && <Only scope={SCOPE} command="order.invoice" run={invoicePending} />}
       {mode !== 'create' && voucher?.status === 'posted' && p.quote && !convertedTo && <Only scope={SCOPE} command="quotation.order" run={salesOrderFromQuote} />}
+      {mode !== 'create' && voucher?.status === 'posted' && isMailKind(kind) && !mailOpen && <Only scope={SCOPE} command="voucher.email" run={() => (setMailOpen(true), true)} />}
+      {mailOpen && voucher && (
+        <MailDialog
+          books={books}
+          voucher={voucher}
+          onDone={(sentTo) => {
+            setMailOpen(false);
+            if (sentTo) setBanner({ text: `Emailed ${voucher.number} to ${sentTo.join(', ')}.`, tone: 'ok' });
+          }}
+        />
+      )}
     </>
   );
 

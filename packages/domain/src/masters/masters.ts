@@ -3,6 +3,7 @@ import { findFinancialYear } from '../dates';
 import type { CompanyId, FinancialYearId, GroupId, LedgerId, PartyId, SeriesId, StockGroupId, StockItemId, UnitId, VoucherTypeId, WarehouseId, GstRateId } from '../ids';
 import type { GroupTree, Nature } from './groups';
 import type { GstRate, Party, StockGroup, StockItem, Unit, Warehouse } from './records';
+import type { MailTemplates } from './mailTemplates';
 
 export interface Company {
   readonly id: CompanyId;
@@ -28,6 +29,8 @@ export interface Company {
   readonly invoiceNote?: string | undefined;
   /** Terms and conditions, printed as the person typed it (line breaks kept). */
   readonly invoiceTerms?: string | undefined;
+  /** The subject and body of the email each kind of voucher is sent with (a kind left out uses the default; see mail/voucherMail.ts). */
+  readonly emailTemplates?: MailTemplates | undefined;
 }
 
 /** The ledgers the GST and TDS postings find by reserved key (ADR-0019); their specs are in systemLedgers.ts. */

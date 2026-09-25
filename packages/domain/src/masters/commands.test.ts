@@ -215,6 +215,13 @@ describe('parties', () => {
     expect(p).toMatchObject({ gstin, pan: 'AAPFU0939F', stateCode: '27', creditDays: 30, creditLimit: 50000050n, isActive: true });
   });
 
+  it('keeps several emails, tidied to one list; a bad one among them is refused', () => {
+    const r = create(base, 'party', newId('p3'), { name: 'Two Mail Co', email: ' sales@acme.in ;accounts@acme.in,sales@acme.in' });
+    expect(r.ok).toBe(true);
+    expect(r.masters.parties.find((p) => p.name === 'Two Mail Co')?.email).toBe('sales@acme.in, accounts@acme.in');
+    expect(create(base, 'party', newId('p4'), { name: 'Bad Mail Co', email: 'sales@acme.in, nope' }).codes).toEqual([IssueCode.InvalidEmail]);
+  });
+
   it('accepts a party with nothing but a name', () => {
     expect(create(base, 'party', newId('p2'), { name: 'Walk-in Customer' }).ok).toBe(true);
   });

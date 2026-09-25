@@ -369,6 +369,14 @@ export class PostgresBackend
   }
 
   /** Whether the actor holds a permission in a company (false for a company that does not exist, or that they are not in). */
+  async recordMail(companyId: CompanyId, voucherId: string, to: readonly string[]): Promise<void> {
+    await this.db.query(
+      `insert into public.audit_log (company_id, actor, action, entity_type, entity_id, after, request_id)
+       values ($1::uuid, $2::uuid, 'voucher.mail', 'voucher', $3::uuid, $4::text::jsonb, $5)`,
+      [companyId, this.options.actorId, voucherId, JSON.stringify({ to }), this.options.requestId ?? null],
+    );
+  }
+
   async can(companyId: string, permission: string): Promise<boolean> {
     if (!isUuid(companyId)) return false;
     const r = await this.db.query('select public.actor_can($1::uuid, $2::uuid, $3) as ok', [this.options.actorId, companyId, permission]);

@@ -201,6 +201,23 @@ describe('every form works end to end', () => {
     expect(recordToValues(FORMS.party, party as never)).toMatchObject({ name: 'ABC Industries', phone: '9876543210', creditDays: '30', creditLimit: '5000.50' });
   });
 
+  it('saving the Company form keeps what Invoice / PDF Settings holds (contact, bank, terms, email templates)', async () => {
+    const { books } = await opened();
+    const c = books.masters.company;
+    const set = await books.execute({
+      op: 'alter',
+      kind: 'company',
+      id: c.id,
+      data: { name: c.name, phone: '9876543210', bankName: 'HDFC Bank', invoiceTerms: 'Goods once sold…', emailTemplates: { quotation: { subject: 'Quote {number}' } } },
+    });
+    expect(set.ok).toBe(true);
+    // the Company form, as a person saves it after renaming the company
+    const values = { ...recordToValues(FORMS.company, books.masters.company as never), name: 'Acme Works Pvt Ltd' };
+    const r = await books.execute({ op: 'alter', kind: 'company', id: c.id, data: valuesToData(FORMS.company, values) });
+    expect(r.ok, JSON.stringify(!r.ok && r.issues)).toBe(true);
+    expect(books.masters.company).toMatchObject({ name: 'Acme Works Pvt Ltd', phone: '9876543210', bankName: 'HDFC Bank', invoiceTerms: 'Goods once sold…', emailTemplates: { quotation: { subject: 'Quote {number}', body: '' } } });
+  });
+
   it('a blank form is refused, with the issue on the right field', async () => {
     const { books } = await opened();
     const r = await books.execute({ op: 'create', kind: 'ledger', id: '00000000-0000-4000-8000-0000000000cc', data: valuesToData(FORMS.ledger, blankValues(FORMS.ledger)) });

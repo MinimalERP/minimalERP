@@ -87,3 +87,5 @@ export * from './csv/format';
 export * from './csv/items';
 export * from './csv/parties';
 export * from './csv/vouchers';
+export * from './masters/mailTemplates';
+export * from './mail/voucherMail';

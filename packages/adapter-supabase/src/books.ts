@@ -20,7 +20,7 @@ import {
   stockMovementFromWire,
   voucherFromWire,
 } from '@minimalerp/domain';
-import type { AlterRequest, CancelRequest, ChangeFeed, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
+import type { AlterRequest, CancelRequest, ChangeFeed, MailSender, VoucherMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
 
 /** What arrives with a change's own answer: the parts of the books the browser is about to reload. */
@@ -68,7 +68,7 @@ export interface CompanySummary {
  */
 export class SupabaseBooksBackend
   extends SupabasePostingGateway
-  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, ChangeFeed
+  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, ChangeFeed, MailSender
 {
   private readonly kinds = defaultVoucherKinds();
   /** The masters of the last `load`, for turning stored vouchers back into what the screens hold (see `readable`). */
@@ -193,6 +193,12 @@ export class SupabaseBooksBackend
   async rejectInbox(companyId: CompanyId, id: string, reason?: string): Promise<Result<void>> {
     const r = await this.call({ action: 'inbox-reject', companyId, id, ...(reason ? { reason } : {}) });
     return r.ok ? ok(undefined) : r;
+  }
+
+  /** Emails a voucher to its party through the company's Gmail (the server checks the addresses are that party's). */
+  async sendVoucherMail(mail: VoucherMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>> {
+    const r = await this.call({ action: 'send-mail', ...mail });
+    return r.ok ? ok(r.value as { sentTo: string[] }) : r;
   }
 
   /** A change (and the opening of a company) asks for the parts of the books it touches to come with its answer. */

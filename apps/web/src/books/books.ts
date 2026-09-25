@@ -24,6 +24,8 @@ import {
 } from '@minimalerp/domain';
 import type {
   ChangeFeed,
+  MailSender,
+  VoucherMailOrder,
   DocumentSender,
   InboxGateway,
   InboxItem,
@@ -45,7 +47,7 @@ export { newCompanyIssues } from '@minimalerp/domain';
 export type { NewCompany };
 
 /** Everything the screens need from a backend: master commands, posting, and reading masters back. Adapters provide it. */
-export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, Partial<ChangeFeed> {}
+export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, MailSender, Partial<ChangeFeed> {}
 
 /** A backend whose state can be saved as a log of changes and rebuilt from it (the in-browser demo backend). */
 export interface LocalBackend extends BooksBackend {
@@ -203,6 +205,11 @@ export class Books {
       if (result.ok) await this.reloadAfterChange(voucherId as VoucherId);
       return result;
     });
+  }
+
+  /** Emails a posted voucher to its party (online books only); nothing is stored but the audit line. */
+  sendVoucherMail(mail: Omit<VoucherMailOrder, 'companyId'>): Promise<Result<{ readonly sentTo: readonly string[] }>> {
+    return this.backend.sendVoucherMail({ ...mail, companyId: this.companyId });
   }
 
   /**

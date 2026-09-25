@@ -10,6 +10,8 @@
 //
 // Required environment (all provided automatically by Supabase):
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_URL
+// Optional, for emailing vouchers to their party through the company's Gmail (integrations/google-apps-script/SendVoucher.gs):
+//   MAIL_SCRIPT_URL (the script's web-app /exec address) and MAIL_SCRIPT_SECRET (the same secret set in the script).
 // The gateway verifies the caller's JWT before this code runs (verify_jwt = true, the default);
 // we then resolve the user from it and act — and audit — as that user.
 
@@ -28,6 +30,27 @@ const db = {
   }),
 };
 
+const mailUrl = Deno.env.get('MAIL_SCRIPT_URL');
+const mailSecret = Deno.env.get('MAIL_SCRIPT_SECRET');
+
+/** Hands a voucher's mail to the Gmail script. Google answers a web-app POST with a redirect to the script's output, which fetch follows. */
+async function sendMail(mail: Record<string, unknown>): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const res = await fetch(mailUrl!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret: mailSecret, ...mail }) });
+    const text = await res.text();
+    const answer = (() => {
+      try {
+        return JSON.parse(text) as { ok?: boolean; message?: string };
+      } catch {
+        return { ok: false, message: `the script answered ${res.status}` };
+      }
+    })();
+    return answer.ok === true ? { ok: true } : { ok: false, message: answer.message ?? 'no reason given' };
+  } catch (error) {
+    return { ok: false, message: `could not reach the script (${String(error)})` };
+  }
+}
+
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
   auth: { persistSession: false },
 });
@@ -41,6 +64,7 @@ Deno.serve(
       return error || !data.user ? undefined : { userId: data.user.id };
     },
     gatewayFor: (actorId: string, requestId: string) => new PostgresBackend(db, { actorId, requestId }),
+    ...(mailUrl && mailSecret ? { sendMail } : {}),
     onError: (error: unknown, requestId: string) =>
       console.error(JSON.stringify({ level: 'error', requestId, error: String(error), stack: (error as Error)?.stack })),
   }),

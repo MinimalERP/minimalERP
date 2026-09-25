@@ -41,6 +41,8 @@ import {
 } from '@minimalerp/domain';
 import type {
   ChangeFeed,
+  MailSender,
+  VoucherMailOrder,
   DocumentSender,
   InboxGateway,
   InboxItem,
@@ -127,7 +129,8 @@ export class MemoryBackend
     OrderRepository,
     InboxGateway,
     DocumentSender,
-    ChangeFeed
+    ChangeFeed,
+    MailSender
 {
   private readonly vouchers = new Map<VoucherId, Voucher>();
   private readonly journalByVoucher = new Map<VoucherId, readonly JournalLine[]>();
@@ -273,6 +276,11 @@ export class MemoryBackend
     const all: StockMovement[] = [];
     for (const movements of this.stockByVoucher.values()) for (const m of movements) if (only === undefined || only.has(m.itemId)) all.push(m);
     return all;
+  }
+
+  /** Books kept in this browser have no mail server: emailing needs the online books. */
+  async sendVoucherMail(_mail: VoucherMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>> {
+    return fail(issue(IssueCode.MailNotSetUp, 'Emailing needs the online books: sign in to send from your Gmail'));
   }
 
   /** What one change left behind: the voucher, its journal lines and its stock movements (see ChangeFeed). */

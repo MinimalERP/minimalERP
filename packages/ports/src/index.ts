@@ -130,6 +130,20 @@ export interface StockRepository {
   stockMovements(query: StockQuery): Promise<readonly StockMovement[]>;
 }
 
+/** A voucher emailed to its party through the company's Gmail (the attachment is the PDF the person chose, e.g. one they signed). */
+export interface VoucherMailOrder {
+  readonly companyId: CompanyId;
+  readonly voucherId: VoucherId;
+  readonly to: readonly string[];
+  readonly subject: string;
+  readonly body: string;
+  readonly attachment?: { readonly name: string; readonly base64: string } | undefined;
+}
+
+export interface MailSender {
+  sendVoucherMail(mail: VoucherMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>>;
+}
+
 /** One voucher as it stands after a change, with its journal lines and stock movements (none once cancelled). */
 export interface VoucherChange {
   readonly voucher: Voucher;

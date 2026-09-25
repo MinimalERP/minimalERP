@@ -162,6 +162,7 @@ const commands: Command<AppContext>[] = [
   contextual('voucher.removeLine', 'Remove this line', { label: 'Remove line', group: 'Actions', order: 14, on: ['voucher'] }),
   contextual('voucher.oneTimeLine', 'One-time line: write it instead of choosing a stock item', { label: 'One-time line', group: 'Actions', order: 14.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.print', 'Print', { label: 'Print', group: 'Actions', order: 16, on: ['voucher'] }),
+  contextual('voucher.email', 'Email this to the party (from your Gmail)', { label: 'Email', group: 'Actions', order: 16.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.cancel', 'Cancel this voucher', { label: 'Cancel voucher', group: 'Change', order: 31, on: ['voucher'] }),
   contextual('order.close', 'Close this order', { label: 'Close order', group: 'Change', order: 32, on: ['voucher'] }),
   // What Go To results run for a voucher.
@@ -189,6 +190,7 @@ const bindings: DefaultBinding[] = [
   { commandId: 'order.close', chord: 'Alt+K', scope: 'screen:voucher' },
   { commandId: 'order.invoice', chord: 'Alt+I', scope: 'screen:voucher' },
   { commandId: 'quotation.order', chord: 'Alt+Shift+O', scope: 'screen:voucher' },
+  { commandId: 'voucher.email', chord: 'Alt+Shift+E', scope: 'screen:voucher' },
   { commandId: 'voucher.new.stockJournal', chord: 'F10' },
   { commandId: 'voucher.acceptAndNew', chord: 'Alt+N', scope: 'screen:voucher' },
   // On a voucher list, the keys that make a voucher of that type make it FROM the list (so the list gets the result back).

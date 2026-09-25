@@ -68,6 +68,19 @@ The add-on signs in as its own ERP user, which can send documents and read repor
    you to allow the permissions once.
 5. For the daily report: in the editor choose `installDailyReport` and **Run** (once). Run `sendDailyReport` to see a report now.
 
+### 5. Emailing vouchers to their party (optional)
+
+Alt+E on a saved Sales Invoice, Sales Order, Quotation, Purchase or Purchase Order emails it to that party from your Gmail
+(`SendVoucher.gs`). You may attach your own PDF — for example one you printed from the ERP and signed with your DSC in Adobe.
+
+1. Script properties: add `MAIL_SECRET` — a long random string (e.g. from a password generator).
+2. **Deploy › New deployment**, type **Web app**, *Execute as: Me*, *Who has access: Anyone*. Copy the `/exec` address.
+   (Anyone can reach the address, but a request without the secret is refused; only the ERP's server knows it.)
+3. Give the ERP the address and the secret (from outside the repository, see `supabase/README.md`):
+   `supabase secrets set MAIL_SCRIPT_URL=<the /exec address> MAIL_SCRIPT_SECRET=<the same secret> --project-ref <ref>`
+4. The mail goes from your Gmail and shows in your Sent folder. Gmail allows about 100 recipients a day on a personal account,
+   1,500 on Google Workspace.
+
 ## What it may do (the permissions it asks for)
 - `gmail.addons.current.message.readonly` — read the mail you have open, when you use the panel (not your mailbox)
 - `script.external_request` — talk to the ERP

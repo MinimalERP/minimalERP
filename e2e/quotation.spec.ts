@@ -72,6 +72,45 @@ test.describe('the Quotation window', () => {
   });
 });
 
+test.describe('emailing a voucher to its party', () => {
+  test.beforeEach(async ({ app }) => {
+    await loadDemo(app);
+  });
+
+  test('Alt+Shift+E offers only this party’s addresses, the template filled in, and the PDF you choose', async ({ app }) => {
+    await openQuotations(app);
+    await panel(app).locator('[data-command="list.new.quotation"]').click();
+    await app.keyboard.type('abc ind');
+    await app.keyboard.press('Enter');
+    await app.keyboard.press('Enter'); // no reference
+    await app.keyboard.type('mounting');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('10');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('55');
+    await app.keyboard.press('Control+a');
+    await expect(heading(app)).toHaveText('Quotation Vouchers');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toContainText('Display Quotation QT/');
+
+    await app.keyboard.press('Alt+Shift+E');
+    const dialog = app.getByTestId('mail-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(app.getByTestId('mail-to')).toHaveText(/^\s*accounts@abcindustries\.in\s*$/); // ABC's only address, and nobody else's
+    await expect(dialog.getByLabel('Subject')).toHaveValue(/^Quotation QT\/.+ from Demo Manufacturing Pvt Ltd$/);
+    await expect(dialog.getByLabel('Message')).toHaveValue(/^Dear ABC Industries,/);
+
+    await app.getByTestId('mail-file').setInputFiles({ name: 'QT-signed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 signed') });
+    await expect(app.getByTestId('mail-attached')).toContainText('QT-signed.pdf');
+    await app.getByTestId('mail-send').click();
+    // these books live in the browser: sending needs the online books (and your Gmail script)
+    await expect(dialog.getByRole('alert')).toContainText('Emailing needs the online books');
+    await app.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(heading(app)).toContainText('Display Quotation QT/');
+  });
+});
+
 test.describe('the top bar', () => {
   test.beforeEach(async ({ app }) => {
     await loadDemo(app);

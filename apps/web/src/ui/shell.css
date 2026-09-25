@@ -565,3 +565,8 @@ textarea.field-input { resize: vertical; min-height: 5em; }
   .bill-line > * { flex: 1 1 7em; min-width: 0; }
   .bill-line > :last-child { flex: 0 0 1.8em; }
 }
+
+/* ---- the email window (vouchers/MailDialog.tsx) ---- */
+.mail-dialog { width: min(680px, 94vw); }
+.mail-to { display: block; padding: var(--sp-1) 0; font-family: var(--font-figures); }
+.mail-body { font-family: var(--font-figures); min-height: 9em; resize: vertical; }

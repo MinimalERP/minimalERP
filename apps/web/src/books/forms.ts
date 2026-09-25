@@ -57,6 +57,10 @@ export interface FormSpec {
   readonly fromRecord?: (record: MasterRecord, values: FormValues) => FormValues;
 }
 
+/** The company fields kept by Invoice / PDF Settings, not by the Company form (see its `fromRecord`). */
+const COMPANY_PRINT_FIELDS = ['phone', 'email', 'bankName', 'bankAccountNo', 'bankIfsc', 'bankBranch', 'invoiceNote', 'invoiceTerms', 'emailTemplates'] as const;
+const COMPANY_KEPT = '__kept';
+
 const text = (key: string, label: string, more: Partial<FieldSpec> = {}): FieldSpec => ({ key, label, type: 'text', ...more });
 const ref = (key: string, label: string, target: RefTarget, more: Partial<FieldSpec> = {}): FieldSpec => ({ key, label, type: 'ref', target, ...more });
 
@@ -160,7 +164,7 @@ export const FORMS: Readonly<Record<MasterKind, FormSpec>> = {
       },
       text('pan', 'PAN', { hint: 'Filled from the GSTIN when you leave it blank' }),
       text('phone', 'Phone'),
-      text('email', 'Email'),
+      text('email', 'Emails', { hint: 'One or more, separated by commas: sales@acme.in, accounts@acme.in' }),
       text('address', 'Address', { heading: 'Billing address' }),
       text('stateCode', 'State code', { hint: 'Two digits, e.g. 27 for Maharashtra' }),
       text('pincode', 'Pincode'),
@@ -359,7 +363,14 @@ export const FORMS: Readonly<Record<MasterKind, FormSpec>> = {
         ],
       },
     ],
-    fromRecord: (record, out) => ({ ...out, chargeGst: (record as { chargeGst?: boolean }).chargeGst === true ? 'yes' : 'no' }),
+    // An alteration replaces the whole company record, and this form shows only who the company is: what Invoice / PDF Settings keeps
+    // (contact, bank, note, terms, email templates) travels through the form unchanged, so saving here never blanks it.
+    fromRecord: (record, out) => ({
+      ...out,
+      chargeGst: (record as { chargeGst?: boolean }).chargeGst === true ? 'yes' : 'no',
+      [COMPANY_KEPT]: JSON.stringify(Object.fromEntries(COMPANY_PRINT_FIELDS.map((k) => [k, (record as unknown as Record<string, unknown>)[k]]).filter(([, v]) => v !== undefined))),
+    }),
+    toData: (values, data) => ({ ...(JSON.parse(values[COMPANY_KEPT] || '{}') as Record<string, unknown>), ...data }),
   },
 };
 

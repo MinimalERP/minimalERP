@@ -20,6 +20,8 @@ import {
   seedCompany,
   stockMovementToWire,
   voucherToWire,
+  voucherMailHtml,
+  voucherMailProblems,
 } from '@minimalerp/domain';
 import type { InboxGateway, JournalRepository, MasterGateway, MastersRepository, PostOutcome, PostingGateway, StockRepository, VoucherRepository } from '@minimalerp/ports';
 import { z } from 'zod';
@@ -97,6 +99,15 @@ const body = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('stock'), companyId, itemIds: z.array(z.string()).optional() }),
   z.object({ action: z.literal('series-status'), companyId, seriesId: z.string().min(1) }),
+  z.object({
+    action: z.literal('send-mail'),
+    companyId,
+    voucherId: z.string().min(1),
+    to: z.array(z.string().max(200)).max(20),
+    subject: z.string().max(200),
+    body: z.string().max(8000),
+    attachment: z.object({ name: z.string().min(1).max(200), base64: z.string().max(15_000_000) }).optional(),
+  }),
   z.object({ action: z.literal('inbox'), companyId }),
   // the daily report: for the company given, or the caller's only one (the add-on's sign-in); `asOn` defaults to today in India
   z.object({ action: z.literal('digest'), companyId: companyId.optional(), asOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }),
@@ -112,7 +123,20 @@ export interface BooksServer extends PostingGateway, MasterGateway, MastersRepos
   can(companyId: string, permission: string): Promise<boolean>;
   loadJson(companyId: string): Promise<{ readonly core: unknown; readonly ledgers: unknown } | undefined>;
   createCompany(masters: Masters): Promise<Result<{ companyId: CompanyId }>>;
+  /** The audit line for a voucher emailed to its party: to whom — never the message or the file. */
+  recordMail(companyId: CompanyId, voucherId: string, to: readonly string[]): Promise<void>;
 }
+
+/** A mail handed to the company's Gmail (the Apps Script web app); the host provides it where the script is configured. */
+export interface OutgoingMail {
+  readonly to: readonly string[];
+  readonly subject: string;
+  readonly text: string;
+  readonly html: string;
+  readonly fromName: string;
+  readonly attachment?: { readonly name: string; readonly base64: string } | undefined;
+}
+export type MailResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
 export interface PostingHandlerDeps {
   /** Resolves the signed-in user from the request (JWT), or undefined if there is none. */
@@ -123,6 +147,8 @@ export interface PostingHandlerDeps {
   onError?(error: unknown, requestId: string): void;
   /** CORS: allowed origin for browser callers. Defaults to '*'. */
   allowOrigin?: string;
+  /** Sends a voucher's mail through the company's Gmail. Absent: emailing is not set up, and `send-mail` says so. */
+  sendMail?(mail: OutgoingMail): Promise<MailResult>;
 }
 
 const outcomeToWire = (o: PostOutcome) => ({
@@ -270,6 +296,29 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
             ...(cmd.itemIds !== undefined ? { itemIds: cmd.itemIds as never } : {}),
           });
           return json(200, { ok: true, value: { movements: movements.map(stockMovementToWire) } });
+        }
+        // A voucher's email goes only to its own party's addresses (checked here again, whatever the window sent), through the company's Gmail.
+        case 'send-mail': {
+          const denied = await refuse(gateway, cmd.companyId, 'voucher.view');
+          if (denied) return json(200, denied);
+          const id = cmd.companyId as CompanyId;
+          const [voucher, masters] = await Promise.all([gateway.get(id, cmd.voucherId as never), gateway.load(id)]);
+          if (!voucher) return json(200, fail(issue(IssueCode.VoucherNotFound, 'That voucher does not exist')));
+          const to = cmd.to.map((e) => e.trim());
+          const problems = voucherMailProblems(voucher, masters, { to, subject: cmd.subject, attachment: cmd.attachment });
+          if (problems.length > 0) return json(200, { ok: false, issues: problems });
+          if (!deps.sendMail) return json(200, fail(issue(IssueCode.MailNotSetUp, 'Emailing is not set up yet: deploy the Gmail script and set MAIL_SCRIPT_URL and MAIL_SCRIPT_SECRET')));
+          const sent = await deps.sendMail({
+            to,
+            subject: cmd.subject.trim(),
+            text: cmd.body,
+            html: voucherMailHtml(voucher, masters, cmd.body),
+            fromName: masters.company.name,
+            ...(cmd.attachment ? { attachment: cmd.attachment } : {}),
+          });
+          if (!sent.ok) return json(200, fail(issue(IssueCode.MailFailed, `Gmail did not send it: ${sent.message}`)));
+          await gateway.recordMail(id, voucher.id, to);
+          return json(200, { ok: true, value: { sentTo: to } });
         }
         // seriesStatus checks master.view itself (the same answer to "not permitted" and "no such series" either refuses).
         case 'series-status':

@@ -1,3 +1,4 @@
+import { MAIL_KINDS, type MailTemplates } from './mailTemplates';
 import { z } from 'zod';
 import { parseLocalDate } from '../dates';
 import { formatMoney } from '../money';
@@ -29,7 +30,8 @@ import {
 import {
   GST_STATE_CODES,
   canonicalId,
-  emailProblem,
+  emailListProblem,
+  emailsOf,
   gstinProblem,
   hsnProblem,
   isDecimalText,
@@ -439,7 +441,8 @@ const partyDef = define({
     gstin: optionalCode(),
     pan: optionalCode(),
     phone: optionalText(20),
-    email: optionalText(120),
+    /** One address or several, separated by commas. */
+    email: optionalText(600),
     address: optionalText(300),
     stateCode: optionalText(2),
     creditDays: optionalInt(),
@@ -491,7 +494,7 @@ const partyDef = define({
       if (p) problems.push(issue(IssueCode.InvalidPhone, p, 'phone'));
     }
     if (f.email !== undefined) {
-      const p = emailProblem(f.email);
+      const p = emailListProblem(f.email);
       if (p) problems.push(issue(IssueCode.InvalidEmail, p, 'email'));
     }
     if (f.creditDays !== undefined && !(f.creditDays >= 0 && f.creditDays <= 3650)) {
@@ -530,7 +533,7 @@ const partyDef = define({
     gstin: f.gstin,
     pan: f.pan ?? (f.gstin && !gstinProblem(f.gstin) ? panOfGstin(f.gstin) : undefined),
     phone: f.phone,
-    email: f.email,
+    email: f.email === undefined ? undefined : emailsOf(f.email).join(', '),
     address: f.address,
     stateCode: f.stateCode ?? (f.gstin && !gstinProblem(f.gstin) ? stateOfGstin(f.gstin) : undefined),
     creditDays: f.creditDays,
@@ -833,6 +836,19 @@ const companyDef = define({
     bankBranch: optionalText(120),
     invoiceNote: optionalText(300),
     invoiceTerms: optionalMultiline(2000),
+    /** By voucher kind: the subject and body its email is sent with. Empty texts mean "use the default". */
+    emailTemplates: z
+      .partialRecord(z.enum(MAIL_KINDS), z.object({ subject: z.string().max(200).optional(), body: z.string().max(4000).optional() }))
+      .optional()
+      .transform((t) => {
+        if (t === undefined) return undefined;
+        const kept = Object.fromEntries(
+          Object.entries(t)
+            .map(([k, v]) => [k, { subject: (v?.subject ?? '').trim(), body: (v?.body ?? '').replace(/\s+$/, '') }] as const)
+            .filter(([, v]) => v.subject !== '' || v.body !== ''),
+        );
+        return Object.keys(kept).length > 0 ? (kept as MailTemplates) : undefined;
+      }),
   }),
   find: (m, cid) => (m.company.id === cid ? m.company : undefined),
   isActive: () => true,
@@ -864,6 +880,7 @@ const companyDef = define({
     bankBranch: f.bankBranch,
     invoiceNote: f.invoiceNote,
     invoiceTerms: f.invoiceTerms,
+    emailTemplates: f.emailTemplates,
   }),
   put: (m, company) => m.with({ company }),
 });

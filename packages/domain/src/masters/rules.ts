@@ -101,6 +101,27 @@ export function emailProblem(email: string): string | undefined {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) ? undefined : 'That does not look like an email address';
 }
 
+/** A party's email field holds one address or several, separated by commas or semicolons: trimmed, empty parts and repeats (any case) left out. */
+export function emailsOf(text: string | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of (text ?? '').split(/[,;]/)) {
+    const email = part.trim();
+    if (email === '' || seen.has(email.toLowerCase())) continue;
+    seen.add(email.toLowerCase());
+    out.push(email);
+  }
+  return out;
+}
+
+/** The first address in a list that is not an email address, named. */
+export function emailListProblem(text: string): string | undefined {
+  const emails = emailsOf(text);
+  if (emails.length === 0) return 'Enter an email address';
+  const bad = emails.find((e) => emailProblem(e) !== undefined);
+  return bad === undefined ? undefined : `“${bad}” does not look like an email address`;
+}
+
 /** Collapses runs of whitespace and trims: "  ABC   Industries " → "ABC Industries". */
 export const normalizeName = (name: string): string => name.replace(/\s+/g, ' ').trim();
 

@@ -5,7 +5,7 @@
  * The browser never uses this — it calls the Edge Function through adapter-supabase.
  */
 export { PostgresBackend, type PostgresBackendOptions, type VoucherRevision } from './backend';
-export { createPostingHandler, type PostingHandlerDeps } from './http';
+export { createPostingHandler, type MailResult, type OutgoingMail, type PostingHandlerDeps } from './http';
 export { createIntakeHandler, type IntakeHandlerDeps, type IntakeServer } from './intake';
 export { MASTER_TABLES, buildMasters, ledgersFromJson, masterRecordToRow, mastersToSeed, mastersVersion } from './masters';
 export { issueFromDbError } from './errors';

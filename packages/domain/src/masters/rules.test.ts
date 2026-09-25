@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   canonicalId,
+  emailListProblem,
   emailProblem,
+  emailsOf,
   gstinCheckChar,
   gstinProblem,
   hsnProblem,
@@ -80,6 +82,13 @@ describe('PAN, HSN, phone, email', () => {
 
   it.each(['a@b.co', 'first.last@company.in'])('email %s is fine', (e) => expect(emailProblem(e)).toBeUndefined());
   it.each(['', 'a@b', '@b.com', 'a b@c.com', 'plain'])('email %j is not', (e) => expect(emailProblem(e)).toBeDefined());
+
+  it('a party may have several emails: split on commas or semicolons, trimmed, repeats and empty parts left out', () => {
+    expect(emailsOf(' sales@acme.in, accounts@acme.in;;SALES@acme.in , ')).toEqual(['sales@acme.in', 'accounts@acme.in']);
+    expect(emailsOf(undefined)).toEqual([]);
+    expect(emailListProblem('sales@acme.in, accounts@acme.in')).toBeUndefined();
+    expect(emailListProblem('sales@acme.in, nope')).toBe('“nope” does not look like an email address'); // the bad one, by name
+  });
 });
 
 describe('names and identifiers', () => {

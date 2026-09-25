@@ -1,3 +1,4 @@
+import { type MailKind, type MailTemplate, type MailTemplates, isMailKind } from './mailTemplates';
 import { type CompanyId, asCompanyId, asFinancialYearId, asGroupId, asGstRateId, asLedgerId, asPartyId, asSeriesId, asStockGroupId, asStockItemId, asUnitId, asVoucherTypeId, asWarehouseId } from '../ids';
 import { type FinancialYear, localDate } from '../dates';
 import { parseMoney } from '../money';
@@ -26,6 +27,18 @@ const str = (o: Json, k: string): string => {
   if (typeof v !== 'string') throw new Error(`Expected "${k}" to be a string, got ${JSON.stringify(v)}`);
   return v;
 };
+/** The stored templates, keeping only kinds and texts that make sense (a stored value is never trusted to be well formed). */
+const mailTemplatesOf = (v: unknown): MailTemplates | undefined => {
+  if (v === null || typeof v !== 'object') return undefined;
+  const out: Partial<Record<MailKind, MailTemplate>> = {};
+  for (const [k, t] of Object.entries(v as Record<string, unknown>)) {
+    if (!isMailKind(k) || t === null || typeof t !== 'object') continue;
+    const { subject, body } = t as { subject?: unknown; body?: unknown };
+    out[k] = { subject: typeof subject === 'string' ? subject : '', body: typeof body === 'string' ? body : '' };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+};
+
 const optStr = (o: Json, k: string): string | undefined => {
   const v = o[k];
   return typeof v === 'string' ? v : undefined;
@@ -239,6 +252,7 @@ export function buildMasters(core: unknown, ledgerRows: unknown): Masters {
       bankBranch: optStr(company, 'bank_branch'),
       invoiceNote: optStr(company, 'invoice_note'),
       invoiceTerms: optStr(company, 'invoice_terms'),
+      emailTemplates: mailTemplatesOf(company['email_templates']),
     },
     groups: tree.value,
     ledgers,
