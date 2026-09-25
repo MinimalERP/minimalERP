@@ -534,6 +534,21 @@ describe('the manual next-number override (ADR-0021)', () => {
     expect(await nextValueOf(series)).toBe(501); // posting advanced it the ordinary way, from the new base
   });
 
+  it('raising the start of a series no voucher uses moves its next number with it (it used to fail: next below start)', async () => {
+    const w = await pgMasterWorldFactory(db)();
+    const series = openingSeries(w);
+    const s = w.seed.series.find((x) => x.id === series)!;
+    const alterStart = (startAt: number) =>
+      run(w, 'alter', 'numberingSeries', series, { voucherTypeId: s.voucherTypeId, financialYearId: s.financialYearId, prefix: s.prefix, suffix: s.suffix, width: 3, startAt });
+    mustOk(await alterStart(25));
+    expect(await nextValueOf(series)).toBe(25);
+    mustOk(await alterStart(10)); // lowered again, never advanced by hand: it follows
+    expect(await nextValueOf(series)).toBe(10);
+    mustOk(await advance(w, series, 500)); // a forward jump someone made is kept
+    mustOk(await alterStart(30));
+    expect(await nextValueOf(series)).toBe(500);
+  });
+
   it('works even when the series already has vouchers posted — unlike start_at, which locks once used', async () => {
     const w = await pgMasterWorldFactory(db)();
     const series = openingSeries(w);
