@@ -45,6 +45,17 @@
 .main { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: var(--sp-5); }
 /* the voucher is a worksheet: it wants the room, not the page margins */
 .main:has(.voucher-screen) { padding: var(--sp-3) var(--sp-4); }
+/* a displayed voucher's ‹ › arrows: at the sides of the main area, halfway down, staying put while it scrolls */
+.workarea { position: relative; }
+.voucher-turn {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
+  width: 1.6rem; height: 3.5rem; padding: 0; font-size: 1.6rem; line-height: 1;
+  border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); color: var(--c-text); cursor: pointer; opacity: 0.75;
+}
+.voucher-turn:hover:not(:disabled) { opacity: 1; border-color: var(--c-accent); color: var(--c-accent); }
+.voucher-turn:disabled { opacity: 0.25; cursor: default; }
+.voucher-turn.prev { left: 2px; }
+.voucher-turn.next { right: calc(17rem + 2px); }
 
 /* ---- action panel (third-level screens): the screen's own actions, down the right edge ---- */
 .actionpanel {
@@ -71,6 +82,7 @@
 .keys-toggle { display: none; }
 @media (max-width: 900px) {
   .actionpanel { display: none; }
+  .voucher-turn.next { right: 2px; }
   .actionpanel.open { display: flex; position: fixed; z-index: 40; right: 0; top: 0; bottom: 0; box-shadow: -6px 0 20px #00000040; }
   .keys-toggle { display: inline-flex; }
 }
@@ -366,6 +378,8 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 .data-grid tr.selected td { background: var(--c-focus-bg); }
 .data-grid tr.selected td:first-child { box-shadow: inset 4px 0 0 var(--c-focus); }
 .data-grid td.active-cell { outline: 2px solid var(--c-focus); outline-offset: -2px; }
+.data-grid tr.picked td { background: var(--c-surface-alt); font-weight: 600; }
+.data-grid tr.picked td:first-child::before { content: '✓ '; color: var(--c-focus); }
 .data-grid tr.cancelled td { color: var(--c-text-muted); text-decoration: line-through; }
 .filter-dot { color: var(--c-accent); }
 

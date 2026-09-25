@@ -99,7 +99,25 @@ export interface ReportDoc {
   readonly rowCount: string;
 }
 
-export type PrintDoc = LedgerDoc | InvoiceDoc | StockDoc | ReportDoc;
+/**
+ * A dispatch docket, two pages: the consignment (the customer, the invoices it carries, packages, transporter, LR) and every item on those
+ * invoices, like items added together. Built from invoices already posted — nothing of it is stored.
+ */
+export interface DocketDoc {
+  readonly kind: 'docket';
+  readonly number: string;
+  readonly date: string;
+  readonly party: PrintParty;
+  readonly invoices: readonly { readonly number: string; readonly date: string; readonly poNo?: string | undefined; readonly amount: bigint }[];
+  readonly packages: string;
+  readonly transporter: string;
+  readonly lrNo: string;
+  readonly items: readonly { readonly desc: string; readonly hsn?: string | undefined; readonly qty: string }[];
+  /** All the items' quantity, per unit ("120 Nos + 5 Kg"). */
+  readonly totalQty: string;
+}
+
+export type PrintDoc = LedgerDoc | InvoiceDoc | StockDoc | ReportDoc | DocketDoc;
 
 const words = (s: string | undefined): string[] | undefined => (s && s.trim() !== '' ? s.split('\n') : undefined);
 
@@ -383,6 +401,114 @@ function StockBody({ doc, company, copyLabel }: { doc: StockDoc; company: PrintC
   );
 }
 
+function Parties({ party }: { party: PrintParty }) {
+  return (
+    <div class="inv-parties">
+      <AddressBlock label="Bill To" address={{ name: party.name, ...party.billTo }} gstin={party.gstin} />
+      <AddressBlock label="Ship To" address={{ name: party.name, ...(party.shipTo ?? party.billTo) }} />
+    </div>
+  );
+}
+
+/** Dispatch docket, page one: who it goes to, the invoices it carries and how. */
+function DocketPageOne({ doc, company }: { doc: DocketDoc; company: PrintCompany }) {
+  const total = doc.invoices.reduce((s, i) => s + i.amount, 0n);
+  return (
+    <>
+      <CompanyHead company={company} docTitle="DISPATCH DOCKET" copyLabel={undefined} numberLabel="Dispatch No." number={doc.number} date={doc.date} />
+      <Parties party={doc.party} />
+      <div class="docket-label">Invoices Included</div>
+      <table class="items">
+        <thead>
+          <tr>
+            <th class="center sno">S.No.</th>
+            <th>Invoice No.</th>
+            <th>Date</th>
+            <th>PO No.</th>
+            <th class="num">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {doc.invoices.map((inv, i) => (
+            <tr key={i}>
+              <td class="center sno">{i + 1}</td>
+              <td>{inv.number}</td>
+              <td>{formatDate(inv.date)}</td>
+              <td>{inv.poNo}</td>
+              <td class="num">{formatAmount(inv.amount)}</td>
+            </tr>
+          ))}
+          <tr class="total">
+            <td />
+            <td colSpan={3}>
+              Total ({doc.invoices.length} invoice{doc.invoices.length === 1 ? '' : 's'})
+            </td>
+            <td class="num">₹ {formatAmount(total)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <table class="docket-facts">
+        <tbody>
+          <tr>
+            <td>Packages</td>
+            <td>{doc.packages}</td>
+          </tr>
+          <tr>
+            <td>Transporter</td>
+            <td>{doc.transporter}</td>
+          </tr>
+          <tr>
+            <td>LR No.</td>
+            <td>{doc.lrNo}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="inv-sign">
+        <div>
+          <div class="for-company">For {company.name}</div>
+          <div class="sign-line">Authorised Signatory</div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Dispatch docket, page two: every item on those invoices, like items added together. */
+function DocketPageTwo({ doc, company }: { doc: DocketDoc; company: PrintCompany }) {
+  return (
+    <>
+      <CompanyHead company={company} docTitle="DISPATCH DOCKET" copyLabel="Item list" numberLabel="Dispatch No." number={doc.number} date={doc.date} />
+      <table class="items">
+        <thead>
+          <tr>
+            <th class="center sno">S.No.</th>
+            <th>Item</th>
+            <th class="center">HSN</th>
+            <th class="num">Qty</th>
+          </tr>
+        </thead>
+        <tbody>
+          {doc.items.map((it, i) => (
+            <tr key={i}>
+              <td class="center sno">{i + 1}</td>
+              <td>{it.desc}</td>
+              <td class="center">{it.hsn}</td>
+              <td class="num">{it.qty}</td>
+            </tr>
+          ))}
+          <tr class="total">
+            <td />
+            <td colSpan={2}>
+              Total ({doc.items.length} item{doc.items.length === 1 ? '' : 's'})
+            </td>
+            <td class="num">{doc.totalQty}</td>
+          </tr>
+        </tbody>
+      </table>
+    </>
+  );
+}
+
 function ReportBody({ doc }: { doc: ReportDoc }) {
   return (
     <>
@@ -463,19 +589,30 @@ function amountInWords(grandTotal: bigint): string {
 /**
  * One hidden root, shown only while printing (`print.css`): one `.print-copy` per label for a voucher (Original,
  * Duplicate, …), or a single unlabelled one for a report. Mounting this and calling `window.print()` is the whole
- * mechanism — see `useVoucherPrint` / `useReportPrint` in `printing.ts`.
+ * mechanism — see `PrintCoordinator`. Several documents (vouchers chosen on a list) print one after another, each in all its copies.
  */
-export function PrintView({ doc, company, copies }: { doc: PrintDoc; company: PrintCompany; copies: readonly string[] }) {
+export function PrintView({ docs, company, copies }: { docs: readonly PrintDoc[]; company: PrintCompany; copies: readonly string[] }) {
   return (
     <div class="print-root" id="print-root">
-      {copies.map((label, i) => (
-        <div key={`${label}-${i}`} class={doc.kind === 'report' ? 'paper print-copy' : 'paper print-copy bordered'}>
-          {doc.kind === 'ledger' && <LedgerBody doc={doc} company={company} copyLabel={label} />}
-          {doc.kind === 'invoice' && <InvoiceBody doc={doc} company={company} copyLabel={label} />}
-          {doc.kind === 'stock' && <StockBody doc={doc} company={company} copyLabel={label} />}
-          {doc.kind === 'report' && <ReportBody doc={doc} />}
-        </div>
-      ))}
+      {docs.flatMap((doc, d) =>
+        doc.kind === 'docket'
+          ? [
+              <div key={`${d}-docket-1`} class="paper print-copy bordered">
+                <DocketPageOne doc={doc} company={company} />
+              </div>,
+              <div key={`${d}-docket-2`} class="paper print-copy bordered">
+                <DocketPageTwo doc={doc} company={company} />
+              </div>,
+            ]
+          : copies.map((label, i) => (
+              <div key={`${d}-${label}-${i}`} class={doc.kind === 'report' ? 'paper print-copy' : 'paper print-copy bordered'}>
+                {doc.kind === 'ledger' && <LedgerBody doc={doc} company={company} copyLabel={label} />}
+                {doc.kind === 'invoice' && <InvoiceBody doc={doc} company={company} copyLabel={label} />}
+                {doc.kind === 'stock' && <StockBody doc={doc} company={company} copyLabel={label} />}
+                {doc.kind === 'report' && <ReportBody doc={doc} />}
+              </div>
+            )),
+      )}
     </div>
   );
 }

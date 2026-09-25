@@ -1,5 +1,5 @@
 import type { Frame } from '@minimalerp/command';
-import { type Money, type Voucher, billStatusOf, isMailKind, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type Voucher, billStatusOf, isMailKind, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
 import { useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { Only } from '../../shell/Only';
@@ -47,9 +47,10 @@ import { useOtherVoucherHandlers } from '../otherVoucher';
 import { PartyDetailsDialog } from '../../screens/PartyDetailsDialog';
 import { FieldsDialog } from '../../screens/ReportDialogs';
 import { MailDialog } from '../MailDialog';
+import { DocketDialog } from '../DocketDialog';
 import type { CreatedMaster } from '../../screens/MasterFormScreen';
 import type { InvoiceDoc } from '../../ui/PrintView';
-import { placeOfSupplyText } from '../../ui/printing';
+import { invoiceDocOf } from '../invoicePrint';
 import {
   tryCommitVoucherDate,
   useVoucherDraftPersistence,
@@ -173,6 +174,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const [partyOpen, setPartyOpen] = useState(false);
   /** The email window (Alt+Shift+E on a saved document). */
   const [mailOpen, setMailOpen] = useState(false);
+  /** The dispatch docket's details window (Alt+D on a saved sales invoice). */
+  const [docketOpen, setDocketOpen] = useState(false);
   /** The line whose one-time form (Alt+T) is open. */
   const [oneTimeFor, setOneTimeFor] = useState<number | undefined>(undefined);
   const leave = useLeaveGuard('This document has not been saved.');
@@ -189,7 +192,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const fields = fieldsOf(form, kind, gstOn);
   const picker = usePickerState(focusKey);
   // a dialog (party details) has the focus while it is open; the field gets it back when it closes
-  const { current, go, nextKey, prevKey, isFocus } = useFieldFocus({ fields, focusKey, setFocusKey, rootRef, idle, wake, paused: partyOpen || mailOpen, deps: [mode, form.lines.length], onGo: picker.reset });
+  const { current, go, nextKey, prevKey, isFocus } = useFieldFocus({ fields, focusKey, setFocusKey, rootRef, idle, wake, paused: partyOpen || mailOpen || docketOpen, deps: [mode, form.lines.length], onGo: picker.reset });
 
   const fresh = (): SalesForm => (frame.state.get('form') as SalesForm | undefined) ?? form;
   const update = (fn: (f: SalesForm) => SalesForm) => setFormState(fn(fresh()));
@@ -230,46 +233,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         )}
       </>
     ) : undefined;
-  /** The posted voucher as a plain invoice/order document — every amount comes from `preview.amounts`/`total`/`gst`/`grand`,
-   * indexed exactly as `previewSales` computed them, so a printed figure can never disagree with what the screen showed. */
-  const buildPrintDoc = (): InvoiceDoc | undefined => {
-    if (!voucher || !type) return undefined;
-    const details = form.partyDetails;
-    const lines = form.lines
-      .map((l, i) => ({ l, amount: preview.amounts.get(i) }))
-      .filter((x): x is { l: SalesLineForm; amount: Money } => (x.l.itemId !== '' || x.l.oneTime === true) && x.amount !== undefined)
-      .map(({ l, amount }) => {
-        const item = l.itemId !== '' ? masters.stockItem(l.itemId as never) : undefined;
-        // a one-time line prints with the unit chosen in its Alt+T form
-        const unit = item ? masters.unit(item.unitId) : masters.units.find((u) => u.symbol === l.unit);
-        const q = parseQty(l.qty.trim());
-        return {
-          desc: l.itemLabel,
-          hsn: l.hsn,
-          qty: q !== undefined ? `${formatQuantity(q, unit?.decimals ?? 0)} ${unit?.symbol ?? l.unit ?? ''}`.trim() : l.qty,
-          rate: l.rate,
-          amount,
-          gstRate: l.gstRate,
-        };
-      });
-    return {
-      kind: 'invoice',
-      docTitle: kind === 'sales' && masters.company.chargeGst === true ? 'Tax Invoice' : type.name,
-      numberLabel: kind === 'sales' ? 'Invoice No.' : undefined,
-      number: voucher.number,
-      date: voucher.date,
-      poNo: form.reference || undefined,
-      ewayBillNo: kind === 'sales' ? form.ewayBillNo || undefined : undefined,
-      placeOfSupply: placeOfSupplyText(details?.shipTo?.stateCode ?? details?.billTo?.stateCode ?? details?.placeOfSupply),
-      party: { name: details?.mailingName ?? form.partyLabel, gstin: details?.gstin, billTo: details?.billTo, shipTo: details?.shipTo },
-      lines,
-      subtotal: preview.total,
-      gst: preview.gst,
-      roundOff: preview.roundOff,
-      grandTotal: preview.grand,
-      narration: form.narration || undefined,
-    };
-  };
+  /** The posted voucher as a plain invoice/order document, from the figures the screen shows. */
+  const buildPrintDoc = (): InvoiceDoc | undefined => (voucher ? invoiceDocOf(voucher, form, kind, preview, masters) : undefined);
   const { setFieldErrors, setError, clearError, issueAt, errorOf, general } = useFieldIssues({ issues: preview.issues, showErrors });
   /** A posted order as the order book reads it now: its status and what each line has had delivered. */
   const orderState = voucher && p.order ? books.orders.state(voucher.id as never) : undefined;
@@ -1068,6 +1033,17 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       {mode !== 'create' && voucher?.status === 'posted' && p.order && orderState?.status === 'open' && <Only scope={SCOPE} command="order.invoice" run={invoicePending} />}
       {mode !== 'create' && voucher?.status === 'posted' && p.quote && !convertedTo && <Only scope={SCOPE} command="quotation.order" run={salesOrderFromQuote} />}
       {mode !== 'create' && voucher?.status === 'posted' && isMailKind(kind) && !mailOpen && <Only scope={SCOPE} command="voucher.email" run={() => (setMailOpen(true), true)} />}
+      {mode !== 'create' && voucher?.status === 'posted' && kind === 'sales' && !docketOpen && <Only scope={SCOPE} command="voucher.docket" run={() => (setDocketOpen(true), true)} />}
+      {docketOpen && voucher && (
+        <DocketDialog
+          books={books}
+          vouchers={[voucher]}
+          onDone={(doc) => {
+            setDocketOpen(false);
+            if (doc) print.printReport(doc);
+          }}
+        />
+      )}
       {mailOpen && voucher && (
         <MailDialog
           books={books}

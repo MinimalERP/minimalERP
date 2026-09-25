@@ -162,6 +162,8 @@ const commands: Command<AppContext>[] = [
   contextual('voucher.removeLine', 'Remove this line', { label: 'Remove line', group: 'Actions', order: 14, on: ['voucher'] }),
   contextual('voucher.oneTimeLine', 'One-time line: write it instead of choosing a stock item', { label: 'One-time line', group: 'Actions', order: 14.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.print', 'Print', { label: 'Print', group: 'Actions', order: 16, on: ['voucher'] }),
+  contextual('voucher.docket', 'Dispatch docket: print the invoices and their items for the transporter', { label: 'Dispatch docket', group: 'Actions', order: 16.2, on: ['voucher', 'report'], hideWhenUnavailable: true }),
+  contextual('list.pick', 'Select or unselect this voucher (to print several at once)', { label: 'Select', group: 'Actions', order: 6, on: ['report'], hideWhenUnavailable: true }),
   contextual('voucher.email', 'Email this to the party (from your Gmail)', { label: 'Email', group: 'Actions', order: 16.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.cancel', 'Cancel this voucher', { label: 'Cancel voucher', group: 'Change', order: 31, on: ['voucher'] }),
   contextual('order.close', 'Close this order', { label: 'Close order', group: 'Change', order: 32, on: ['voucher'] }),
@@ -203,6 +205,9 @@ const bindings: DefaultBinding[] = [
   { commandId: 'voucher.removeLine', chord: 'Ctrl+Delete', scope: 'screen:voucher' },
   { commandId: 'voucher.oneTimeLine', chord: 'Alt+T', scope: 'screen:voucher' },
   { commandId: 'voucher.print', chord: 'Ctrl+P', scope: 'screen:voucher' },
+  // a sales invoice's window and the Sales list both make a dispatch docket
+  { commandId: 'voucher.docket', chord: 'Alt+D' },
+  { commandId: 'list.pick', chord: 'Ctrl+Space', scope: 'screen:report' },
 ];
 
 const GROUPS: Readonly<Record<ListKind, { group: string; order: number }>> = {

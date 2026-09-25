@@ -1,4 +1,4 @@
-import type { PrintDoc, ReportDoc } from './PrintView';
+import type { DocketDoc, PrintDoc, ReportDoc } from './PrintView';
 
 /** What "1 copy" … "4 copies" prints — Original / Duplicate / Triplicate / a plain Extra Copy, the classic GST-invoice convention. */
 export const COPY_LABELS: Readonly<Record<string, readonly string[]>> = {
@@ -16,13 +16,14 @@ export const COPY_LABELS: Readonly<Record<string, readonly string[]>> = {
  * happened when each screen mounted its own `PrintView` inline: the page printed blank).
  */
 export class PrintCoordinator {
-  private _doc: PrintDoc | undefined;
+  private _docs: readonly PrintDoc[] = [];
   private _copies: readonly string[] | undefined;
   private _dialogOpen = false;
   private readonly listeners = new Set<() => void>();
 
-  get doc(): PrintDoc | undefined {
-    return this._doc;
+  /** What prints, in order: one voucher, several chosen on a list (each in all its copies), a report or a docket. */
+  get docs(): readonly PrintDoc[] {
+    return this._docs;
   }
   get copies(): readonly string[] | undefined {
     return this._copies;
@@ -36,17 +37,17 @@ export class PrintCoordinator {
     return () => void this.listeners.delete(listener);
   }
 
-  /** A voucher: opens the copy-count dialog first (Original / Duplicate / …). */
-  printVoucher(doc: PrintDoc): void {
-    this._doc = doc;
+  /** A voucher, or several chosen on a list: opens the copy-count dialog first (Original / Duplicate / …); every one prints that many. */
+  printVoucher(doc: PrintDoc | readonly PrintDoc[]): void {
+    this._docs = Array.isArray(doc) ? doc : [doc as PrintDoc];
     this._copies = undefined;
     this._dialogOpen = true;
     this.notify();
   }
 
-  /** A report: one unlabelled copy, no dialog — not a document sent to anyone. */
-  printReport(doc: ReportDoc): void {
-    this._doc = doc;
+  /** A report or a dispatch docket: one unlabelled copy, no dialog — not a document sent to anyone. */
+  printReport(doc: ReportDoc | DocketDoc): void {
+    this._docs = [doc];
     this._copies = [''];
     this._dialogOpen = false;
     this.notify();
@@ -57,7 +58,7 @@ export class PrintCoordinator {
   choose(value: string | undefined): void {
     this._dialogOpen = false;
     if (value === undefined) {
-      this._doc = undefined;
+      this._docs = [];
       this.notify();
       return;
     }

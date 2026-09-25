@@ -94,5 +94,12 @@
 .print-root .inv-sign .for-company { margin-bottom: 46px; } /* blank room for the stamp and signature */
 .print-root .inv-sign .sign-line { border-top: 1px solid #000; padding-top: 3px; min-width: 170px; }
 
+/* the dispatch docket */
+.print-root .docket-label { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.04em; color: #333; margin: 4px 0; }
+.print-root table.items tr.total td { font-weight: bold; }
+.print-root table.docket-facts { border-collapse: collapse; font-size: 12.5px; margin: 6px 0 12px; }
+.print-root table.docket-facts td { padding: 3px 8px 3px 0; }
+.print-root table.docket-facts td:first-child { font-weight: bold; min-width: 110px; }
+
 /* on screen (dev only — the root is display:none there via the rule above, but keep it sane if ever toggled visible) */
 .print-root { color: #000; }

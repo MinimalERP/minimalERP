@@ -39,7 +39,10 @@ import { DataGrid } from '../ui/DataGrid';
 import { Kbd } from '../ui/Kbd';
 import { formatAmount, formatBalance, formatDate, formatQuantity, normalizeAmount, parseDateInput, todayText } from '../vouchers/format';
 import { FieldsDialog, LedgerDialog, MultiSelectDialog } from './ReportDialogs';
-import type { ReportDoc } from '../ui/PrintView';
+import type { InvoiceDoc, ReportDoc } from '../ui/PrintView';
+import { DocketDialog } from '../vouchers/DocketDialog';
+import { docketProblem, invoiceDocFromBooks } from '../vouchers/invoicePrint';
+import { isItemDocKind } from '../vouchers/kinds';
 
 const SCOPE = 'screen:report';
 
@@ -47,7 +50,7 @@ interface Period {
   readonly from: string;
   readonly to: string;
 }
-type Dialog = 'filter' | 'types' | 'period' | 'ledger' | undefined;
+type Dialog = 'filter' | 'types' | 'period' | 'ledger' | 'docket' | undefined;
 
 const minor = (text: string): bigint | undefined => {
   const n = normalizeAmount(text);
@@ -244,6 +247,48 @@ function ReportBody({
     }
   }, [selectId, rows.length]);
 
+  // ---- a list of item documents: Ctrl+Space picks vouchers; Ctrl+P prints the picked ones (each in the copies asked), Alt+D makes their dispatch docket ----
+  const [picked, setPicked] = useFrameState<string[]>(frame, 'picked', []);
+  const canPick = report === 'vouchers' && listKind !== undefined && isItemDocKind(listKind);
+  const pickedSet = useMemo(() => new Set(picked), [picked]);
+  const rowVoucherId = (r: AnyRow | undefined): string | undefined => (r && 'voucherId' in r ? (r as { voucherId: string }).voucherId : undefined);
+  const togglePick = (): boolean => {
+    const id = rowVoucherId(rows[safeRow]);
+    if (!id) return true;
+    setPicked(pickedSet.has(id) ? picked.filter((x) => x !== id) : [...picked, id]);
+    if (safeRow < rows.length - 1) setRow(safeRow + 1);
+    return true;
+  };
+  /** The picked vouchers in the order the list shows them — or, with none picked, the one under the cursor. */
+  const chosenVouchers = () => {
+    const ids = picked.length > 0 ? rows.map(rowVoucherId).filter((id): id is string => id !== undefined && pickedSet.has(id)) : [rowVoucherId(rows[safeRow])].filter((id): id is string => id !== undefined);
+    return ids.map((id) => books.voucher(id)).filter((v): v is NonNullable<typeof v> => v !== undefined && v.status === 'posted');
+  };
+  const [docketVouchers, setDocketVouchers] = useState<ReturnType<typeof chosenVouchers>>([]);
+  const printList = (): boolean => {
+    if (canPick && picked.length > 0) {
+      const docs = chosenVouchers()
+        .map((v) => invoiceDocFromBooks(v, books))
+        .filter((d): d is InvoiceDoc => d !== undefined);
+      if (docs.length > 0) print.printVoucher(docs);
+      return true;
+    }
+    print.printReport(buildReportDoc());
+    return true;
+  };
+  const openDocket = (): boolean => {
+    const vs = chosenVouchers();
+    const problem = docketProblem(vs, books);
+    if (problem) {
+      setNotice(problem);
+      return true;
+    }
+    setNotice(undefined);
+    setDocketVouchers(vs);
+    setDialog('docket');
+    return true;
+  };
+
   // ---- header pieces ----
   const ledger = ledgerId ? masters.ledger(ledgerId as never) : undefined;
   const group = ledger ? masters.groups.get(ledger.groupId)?.name : undefined;
@@ -412,7 +457,8 @@ function ReportBody({
           query={query}
           label={title}
           rowClass={(r) =>
-            'rowType' in r
+            (canPick && pickedSet.has(rowVoucherId(r) ?? '') ? 'picked ' : '') +
+            ('rowType' in r
               ? r.rowType === 'tb'
                 ? ''
                 : outstandingRowClass(r)
@@ -428,7 +474,7 @@ function ReportBody({
                     : ''
                 : 'status' in r && r.status === 'cancelled'
                   ? 'cancelled'
-                  : ''
+                  : '')
           }
           onPickRow={(i) => (setRow(i), drill(i))}
           onPickColumn={setCol}
@@ -465,6 +511,12 @@ function ReportBody({
       )}
       <p class="report-foot" data-testid="report-foot">
         {rows.length} shown of {baseRows.length}
+        {canPick && picked.length > 0 && (
+          <span data-testid="list-picked">
+            {' · '}
+            <strong>{picked.length} selected</strong> — {chord('report.print') ?? 'Ctrl+P'} prints them{listKind === 'sales' ? `, ${chord('voucher.docket') ?? 'Alt+D'} dispatch docket` : ''}
+          </span>
+        )}
         {' · '}
         {(report === 'trial-balance' || report === 'book') &&
           (() => {
@@ -557,7 +609,19 @@ function ReportBody({
 
       {report === 'vouchers' && listKind && <Only scope={SCOPE} command={`list.new.${listKind}`} run={newVoucher} />}
       {gridSupportsTypeFilter(report) && <Only scope={SCOPE} command="report.types" run={() => (setDialog('types'), true)} />}
-      <Only scope={SCOPE} command="report.print" run={() => (print.printReport(buildReportDoc()), true)} />
+      <Only scope={SCOPE} command="report.print" run={printList} />
+      {canPick && <Only scope={SCOPE} command="list.pick" run={togglePick} />}
+      {canPick && listKind === 'sales' && dialog === undefined && <Only scope={SCOPE} command="voucher.docket" run={openDocket} />}
+      {dialog === 'docket' && (
+        <DocketDialog
+          books={books}
+          vouchers={docketVouchers}
+          onDone={(doc) => {
+            setDialog(undefined);
+            if (doc) print.printReport(doc);
+          }}
+        />
+      )}
       {dialog === 'filter' && filterDialog()}
       {dialog === 'types' && (
         <MultiSelectDialog

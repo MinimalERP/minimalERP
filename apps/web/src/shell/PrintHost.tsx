@@ -17,8 +17,8 @@ export function PrintHost() {
   return (
     <>
       {print.dialogOpen && <ChooseOneDialog title="Print" options={COPY_COUNT_OPTIONS} onDone={(v) => print.choose(v)} />}
-      {print.doc && print.copies && masters && (
-        <PrintView doc={print.doc} company={print.doc.kind === 'report' ? { name: masters.company.name } : printCompanyOf(masters)} copies={print.copies} />
+      {print.docs.length > 0 && print.copies && masters && (
+        <PrintView docs={print.docs} company={print.docs[0]?.kind === 'report' ? { name: masters.company.name } : printCompanyOf(masters)} copies={print.copies} />
       )}
     </>
   );

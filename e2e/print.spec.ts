@@ -17,6 +17,12 @@ async function loadDemo(page: Page): Promise<void> {
   await expect(page.getByTestId('company-name')).toHaveText('Demo Manufacturing Pvt Ltd');
 }
 
+async function openSalesList(page: Page): Promise<void> {
+  await page.getByRole('option', { name: /^Transactions/ }).click();
+  await page.getByRole('option', { name: /^Sales Vouchers/ }).click();
+  await expect(heading(page)).toHaveText('Sales Vouchers');
+}
+
 async function openDayBook(page: Page): Promise<void> {
   await goTo(page, 'day book');
   await page.keyboard.press('Enter');
@@ -165,6 +171,84 @@ test.describe('Print', () => {
     await expect(printCopies(app).first()).toContainText('50200012345678');
     await expect(printCopies(app).first()).toContainText('Thank you for your business.');
     await expect(printCopies(app).first()).not.toContainText('IFSC'); // never a label with nothing after it
+  });
+
+  test('a Sales list: Ctrl+Space picks invoices, Ctrl+P asks the copies once and prints every picked invoice in that many copies', async ({ app }) => {
+    await openSalesList(app);
+    await app.keyboard.press('Control+Space'); // picks the first row, moves to the next
+    await app.keyboard.press('Control+Space');
+    await expect(app.getByTestId('list-picked')).toContainText('2 selected');
+    await app.keyboard.press('Control+p');
+    await app.keyboard.press('ArrowDown'); // 2 copies
+    await app.keyboard.press('Enter');
+    await expect(printCopies(app)).toHaveCount(4);
+    await expect(printCopies(app).nth(0)).toContainText('Sharma Traders');
+    await expect(printCopies(app).nth(1)).toContainText('DUPLICATE');
+    await expect(printCopies(app).nth(2)).toContainText('ABC Industries');
+    await expect.poll(() => printedCount(app)).toBe(1);
+  });
+
+  test('a dispatch docket: one customer only; page one the invoices (number, PO, amount) and the consignment, page two the items added together', async ({ app }) => {
+    await openSalesList(app);
+    await app.keyboard.press('Control+Space');
+    await app.keyboard.press('Control+Space');
+    await app.keyboard.press('Alt+d');
+    await expect(app.getByTestId('list-notice')).toContainText('one customer');
+    await expect(app.getByTestId('report-dialog')).toHaveCount(0);
+
+    await app.keyboard.type('sharma');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toContainText('Display Sales');
+    await app.keyboard.press('Alt+d');
+    await expect(app.getByTestId('report-dialog')).toContainText('Dispatch docket');
+    await app.keyboard.press('Enter'); // Dispatch No. as offered
+    await app.keyboard.press('Enter'); // today
+    await app.keyboard.type('4');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('XYZ Logistics');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('LR-778');
+    await app.keyboard.press('Enter');
+
+    await expect(printCopies(app)).toHaveCount(2);
+    const one = printCopies(app).nth(0);
+    await expect(one).toContainText('DISPATCH DOCKET');
+    await expect(one).toContainText(/OD-\d{4}-00001/);
+    await expect(one).toContainText('Invoices Included');
+    await expect(one).toContainText('SAL/');
+    await expect(one).toContainText('Bill To');
+    await expect(one).toContainText('Ship To');
+    await expect(one).toContainText('XYZ Logistics');
+    await expect(one).toContainText('LR-778');
+    const two = printCopies(app).nth(1);
+    await expect(two).toContainText('Machine Oil');
+    await expect(two).toContainText(/Total \(\d+ items?\)/);
+    await expect.poll(() => printedCount(app)).toBe(1);
+
+    // the next docket is offered the next number
+    await app.keyboard.press('Alt+d');
+    await expect(app.getByTestId('report-dialog').locator('input').first()).toHaveValue(/OD-\d{4}-00002/);
+    await app.keyboard.press('Escape');
+  });
+
+  test('a displayed voucher turns to the next / previous one of its type: PgDn / PgUp, → / ←, and the ‹ › side arrows', async ({ app }) => {
+    await openSalesList(app);
+    await app.keyboard.type('abc');
+    await app.keyboard.press('Enter');
+    await expect(app.locator('.screen')).toContainText('ABC Industries');
+    await app.keyboard.press('PageDown');
+    await expect(app.locator('.screen')).toContainText('Sharma Traders');
+    await app.keyboard.press('PageUp');
+    await expect(app.locator('.screen')).toContainText('ABC Industries');
+    await expect(app.getByRole('button', { name: 'Previous voucher' })).toBeDisabled(); // the first one
+    await app.keyboard.press('ArrowRight');
+    await expect(app.locator('.screen')).toContainText('Sharma Traders');
+    await app.keyboard.press('ArrowLeft');
+    await expect(app.locator('.screen')).toContainText('ABC Industries');
+    await app.getByRole('button', { name: 'Next voucher' }).click();
+    await expect(app.locator('.screen')).toContainText('Sharma Traders');
+    await app.keyboard.press('Escape');
+    await expect(heading(app)).toHaveText('Sales Vouchers');
   });
 
   test('the Day Book prints every visible row, no copy-count dialog, no app chrome', async ({ app }) => {
