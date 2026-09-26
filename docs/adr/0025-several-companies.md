@@ -65,3 +65,19 @@ in `company-create` and the browser always opening the first company. This repla
    reason. A voucher is sent once unless it was rejected. *Transactions › Sent to Companies* lists them. Both companies can read the row
    (row-level security), nothing more of each other.
 5. **Who may send**: whoever may post that kind of voucher in the sending company.
+
+## Step 4: a print layout per company
+1. **Simple HTML, per company, edited in the app** (*Utilities › Print Layouts*): one layout for invoices and orders and one for Payment /
+   Receipt / Contra / Journal, or one for a single voucher kind (which wins over its shape's). Left empty, the built-in layout prints.
+   "Start from the built-in layout" loads today's layout as editable HTML; the preview fills it with the newest voucher it would print.
+   A drag-and-drop editor can come later on the same stored layouts.
+2. **Placeholders, not a program** (`renderTemplate` in `packages/domain/src/print/template.ts`): `{{name}}` (always HTML-escaped),
+   `{{#list}}…{{/list}}` (repeat), `{{#x}}…{{/x}}` / `{{^x}}…{{/x}}` (shown when present / absent). The data is the `PrintDoc` the screen
+   already built, formatted as the built-in layout prints it (`layoutData` in `apps/web/src/ui/printTemplate.ts`): a layout arranges
+   figures, it never computes one.
+3. **Safe to show.** The filled HTML is cleaned (`cleanLayoutHtml`: no scripts, frames, forms, `on…` handlers, outside links or pictures,
+   `@import` / `url()`), and rendered in a shadow root inside the same framed print copy, so its styles cannot reach the app. A layout that
+   cannot be read prints the built-in one.
+4. **Kept per company** in `company_print_layouts` (templates and the logo / signature as small data-URL pictures, checked in SQL), read
+   by anyone who sees the company's vouchers and changed by whoever may change its masters. Loaded with the books when the company opens.
+   The books kept in the browser only print the built-in layout. Stock journals, dispatch dockets and reports keep the built-in one.

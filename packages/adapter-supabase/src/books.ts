@@ -20,7 +20,7 @@ import {
   stockMovementFromWire,
   voucherFromWire,
 } from '@minimalerp/domain';
-import type { AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, SentDocument, MailSender, VoucherMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
+import type { AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, PrintLayoutStore, PrintLayouts, SentDocument, MailSender, VoucherMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
 
 /** What arrives with a change's own answer: the parts of the books the browser is about to reload. */
@@ -81,7 +81,7 @@ export interface CompanySummary {
  */
 export class SupabaseBooksBackend
   extends SupabasePostingGateway
-  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, ChangeFeed, MailSender, CompanyExchange
+  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, ChangeFeed, MailSender, CompanyExchange, PrintLayoutStore
 {
   private readonly kinds = defaultVoucherKinds();
   /** The masters of the last `load`, for turning stored vouchers back into what the screens hold (see `readable`). */
@@ -230,6 +230,17 @@ export class SupabaseBooksBackend
   async setCompanyMail(companyId: CompanyId, url: string, secret: string): Promise<Result<CompanyMail | null>> {
     const r = await this.call({ action: 'company-mail-set', companyId, url, secret });
     return r.ok ? ok((r.value as { script: CompanyMail | null }).script) : r;
+  }
+
+  /** The company's own print layouts and pictures (ADR-0025). */
+  async printLayout(companyId: CompanyId): Promise<Result<PrintLayouts>> {
+    const r = await this.call({ action: 'print-layout', companyId });
+    return r.ok ? ok(r.value as PrintLayouts) : r;
+  }
+
+  async setPrintLayout(companyId: CompanyId, layouts: PrintLayouts): Promise<Result<PrintLayouts>> {
+    const r = await this.call({ action: 'print-layout-set', companyId, templates: layouts.templates, images: layouts.images });
+    return r.ok ? ok(r.value as PrintLayouts) : r;
   }
 
   /** Send via ERP (ADR-0025): the server finds the owner's company with the party's GSTIN and puts it in that company's inbox. */

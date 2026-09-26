@@ -82,6 +82,7 @@ export * from './intake/proposal';
 export * from './intake/match';
 export * from './intake/propose';
 export * from './intake/exchange';
+export * from './print/template';
 export * from './intake/remittance';
 export * from './reports/digest';
 export * from './csv/format';

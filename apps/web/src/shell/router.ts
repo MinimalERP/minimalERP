@@ -22,6 +22,8 @@ export type ScreenRef =
   /** What this company sent to the owner's other companies via the ERP, and what became of each (ADR-0025). */
   | { readonly type: 'exchange-sent' }
   | { readonly type: 'invoice-settings' }
+  /** The company's own print layouts (ADR-0025). */
+  | { readonly type: 'print-layouts' }
   | { readonly type: 'import-export' }
   /** A master record's form. `seed` pre-fills a new one (Alt+C from a field) and `inline` makes it hand its result back; neither is part of the address. */
   | {
@@ -81,6 +83,8 @@ export function refToHash(ref: ScreenRef): string {
       return '#/sent';
     case 'invoice-settings':
       return '#/company/invoice-settings';
+    case 'print-layouts':
+      return '#/company/print-layouts';
     case 'inbox':
       return '#/inbox';
     case 'import-export':
@@ -121,6 +125,7 @@ export function hashToRef(hash: string): ScreenRef | undefined {
   if (path === '/company/gmail') return { type: 'company-gmail' };
   if (path === '/sent') return { type: 'exchange-sent' };
   if (path === '/company/invoice-settings') return { type: 'invoice-settings' };
+  if (path === '/company/print-layouts') return { type: 'print-layouts' };
   if (path === '/inbox') return { type: 'inbox' };
   if (path === '/import-export') return { type: 'import-export' };
   const record = /^\/master\/([A-Za-z]+)\/(create|display|alter)(?:\/(.+))?$/.exec(path);

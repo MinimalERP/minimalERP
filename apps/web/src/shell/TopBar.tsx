@@ -32,6 +32,8 @@ export function useScreenTitle() {
         return 'Sent to Companies';
       case 'invoice-settings':
         return 'Invoice / PDF Settings';
+      case 'print-layouts':
+        return 'Print Layouts';
       case 'inbox':
         return 'AI Inbox';
       case 'import-export':

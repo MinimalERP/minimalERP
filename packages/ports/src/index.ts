@@ -162,6 +162,21 @@ export interface SentDocument {
   readonly decidedAt?: string | undefined;
 }
 
+/**
+ * A company's own print layouts (ADR-0025): HTML by document — "invoice", "ledger", or "invoice.<kind>" / "ledger.<kind>" for one kind —
+ * filled by domain `renderTemplate`, and its pictures ("logo", "signature") as data URLs. Empty = the built-in layout.
+ */
+export interface PrintLayouts {
+  readonly templates: Readonly<Record<string, string>>;
+  readonly images: Readonly<Record<string, string>>;
+}
+
+/** Where a company's print layouts are kept (online books). */
+export interface PrintLayoutStore {
+  printLayout(companyId: CompanyId): Promise<Result<PrintLayouts>>;
+  setPrintLayout(companyId: CompanyId, layouts: PrintLayouts): Promise<Result<PrintLayouts>>;
+}
+
 /** "Send via ERP": between the owner's companies, online books only (ADR-0025). */
 export interface CompanyExchange {
   sendToCompany(companyId: CompanyId, voucherId: VoucherId): Promise<Result<{ readonly toCompany: string; readonly toKind: string }>>;

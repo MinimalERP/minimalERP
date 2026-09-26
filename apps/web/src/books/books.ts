@@ -25,6 +25,8 @@ import {
 import type {
   ChangeFeed,
   CompanyExchange,
+  PrintLayoutStore,
+  PrintLayouts,
   SentDocument,
   MailSender,
   VoucherMailOrder,
@@ -49,7 +51,7 @@ export { newCompanyIssues } from '@minimalerp/domain';
 export type { NewCompany };
 
 /** Everything the screens need from a backend: master commands, posting, and reading masters back. Adapters provide it. */
-export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, MailSender, Partial<ChangeFeed>, Partial<CompanyExchange> {}
+export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, MailSender, Partial<ChangeFeed>, Partial<CompanyExchange>, Partial<PrintLayoutStore> {}
 
 /** A backend whose state can be saved as a log of changes and rebuilt from it (the in-browser demo backend). */
 export interface LocalBackend extends BooksBackend {
@@ -174,14 +176,40 @@ export class Books {
 
   /** Loads vouchers and journal lines. Called when a company opens and after every change to the books. */
   async loadData(): Promise<void> {
-    const [vouchers, lines, movements] = await Promise.all([
+    const [vouchers, lines, movements, layouts] = await Promise.all([
       this.backend.list(this.companyId),
       this.backend.lines({ companyId: this.companyId }),
       this.backend.stockMovements({ companyId: this.companyId }),
+      // the company's own print layouts: a failure here must not stop the books opening (the built-in layout prints)
+      this.backend.printLayout?.(this.companyId).catch(() => undefined),
     ]);
     this.posted = vouchers;
     this.journal = lines;
     this.stockBook = new StockBook(movements);
+    if (layouts?.ok) this.layouts = layouts.value;
+  }
+
+  private layouts: PrintLayouts = { templates: {}, images: {} };
+
+  /** This company's own print layouts and pictures (ADR-0025); empty = the built-in layout. */
+  get printLayouts(): PrintLayouts {
+    return this.layouts;
+  }
+
+  /** Whether the print layouts can be kept from here (online books). */
+  get canEditPrintLayouts(): boolean {
+    return typeof this.backend.setPrintLayout === 'function';
+  }
+
+  /** Replaces this company's print layouts and pictures; everything showing them is told. */
+  async savePrintLayouts(layouts: PrintLayouts): Promise<Result<PrintLayouts>> {
+    if (!this.backend.setPrintLayout) return fail(issue(IssueCode.UnsupportedOperation, 'Print layouts are kept with the online books'));
+    const r = await this.backend.setPrintLayout(this.companyId, layouts);
+    if (r.ok) {
+      this.layouts = r.value;
+      for (const l of [...this.listeners]) l();
+    }
+    return r;
   }
 
   /** Posts a new voucher (the draft's id is its idempotency key). */

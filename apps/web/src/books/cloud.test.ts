@@ -32,6 +32,8 @@ function fakeOnline(options: { existing?: boolean; listFails?: boolean; ownsNone
       if (key === 'companies') return companies;
       if (key === 'createCompany') return createCompany;
       if (key === 'setCompanyUser') return setCompanyUser;
+      // only what the in-memory backend really has (the books ask `backend.printLayout?.(…)` for what it may not)
+      if (typeof (MemoryBackend.prototype as unknown as Record<string, unknown>)[key] !== 'function') return undefined;
       return (...args: unknown[]) => {
         const backend = backendOf(args[0]) ?? [...backends.values()][0]!;
         return (backend as unknown as Record<string, (...a: unknown[]) => unknown>)[key]!(...args);

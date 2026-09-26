@@ -75,6 +75,15 @@ const commands: Command<AppContext>[] = [
     run: (app) => app.navigate({ type: 'invoice-settings' }),
   },
   {
+    id: 'settings.printLayouts',
+    title: 'Print Layouts',
+    category: 'Settings',
+    keywords: ['print', 'layout', 'template', 'html', 'invoice design', 'logo', 'signature', 'pdf', 'format'],
+    description: 'This company’s own print layout (simple HTML) for invoices, orders and vouchers, with its logo and signature',
+    when: (app) => app.books.current?.canEditPrintLayouts === true,
+    run: (app) => app.navigate({ type: 'print-layouts' }),
+  },
+  {
     id: 'company.create',
     title: 'Create Company',
     category: 'Company',
@@ -230,6 +239,7 @@ const menu: MenuEntry[] = [
   entry('utilities', 'company.user', 5.5),
   entry('utilities', 'company.gmail', 5.6),
   entry('utilities', 'settings.invoicePdf', 6),
+  entry('utilities', 'settings.printLayouts', 6.5),
   entry('utilities', 'settings.voucherTypes', 7),
   entry('utilities', 'settings.numbering', 8),
   entry('utilities', 'company.create', 2),

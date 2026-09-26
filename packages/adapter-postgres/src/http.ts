@@ -52,6 +52,8 @@ import { z } from 'zod';
  *         { action: 'company-mail-set', companyId, url, secret }   set it ('' url removes it; '' secret keeps the one set before)
  *         { action: 'exchange-send', companyId, voucherId }   Send via ERP: into the inbox of the group company with the party's GSTIN
  *         { action: 'exchange-sent', companyId }         what this company sent, and what became of each: { sent: [...] }
+ *         { action: 'print-layout', companyId }          the company's own print layouts and pictures: { templates, images }
+ *         { action: 'print-layout-set', companyId, templates, images }   replace them (whoever may change the masters)
  *   200   { ok: true,  value: { voucher, journal?, replayed? } }   money as decimal strings
  *   200   { ok: false, issues: [{ code, message, path? }] }        a business-rule refusal
  *   400 malformed request · 401 not signed in · 405 wrong method · 500 unexpected failure
@@ -127,6 +129,13 @@ const body = z.discriminatedUnion('action', [
   z.object({ action: z.literal('company-mail-set'), companyId, url: z.string().max(300), secret: z.string().max(200) }),
   z.object({ action: z.literal('exchange-send'), companyId, voucherId: z.string().min(1) }),
   z.object({ action: z.literal('exchange-sent'), companyId }),
+  z.object({ action: z.literal('print-layout'), companyId }),
+  z.object({
+    action: z.literal('print-layout-set'),
+    companyId,
+    templates: z.record(z.string().max(40), z.string().max(60_000)),
+    images: z.record(z.string().max(20), z.string().max(210_000)),
+  }),
 ]);
 
 /**
@@ -149,8 +158,17 @@ export interface BooksServer extends PostingGateway, MasterGateway, MastersRepos
   exchangeTargets(fromCompanyId: string, gstin: string): Promise<readonly { readonly id: string; readonly name: string }[]>;
   exchangeSend(s: ExchangeSending): Promise<Result<{ readonly id: string }>>;
   exchangeSent(companyId: string): Promise<Result<readonly SentDocument[]>>;
+  /** The company's own print layouts and pictures (ADR-0025): read by anyone who sees its vouchers, replaced by whoever may change its masters. */
+  printLayout(companyId: string): Promise<Result<PrintLayouts>>;
+  setPrintLayout(companyId: string, layouts: PrintLayouts): Promise<Result<PrintLayouts>>;
   /** The audit line for a voucher emailed to its party: to whom — never the message or the file. */
   recordMail(companyId: CompanyId, voucherId: string, to: readonly string[]): Promise<void>;
+}
+
+/** A company's own print layouts (HTML by document, see domain print/template.ts) and pictures (logo, signature as data URLs). */
+export interface PrintLayouts {
+  readonly templates: Readonly<Record<string, string>>;
+  readonly images: Readonly<Record<string, string>>;
 }
 
 /** One voucher sent to another company: what goes into its inbox, and the record of it. */
@@ -448,6 +466,10 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
         }
         case 'exchange-sent':
           return asResponse(await gateway.exchangeSent(cmd.companyId), (sent) => ({ sent }));
+        case 'print-layout':
+          return asResponse(await gateway.printLayout(cmd.companyId), (layouts) => layouts);
+        case 'print-layout-set':
+          return asResponse(await gateway.setPrintLayout(cmd.companyId, { templates: cmd.templates, images: cmd.images }), (layouts) => layouts);
         case 'company-mail':
           return asResponse(await gateway.companyMail(cmd.companyId), (script) => ({ script }));
         case 'company-mail-set':

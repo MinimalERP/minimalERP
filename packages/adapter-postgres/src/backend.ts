@@ -60,7 +60,7 @@ import type {
   VoucherRepository,
 } from '@minimalerp/ports';
 import { issueFromDbError } from './errors';
-import type { ExchangeSending, SentDocument } from './http';
+import type { ExchangeSending, PrintLayouts, SentDocument } from './http';
 import { buildMasters, ledgersFromJson, masterRecordToRow, mastersToSeed, mastersVersion } from './masters';
 import type { Queryable } from './queryable';
 
@@ -690,6 +690,38 @@ export class PostgresBackend
           decidedAt: opt(x['decidedAt']),
         })),
       );
+    } catch (e) {
+      const known = issueFromDbError(e);
+      if (known) return fail(known);
+      throw e;
+    }
+  }
+
+  /** The company's own print layouts and pictures; none set = empty (the built-in layout prints). */
+  async printLayout(companyId: string): Promise<Result<PrintLayouts>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    return this.layoutCall('select public.print_layout_get($1::uuid, $2::uuid) as r', [this.options.actorId, companyId]);
+  }
+
+  /** Replaces them (the database checks the names, sizes and picture types, and who may). */
+  async setPrintLayout(companyId: string, layouts: PrintLayouts): Promise<Result<PrintLayouts>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    return this.layoutCall('select public.print_layout_set($1::uuid, $2::uuid, $3, $4::text::jsonb, $5::text::jsonb) as r', [
+      this.options.actorId,
+      companyId,
+      this.options.requestId ?? null,
+      JSON.stringify(layouts.templates),
+      JSON.stringify(layouts.images),
+    ]);
+  }
+
+  private async layoutCall(sql: string, values: readonly unknown[]): Promise<Result<PrintLayouts>> {
+    try {
+      const r = await this.db.query(sql, values);
+      const v = (r.rows[0]?.['r'] ?? {}) as { templates?: unknown; images?: unknown };
+      const strings = (o: unknown) =>
+        Object.fromEntries(Object.entries(o !== null && typeof o === 'object' ? (o as Record<string, unknown>) : {}).filter((e): e is [string, string] => typeof e[1] === 'string'));
+      return ok({ templates: strings(v.templates), images: strings(v.images) });
     } catch (e) {
       const known = issueFromDbError(e);
       if (known) return fail(known);

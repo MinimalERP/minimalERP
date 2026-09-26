@@ -31,6 +31,7 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
     });
   return {
     kind: 'invoice',
+    voucherKind: kind,
     docTitle: kind === 'sales' && masters.company.chargeGst === true ? 'Tax Invoice' : type.name,
     numberLabel: kind === 'sales' ? 'Invoice No.' : undefined,
     number: voucher.number,

@@ -1,3 +1,8 @@
+import type { PrintLayouts } from '@minimalerp/ports';
+import { useLayoutEffect, useRef } from 'preact/hooks';
+import type { PrintAddress, PrintParty, PrintCompany, LedgerDoc, InvoiceDoc, StockDoc, ReportDoc, DocketDoc, PrintDoc } from './printDocs';
+import { layoutFor, renderLayout } from './printTemplate';
+import { amountInWords } from './words';
 import { formatAmount, formatDate } from '../vouchers/format';
 
 /**
@@ -7,117 +12,8 @@ import { formatAmount, formatDate } from '../vouchers/format';
  * recomputes GST, a total or a balance — it only lays out numbers the screen has already checked.
  */
 
-export interface PrintAddress {
-  readonly name?: string | undefined;
-  readonly lines?: string | undefined;
-  readonly stateCode?: string | undefined;
-  readonly country?: string | undefined;
-  readonly pincode?: string | undefined;
-}
+export type { PrintAddress, PrintParty, PrintCompany, LedgerDoc, InvoiceDoc, StockDoc, ReportDoc, DocketDoc, PrintDoc } from './printDocs';
 
-export interface PrintParty {
-  readonly name: string;
-  readonly gstin?: string | undefined;
-  readonly billTo?: PrintAddress | undefined;
-  /** Absent: same as billing. */
-  readonly shipTo?: PrintAddress | undefined;
-}
-
-export interface PrintCompany {
-  readonly name: string;
-  readonly address?: string | undefined;
-  readonly gstin?: string | undefined;
-  readonly phone?: string | undefined;
-  readonly email?: string | undefined;
-  readonly bankName?: string | undefined;
-  readonly bankAccountNo?: string | undefined;
-  readonly bankIfsc?: string | undefined;
-  readonly bankBranch?: string | undefined;
-  readonly invoiceNote?: string | undefined;
-  readonly invoiceTerms?: string | undefined;
-}
-
-/** A simple double- or single-entry voucher: Payment, Receipt, Contra, Journal, Opening. */
-export interface LedgerDoc {
-  readonly kind: 'ledger';
-  readonly docTitle: string;
-  readonly number: string;
-  readonly date: string;
-  readonly lines: readonly { readonly ledger: string; readonly side: 'debit' | 'credit'; readonly amount: bigint }[];
-  readonly narration?: string | undefined;
-}
-
-/** A Sales/Purchase Order or Invoice: bill-to/ship-to, an item table, GST, totals, bank details and a signature. */
-export interface InvoiceDoc {
-  readonly kind: 'invoice';
-  readonly docTitle: string;
-  readonly number: string;
-  readonly date: string;
-  /** What the number row is labelled — "No." unless the screen names something more specific ("Invoice No." for a Sales Invoice). */
-  readonly numberLabel?: string | undefined;
-  /** The customer's own reference (Sales) — shown as "PO No." only when present. */
-  readonly poNo?: string | undefined;
-  /** The E-way Bill number for this invoice's movement of goods (Sales) — shown only when present. */
-  readonly ewayBillNo?: string | undefined;
-  /** The state of the delivery address, as it prints ("Maharashtra (27)") — shown only when known. */
-  readonly placeOfSupply?: string | undefined;
-  readonly party: PrintParty;
-  readonly lines: readonly {
-    readonly desc: string;
-    readonly hsn?: string | undefined;
-    readonly qty: string;
-    readonly rate: string;
-    readonly amount: bigint;
-    readonly gstRate?: string | undefined;
-  }[];
-  readonly subtotal: bigint;
-  readonly gst?: { readonly cgst: bigint; readonly sgst: bigint; readonly igst: bigint } | undefined;
-  /** The Round Off adjustment (signed: positive when rounded up) — shown only when nonzero. */
-  readonly roundOff?: bigint | undefined;
-  readonly grandTotal: bigint;
-  readonly narration?: string | undefined;
-}
-
-/** A Stock Journal or opening stock: an internal movement, not a customer document — no GST, bank details or signature. */
-export interface StockDoc {
-  readonly kind: 'stock';
-  readonly docTitle: string;
-  readonly number: string;
-  readonly date: string;
-  readonly lines: readonly { readonly direction: 'in' | 'out'; readonly item: string; readonly warehouse: string; readonly qty: string; readonly value: bigint }[];
-  readonly narration?: string | undefined;
-}
-
-/** A report: the same rows and columns the screen shows, in full — never only the on-screen grid's windowed slice. */
-export interface ReportDoc {
-  readonly kind: 'report';
-  readonly title: string;
-  readonly period: string;
-  readonly filters: readonly string[];
-  readonly columns: readonly { readonly label: string; readonly align?: 'left' | 'right' | undefined }[];
-  readonly rows: readonly (readonly string[])[];
-  readonly rowCount: string;
-}
-
-/**
- * A dispatch docket, two pages: the consignment (the customer, the invoices it carries, packages, transporter, LR) and every item on those
- * invoices, like items added together. Built from invoices already posted — nothing of it is stored.
- */
-export interface DocketDoc {
-  readonly kind: 'docket';
-  readonly number: string;
-  readonly date: string;
-  readonly party: PrintParty;
-  readonly invoices: readonly { readonly number: string; readonly date: string; readonly poNo?: string | undefined; readonly amount: bigint }[];
-  readonly packages: string;
-  readonly transporter: string;
-  readonly lrNo: string;
-  readonly items: readonly { readonly desc: string; readonly hsn?: string | undefined; readonly qty: string }[];
-  /** All the items' quantity, per unit ("120 Nos + 5 Kg"). */
-  readonly totalQty: string;
-}
-
-export type PrintDoc = LedgerDoc | InvoiceDoc | StockDoc | ReportDoc | DocketDoc;
 
 const words = (s: string | undefined): string[] | undefined => (s && s.trim() !== '' ? s.split('\n') : undefined);
 
@@ -546,44 +442,20 @@ function ReportBody({ doc }: { doc: ReportDoc }) {
   );
 }
 
-/** Indian numbering (thousand / lakh / crore) — the words come from the same figure that prints as a number. */
-const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-function twoDigitWords(n: number): string {
-  if (n < 20) return ONES[n] ?? '';
-  const t = Math.floor(n / 10);
-  const o = n % 10;
-  return TENS[t] + (o ? ` ${ONES[o]}` : '');
-}
-function threeDigitWords(n: number): string {
-  const h = Math.floor(n / 100);
-  const r = n % 100;
-  let s = h ? `${ONES[h]} Hundred` : '';
-  if (r) s += (s ? ' ' : '') + twoDigitWords(r);
-  return s;
-}
-function numberToWordsIndian(n: number): string {
-  if (n === 0) return 'Zero';
-  const crore = Math.floor(n / 10000000);
-  n %= 10000000;
-  const lakh = Math.floor(n / 100000);
-  n %= 100000;
-  const thousand = Math.floor(n / 1000);
-  n %= 1000;
-  const parts: string[] = [];
-  if (crore) parts.push(`${threeDigitWords(crore)} Crore`);
-  if (lakh) parts.push(`${twoDigitWords(lakh)} Lakh`);
-  if (thousand) parts.push(`${twoDigitWords(thousand)} Thousand`);
-  if (n) parts.push(threeDigitWords(n));
-  return parts.join(' ');
-}
-/** `grandTotal` is minor units (paise, per the app's own money convention). */
-function amountInWords(grandTotal: bigint): string {
-  const rupees = Number(grandTotal / 100n);
-  const paise = Number(grandTotal % 100n);
-  let s = `Rupees ${numberToWordsIndian(rupees)}`;
-  if (paise > 0) s += ` and ${numberToWordsIndian(paise)} Paise`;
-  return `${s} Only`;
+
+/**
+ * A company's own layout, already filled and cleaned (see `printTemplate.ts`), in a shadow root: its styles are its own and cannot reach
+ * the app, and the app's cannot reach it. It sits inside the same framed `.print-copy` as the built-in layout.
+ */
+export function OwnLayout({ html }: { html: string }) {
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = host.current;
+    if (!el) return;
+    const root = el.shadowRoot ?? el.attachShadow({ mode: 'open' });
+    root.innerHTML = html;
+  }, [html]);
+  return <div ref={host} class="own-layout" data-testid="own-layout" />;
 }
 
 /**
@@ -591,7 +463,14 @@ function amountInWords(grandTotal: bigint): string {
  * Duplicate, …), or a single unlabelled one for a report. Mounting this and calling `window.print()` is the whole
  * mechanism — see `PrintCoordinator`. Several documents (vouchers chosen on a list) print one after another, each in all its copies.
  */
-export function PrintView({ docs, company, copies }: { docs: readonly PrintDoc[]; company: PrintCompany; copies: readonly string[] }) {
+export function PrintView({ docs, company, copies, layouts }: { docs: readonly PrintDoc[]; company: PrintCompany; copies: readonly string[]; layouts?: PrintLayouts | undefined }) {
+  /** The company's own layout for an invoice or voucher, filled and cleaned — undefined for the built-in one (none set, or it cannot be read). */
+  const own = (doc: PrintDoc, label: string): string | undefined => {
+    if (doc.kind !== 'invoice' && doc.kind !== 'ledger') return undefined;
+    const template = layoutFor(layouts, doc);
+    const r = template ? renderLayout(template, doc, company, label, layouts?.images ?? {}) : undefined;
+    return r?.ok ? r.html : undefined;
+  };
   return (
     <div class="print-root" id="print-root">
       {docs.flatMap((doc, d) =>
@@ -604,14 +483,23 @@ export function PrintView({ docs, company, copies }: { docs: readonly PrintDoc[]
                 <DocketPageTwo doc={doc} company={company} />
               </div>,
             ]
-          : copies.map((label, i) => (
-              <div key={`${d}-${label}-${i}`} class={doc.kind === 'report' ? 'paper print-copy' : 'paper print-copy bordered'}>
-                {doc.kind === 'ledger' && <LedgerBody doc={doc} company={company} copyLabel={label} />}
-                {doc.kind === 'invoice' && <InvoiceBody doc={doc} company={company} copyLabel={label} />}
-                {doc.kind === 'stock' && <StockBody doc={doc} company={company} copyLabel={label} />}
-                {doc.kind === 'report' && <ReportBody doc={doc} />}
-              </div>
-            )),
+          : copies.map((label, i) => {
+              const html = own(doc, label);
+              return (
+                <div key={`${d}-${label}-${i}`} class={doc.kind === 'report' ? 'paper print-copy' : 'paper print-copy bordered'}>
+                  {html !== undefined ? (
+                    <OwnLayout html={html} />
+                  ) : (
+                    <>
+                      {doc.kind === 'ledger' && <LedgerBody doc={doc} company={company} copyLabel={label} />}
+                      {doc.kind === 'invoice' && <InvoiceBody doc={doc} company={company} copyLabel={label} />}
+                      {doc.kind === 'stock' && <StockBody doc={doc} company={company} copyLabel={label} />}
+                      {doc.kind === 'report' && <ReportBody doc={doc} />}
+                    </>
+                  )}
+                </div>
+              );
+            }),
       )}
     </div>
   );

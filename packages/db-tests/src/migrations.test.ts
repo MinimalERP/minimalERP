@@ -22,6 +22,7 @@ describe('migrations', () => {
       'companies',
       'company_mail_scripts',
       'company_members',
+      'company_print_layouts',
       'dash_events',
       'dash_jobs',
       'dash_parts',

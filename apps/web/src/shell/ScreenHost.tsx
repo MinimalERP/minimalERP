@@ -4,6 +4,7 @@ import { ExchangeSentScreen } from '../screens/ExchangeSentScreen';
 import { ImportExportScreen } from '../screens/ImportExportScreen';
 import { InboxScreen } from '../screens/InboxScreen';
 import { InvoiceSettingsScreen } from '../screens/InvoiceSettingsScreen';
+import { PrintLayoutsScreen } from '../screens/PrintLayoutsScreen';
 import { KeymapSettingsScreen } from '../screens/KeymapSettingsScreen';
 import { MasterFormScreen } from '../screens/MasterFormScreen';
 import { MasterListScreen } from '../screens/MasterListScreen';
@@ -39,6 +40,8 @@ function ScreenBody({ frame }: { frame: Frame<ScreenRef> }) {
       return <ExchangeSentScreen />;
     case 'invoice-settings':
       return <InvoiceSettingsScreen frame={frame} />;
+    case 'print-layouts':
+      return <PrintLayoutsScreen frame={frame} />;
     case 'inbox':
       return <InboxScreen frame={frame} />;
     case 'import-export':

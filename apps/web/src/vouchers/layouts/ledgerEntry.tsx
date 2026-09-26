@@ -680,7 +680,7 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
             ...entryLines,
           ]
         : entryLines;
-    return { kind: 'ledger', docTitle: type.name, number: voucher.number, date: voucher.date, lines, narration: form.narration || undefined };
+    return { kind: 'ledger', voucherKind: type.baseKind, docTitle: type.name, number: voucher.number, date: voucher.date, lines, narration: form.narration || undefined };
   };
 
   const pickerList = (key: string) => (
