@@ -1,8 +1,9 @@
 /**
  * Emailing a voucher to its party (`send-mail` on the post-voucher function): only to that party's own addresses, only for someone who may
- * see the voucher, through the company's Gmail script (mocked here), with an audit line — and never the script's secret in an answer.
+ * see the voucher, through THAT company's own Gmail script (mocked here; ADR-0025), with an audit line — and never the script's secret in
+ * an answer.
  */
-import { createPostingHandler, PostgresBackend, type OutgoingMail, type MailResult } from '@minimalerp/adapter-postgres';
+import { createPostingHandler, PostgresBackend, type MailScript, type OutgoingMail, type MailResult } from '@minimalerp/adapter-postgres';
 import { mustOk } from '@minimalerp/testkit';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
@@ -18,7 +19,8 @@ const authenticate = async (req: Request) => {
   const m = /^Bearer (.+)$/.exec(req.headers.get('authorization') ?? '');
   return m?.[1] ? { userId: m[1] } : undefined;
 };
-const handlerWith = (sendMail?: (m: OutgoingMail) => Promise<MailResult>) =>
+const SCRIPT = { url: 'https://script.google.com/macros/s/AKfy-company-one_1/exec', secret: 'company-one-secret' };
+const handlerWith = (sendMail?: (m: OutgoingMail, script: MailScript) => Promise<MailResult>) =>
   createPostingHandler({ authenticate, gatewayFor: (actorId, requestId) => new PostgresBackend(db.pool, { actorId, requestId }), ...(sendMail ? { sendMail } : {}) });
 
 const ask = async (handler: ReturnType<typeof createPostingHandler>, userId: string, body: Record<string, unknown>) => {
@@ -42,6 +44,7 @@ beforeAll(async () => {
   await run('stockItem', w.uuid('item:bolt'), { name: 'Bolt', unitId: w.uuid('unit:Nos'), itemType: 'finished' });
   await run('party', w.uuid('party:acme'), { name: 'Acme Ltd', roles: ['customer'], email: 'sales@acme.in, accounts@acme.in' });
   await run('party', w.uuid('party:other'), { name: 'Other Co', roles: ['customer'], email: 'buyer@other.in' });
+  mustOk(await w.backend.setCompanyMail(w.companyId, SCRIPT.url, SCRIPT.secret));
   quoteId = randomUUID();
   mustOk(
     await w.backend.post({
@@ -64,7 +67,9 @@ afterAll(async () => {
 describe('emailing a voucher to its party', () => {
   it('goes to the party’s own addresses through the Gmail script, in the voucher’s style, with the PDF — and is audited', async () => {
     const sent: OutgoingMail[] = [];
-    const r = await ask(handlerWith(async (m) => (sent.push(m), { ok: true })), w.ownerId, { to: ['sales@acme.in', 'ACCOUNTS@acme.in'], attachments: [pdf, sheet] });
+    const via: MailScript[] = [];
+    const r = await ask(handlerWith(async (m, s) => (sent.push(m), via.push(s), { ok: true })), w.ownerId, { to: ['sales@acme.in', 'ACCOUNTS@acme.in'], attachments: [pdf, sheet] });
+    expect(via).toEqual([SCRIPT]); // this company's own Gmail
     expect(r.json).toEqual({ ok: true, value: { sentTo: ['sales@acme.in', 'ACCOUNTS@acme.in'] } });
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ to: ['sales@acme.in', 'ACCOUNTS@acme.in'], subject: 'Quotation', text: 'Dear Acme,\nPlease find it attached.', attachments: [pdf, sheet] });
@@ -99,6 +104,11 @@ describe('emailing a voucher to its party', () => {
 
   it('says so when emailing is not set up, and when Gmail refuses', async () => {
     expect((await ask(handlerWith(), w.ownerId, { to: ['sales@acme.in'] })).json.issues?.map((i) => i.code)).toEqual(['MAIL_NOT_SET_UP']);
+    mustOk(await w.backend.setCompanyMail(w.companyId, '', ''));
+    const none = await ask(handlerWith(async () => ({ ok: true })), w.ownerId, { to: ['sales@acme.in'] });
+    expect(none.json.issues?.map((i) => i.code)).toEqual(['MAIL_NOT_SET_UP']);
+    expect(none.json.issues?.[0]?.message).toContain('Company Gmail');
+    mustOk(await w.backend.setCompanyMail(w.companyId, SCRIPT.url, SCRIPT.secret));
     const failed = await ask(handlerWith(async () => ({ ok: false, message: 'Service invoked too many times for one day: email.' })), w.ownerId, { to: ['sales@acme.in'] });
     expect(failed.json.issues?.map((i) => i.code)).toEqual(['MAIL_FAILED']);
     expect(failed.json.issues?.[0]?.message).toContain('too many times');
@@ -118,5 +128,51 @@ describe('emailing a voucher to its party', () => {
   it('never answers with the script’s secret', async () => {
     const r = await ask(handlerWith(async () => ({ ok: true })), w.ownerId, { to: ['sales@acme.in'], secret: 'should-not-echo' });
     expect(r.text).not.toContain('should-not-echo');
+  });
+});
+
+describe('each company’s own Gmail script', () => {
+  const settings = (userId: string, body: Record<string, unknown>) =>
+    handlerWith()(
+      new Request('http://localhost/functions/v1/post-voucher', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${userId}` },
+        body: JSON.stringify({ companyId: w.companyId, ...body }),
+      }),
+    ).then(async (res) => ({ text: await res.clone().text(), json: (await res.json()) as { ok: boolean; value?: { script: { url: string } | null }; issues?: { code: string; message: string }[] } }));
+
+  it('shows the owner the address, never the secret', async () => {
+    const r = await settings(w.ownerId, { action: 'company-mail' });
+    expect(r.json.value?.script?.url).toBe(SCRIPT.url);
+    expect(r.text).not.toContain(SCRIPT.secret);
+  });
+
+  it('keeps the secret when only the address changes, and refuses an address that is not a Gmail script', async () => {
+    const moved = 'https://script.google.com/macros/s/AKfy-company-one_2/exec';
+    const r = await settings(w.ownerId, { action: 'company-mail-set', url: moved, secret: '' });
+    expect(r.json.value?.script?.url).toBe(moved);
+    expect(await w.backend.mailScriptOf(w.companyId)).toEqual({ url: moved, secret: SCRIPT.secret });
+    const bad = await settings(w.ownerId, { action: 'company-mail-set', url: 'https://evil.example/steal', secret: 'whatever-secret' });
+    expect(bad.json.issues?.map((i) => i.code)).toEqual(['SCHEMA_INVALID']);
+    mustOk(await w.backend.setCompanyMail(w.companyId, SCRIPT.url, SCRIPT.secret));
+  });
+
+  it('is the owner’s to set: the company’s own user, and anyone outside, are refused', async () => {
+    const helper = randomUUID();
+    await db.pool.query(`insert into auth.users (id, email) values ($1, $2)`, [helper, `${helper}@example.test`]);
+    await db.pool.query(`insert into public.company_members (company_id, user_id, role) values ($1, $2, 'member')`, [w.companyId, helper]);
+    for (const user of [helper, outsider]) {
+      expect((await settings(user, { action: 'company-mail' })).json.issues?.map((i) => i.code)).toEqual(['PERMISSION_DENIED']);
+      expect((await settings(user, { action: 'company-mail-set', url: SCRIPT.url, secret: 'mine-now-123' })).json.issues?.map((i) => i.code)).toEqual(['PERMISSION_DENIED']);
+    }
+    expect(await w.backend.mailScriptOf(w.companyId)).toEqual(SCRIPT);
+  });
+
+  it('is not readable through row-level security by the company’s own user, nor by anyone outside; the owner reads it', async () => {
+    const seen = (userId: string) => db.asRole('authenticated', userId, async (c) => (await c.query('select url from public.company_mail_scripts')).rows.length);
+    expect(await seen(outsider)).toBe(0);
+    const helper = (await db.pool.query(`select user_id from public.company_members where company_id = $1 and role = 'member'`, [w.companyId])).rows[0]?.['user_id'] as string;
+    expect(await seen(helper)).toBe(0);
+    expect(await seen(w.ownerId)).toBe(1);
   });
 });

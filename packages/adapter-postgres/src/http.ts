@@ -46,6 +46,8 @@ import { z } from 'zod';
  *         { action: 'digest', companyId?, asOn? }        the daily report: { asOn, subject, html, sheetRows, dueItemRows }
  *         { action: 'company-user', companyId }          the company's one extra person: { user: { email, since } | null } (owner only)
  *         { action: 'company-user-set', companyId, email }   link the account with that email to the company ('' removes it)
+ *         { action: 'company-mail', companyId }          the company's own Gmail script: { script: { url, updatedAt } | null } (owner only)
+ *         { action: 'company-mail-set', companyId, url, secret }   set it ('' url removes it; '' secret keeps the one set before)
  *   200   { ok: true,  value: { voucher, journal?, replayed? } }   money as decimal strings
  *   200   { ok: false, issues: [{ code, message, path? }] }        a business-rule refusal
  *   400 malformed request · 401 not signed in · 405 wrong method · 500 unexpected failure
@@ -117,6 +119,8 @@ const body = z.discriminatedUnion('action', [
   z.object({ action: z.literal('inbox-reject'), companyId, id: z.string().min(1), reason: z.string().max(200).optional() }),
   z.object({ action: z.literal('company-user'), companyId }),
   z.object({ action: z.literal('company-user-set'), companyId, email: z.string().max(200) }),
+  z.object({ action: z.literal('company-mail'), companyId }),
+  z.object({ action: z.literal('company-mail-set'), companyId, url: z.string().max(300), secret: z.string().max(200) }),
 ]);
 
 /**
@@ -131,8 +135,23 @@ export interface BooksServer extends PostingGateway, MasterGateway, MastersRepos
   /** The company's one extra person (ADR-0025): `company.admin` only, checked by the database. */
   companyMember(companyId: string): Promise<Result<{ readonly email: string; readonly since: string } | null>>;
   setCompanyMember(companyId: string, email: string): Promise<Result<{ readonly email: string; readonly since: string } | null>>;
+  /** The company's own Gmail script (ADR-0025): what the owner sees (never the secret), setting it, and what sending uses. */
+  companyMail(companyId: string): Promise<Result<CompanyMailScript | null>>;
+  setCompanyMail(companyId: string, url: string, secret: string): Promise<Result<CompanyMailScript | null>>;
+  mailScriptOf(companyId: string): Promise<MailScript | undefined>;
   /** The audit line for a voucher emailed to its party: to whom — never the message or the file. */
   recordMail(companyId: CompanyId, voucherId: string, to: readonly string[]): Promise<void>;
+}
+
+/** A company's own Gmail script as its owner sees it: the address, never the secret. */
+export interface CompanyMailScript {
+  readonly url: string;
+  readonly updatedAt: string;
+}
+/** Where a company's mail is handed over: its own Gmail script, and the secret that script checks. */
+export interface MailScript {
+  readonly url: string;
+  readonly secret: string;
 }
 
 /** A mail handed to the company's Gmail (the Apps Script web app); the host provides it where the script is configured. */
@@ -155,8 +174,8 @@ export interface PostingHandlerDeps {
   onError?(error: unknown, requestId: string): void;
   /** CORS: allowed origin for browser callers. Defaults to '*'. */
   allowOrigin?: string;
-  /** Sends a voucher's mail through the company's Gmail. Absent: emailing is not set up, and `send-mail` says so. */
-  sendMail?(mail: OutgoingMail): Promise<MailResult>;
+  /** Hands a voucher's mail to the company's own Gmail script. Absent: this host cannot send mail at all. */
+  sendMail?(mail: OutgoingMail, script: MailScript): Promise<MailResult>;
 }
 
 const outcomeToWire = (o: PostOutcome) => ({
@@ -316,7 +335,11 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
           const to = cmd.to.map((e) => e.trim());
           const problems = voucherMailProblems(voucher, masters, { to, subject: cmd.subject, attachments: cmd.attachments });
           if (problems.length > 0) return json(200, { ok: false, issues: problems });
-          if (!deps.sendMail) return json(200, fail(issue(IssueCode.MailNotSetUp, 'Emailing is not set up yet: deploy the Gmail script and set MAIL_SCRIPT_URL and MAIL_SCRIPT_SECRET')));
+          // The company's own Gmail, and only that: one company's mail never leaves from another's account.
+          const script = deps.sendMail ? await gateway.mailScriptOf(id) : undefined;
+          if (!deps.sendMail || !script) {
+            return json(200, fail(issue(IssueCode.MailNotSetUp, `${masters.company.name} has no Gmail set up yet: the owner sets it in Utilities › Company Gmail`)));
+          }
           const sent = await deps.sendMail({
             to,
             subject: cmd.subject.trim(),
@@ -324,7 +347,7 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
             html: voucherMailHtml(voucher, masters, cmd.body),
             fromName: masters.company.name,
             ...(cmd.attachments?.length ? { attachments: cmd.attachments } : {}),
-          });
+          }, script);
           if (!sent.ok) return json(200, fail(issue(IssueCode.MailFailed, `Gmail did not send it: ${sent.message}`)));
           await gateway.recordMail(id, voucher.id, to);
           return json(200, { ok: true, value: { sentTo: to } });
@@ -341,8 +364,17 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
           return asResponse(await gateway.companyMember(cmd.companyId), (user) => ({ user }));
         case 'company-user-set':
           return asResponse(await gateway.setCompanyMember(cmd.companyId, cmd.email), (user) => ({ user }));
+        case 'company-mail':
+          return asResponse(await gateway.companyMail(cmd.companyId), (script) => ({ script }));
+        case 'company-mail-set':
+          return asResponse(await gateway.setCompanyMail(cmd.companyId, cmd.url, cmd.secret), (script) => ({ script }));
         case 'digest': {
-          const company = cmd.companyId ?? (await gateway.companiesOf())[0]?.id;
+          // As for the add-on's documents: with several companies and none named, the report would be a guess (ADR-0025).
+          const mine = cmd.companyId ? [] : await gateway.companiesOf();
+          if (!cmd.companyId && mine.length > 1) {
+            return json(200, fail(issue(IssueCode.UnsupportedOperation, 'This sign-in has several companies: set COMPANY_ID in the add-on to the one to report on')));
+          }
+          const company = cmd.companyId ?? mine[0]?.id;
           const denied = company ? await refuse(gateway, company, 'report.view') : { ok: false as const, issues: [issue(IssueCode.PermissionDenied, 'Not permitted: report.view')] };
           if (denied || !company) return json(200, denied);
           const id = company as CompanyId;

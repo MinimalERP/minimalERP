@@ -617,6 +617,38 @@ export class PostgresBackend
     return this.memberCall('select public.company_member_set($1::uuid, $2::uuid, $3, $4) as r', [this.options.actorId, companyId, this.options.requestId ?? null, email]);
   }
 
+  /** The company's own Gmail script as its owner sees it (the address, never the secret), or null. `company.admin` only. */
+  async companyMail(companyId: string): Promise<Result<{ readonly url: string; readonly updatedAt: string } | null>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    return this.mailCall('select public.company_mail_get($1::uuid, $2::uuid) as r', [this.options.actorId, companyId]);
+  }
+
+  /** Sets the company's Gmail script: a blank address removes it, a blank secret keeps the one set before. `company.admin` only. */
+  async setCompanyMail(companyId: string, url: string, secret: string): Promise<Result<{ readonly url: string; readonly updatedAt: string } | null>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    return this.mailCall('select public.company_mail_set($1::uuid, $2::uuid, $3, $4, $5) as r', [this.options.actorId, companyId, this.options.requestId ?? null, url, secret]);
+  }
+
+  /** Where this company's mail is sent from (server only: it carries the secret). Undefined when the company has none. */
+  async mailScriptOf(companyId: string): Promise<{ readonly url: string; readonly secret: string } | undefined> {
+    if (!isUuid(companyId)) return undefined;
+    const r = await this.db.query('select public.company_mail_script($1::uuid) as r', [companyId]);
+    const v = r.rows[0]?.['r'] as { url?: unknown; secret?: unknown } | null | undefined;
+    return v && typeof v.url === 'string' && typeof v.secret === 'string' ? { url: v.url, secret: v.secret } : undefined;
+  }
+
+  private async mailCall(sql: string, values: readonly unknown[]): Promise<Result<{ readonly url: string; readonly updatedAt: string } | null>> {
+    try {
+      const r = await this.db.query(sql, values);
+      const v = r.rows[0]?.['r'] as { url?: unknown; updatedAt?: unknown } | null | undefined;
+      return ok(v && typeof v === 'object' ? { url: text(v.url), updatedAt: text(v.updatedAt) } : null);
+    } catch (e) {
+      const known = issueFromDbError(e);
+      if (known) return fail(known);
+      throw e;
+    }
+  }
+
   private async memberCall(sql: string, values: readonly unknown[]): Promise<Result<{ readonly email: string; readonly since: string } | null>> {
     try {
       const r = await this.db.query(sql, values);

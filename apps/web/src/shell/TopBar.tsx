@@ -26,6 +26,8 @@ export function useScreenTitle() {
         return 'Switch Company';
       case 'company-user':
         return 'Company User';
+      case 'company-gmail':
+        return 'Company Gmail';
       case 'invoice-settings':
         return 'Invoice / PDF Settings';
       case 'inbox':

@@ -42,6 +42,10 @@ supabase secrets set GEMINI_API_KEY=<key> GEMINI_MODEL=<model> --project-ref <re
 ### 3. The add-on's own sign-in
 The add-on signs in as its own ERP user, which can send documents and read reports and **cannot post anything**.
 
+**Several companies** (ADR-0025): keep each business's mail in its own place. Give each business its own add-on sign-in
+(`erp-bot-<company>@…`), a member of that company only, and its own Apps Script copy in that business's Google account with its
+`COMPANY_ID`. A sign-in in several companies must name one (`COMPANY_ID`), or the ERP refuses to send documents or reports.
+
 1. Supabase › Authentication › Users › *Add user*: e.g. `erp-bot@yourdomain`, with a long password (not an invitation).
 2. SQL editor, once (with your company's id from `select id, name from companies`):
    ```sql
@@ -62,7 +66,7 @@ The add-on signs in as its own ERP user, which can send documents and read repor
    | `ERP_EMAIL` / `ERP_PASSWORD` | the add-on's sign-in from step 3 |
    | `REPORT_TO` | your address — the daily report goes only here |
    | `REPORT_SHEET_ID` | optional: the id of a Google Sheet (from its URL) for the figures |
-   | `COMPANY_ID` | optional: only if that sign-in belongs to more than one company |
+   | `COMPANY_ID` | the company this add-on sends to. Required when that sign-in belongs to more than one company: without it, the ERP refuses rather than guess |
 
 4. **Deploy › Test deployments › Gmail › Install**. Open any mail: the MinimalERP icon appears in Gmail's right-hand panel. Google asks
    you to allow the permissions once.
@@ -73,12 +77,16 @@ The add-on signs in as its own ERP user, which can send documents and read repor
 Alt+E on a saved Sales Invoice, Sales Order, Quotation, Purchase or Purchase Order emails it to that party from your Gmail
 (`SendVoucher.gs`). You may attach your own PDF — for example one you printed from the ERP and signed with your DSC in Adobe.
 
-1. Script properties: add `MAIL_SECRET` — a long random string (e.g. from a password generator).
+**Each company emails from its own Gmail** (ADR-0025): do this once per business, signed in to THAT business's Google account.
+A company without its own script cannot email — it never borrows another company's Gmail.
+
+1. In that Google account, make a script project with `SendVoucher.gs` (a copy of this project, or a new one with just this file).
+   Script properties: add `MAIL_SECRET` — a long random string (e.g. from a password generator), different for each company.
 2. **Deploy › New deployment**, type **Web app**, *Execute as: Me*, *Who has access: Anyone*. Copy the `/exec` address.
    (Anyone can reach the address, but a request without the secret is refused; only the ERP's server knows it.)
-3. Give the ERP the address and the secret (from outside the repository, see `supabase/README.md`):
-   `supabase secrets set MAIL_SCRIPT_URL=<the /exec address> MAIL_SCRIPT_SECRET=<the same secret> --project-ref <ref>`
-4. The mail goes from your Gmail and shows in your Sent folder. Gmail allows about 100 recipients a day on a personal account,
+3. In the ERP, open that company, then *Utilities › Company Gmail* (owner only): paste the address and the secret, **Ctrl+A**.
+   The secret is kept on the server and never shown again; to change the address alone, leave the secret blank.
+4. The mail goes from that Gmail and shows in its Sent folder. Gmail allows about 100 recipients a day on a personal account,
    1,500 on Google Workspace.
 
 ## What it may do (the permissions it asks for)

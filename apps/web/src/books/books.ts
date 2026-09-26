@@ -400,6 +400,12 @@ export interface CompanyUser {
   readonly since: string;
 }
 
+/** A company's own Gmail script (ADR-0025) as its owner sees it: the address, never the secret. */
+export interface CompanyMail {
+  readonly url: string;
+  readonly updatedAt: string;
+}
+
 /** Builds and restores companies. The composition root supplies it (it knows which backend and which storage). */
 export interface BooksFactory {
   /** The company saved from a previous visit, if any. */
@@ -414,6 +420,9 @@ export interface BooksFactory {
   /** A company's one extra person, and linking one (online books, owner only; the server decides). */
   companyUser?(companyId: CompanyId): Promise<Result<CompanyUser | null>>;
   setCompanyUser?(companyId: CompanyId, email: string): Promise<Result<CompanyUser | null>>;
+  /** A company's own Gmail script, and setting it (online books, owner only; the server decides). */
+  companyMail?(companyId: CompanyId): Promise<Result<CompanyMail | null>>;
+  setCompanyMail?(companyId: CompanyId, url: string, secret: string): Promise<Result<CompanyMail | null>>;
   /** Forget the saved company (start over). Absent when the company is not the browser's to delete (the online books). */
   discard?(): Promise<void>;
   /** Whether the sample company may be loaded. False for the online books: it would fill someone's real books with make-believe. */
@@ -479,6 +488,18 @@ export class BooksHost {
     const id = this.books?.masters.company.id;
     if (!id || !this.factory?.setCompanyUser) return fail(issue(IssueCode.UnsupportedOperation, 'A company user can be set for online books only'));
     return this.factory.setCompanyUser(id, email);
+  }
+
+  async companyMail(): Promise<Result<CompanyMail | null>> {
+    const id = this.books?.masters.company.id;
+    if (!id || !this.factory?.companyMail) return fail(issue(IssueCode.UnsupportedOperation, 'A company Gmail can be set for online books only'));
+    return this.factory.companyMail(id);
+  }
+
+  async setCompanyMail(url: string, secret: string): Promise<Result<CompanyMail | null>> {
+    const id = this.books?.masters.company.id;
+    if (!id || !this.factory?.setCompanyMail) return fail(issue(IssueCode.UnsupportedOperation, 'A company Gmail can be set for online books only'));
+    return this.factory.setCompanyMail(id, url, secret);
   }
 
   /** Opens another company in place of the open one. */

@@ -116,6 +116,15 @@ const commands: Command<AppContext>[] = [
     run: (app) => app.navigate({ type: 'company-user' }),
   },
   {
+    id: 'company.gmail',
+    title: 'Company Gmail',
+    category: 'Settings',
+    keywords: ['email', 'mail', 'gmail', 'send', 'script', 'google'],
+    description: 'The Gmail this company emails vouchers from: its own script’s address and secret',
+    when: (app) => NEEDS_COMPANY(app) && app.books.canManageUser,
+    run: (app) => app.navigate({ type: 'company-gmail' }),
+  },
+  {
     id: 'company.reset',
     title: 'Close Company',
     category: 'Company',
@@ -219,6 +228,7 @@ const menu: MenuEntry[] = [
   ...LISTS.filter((k) => k !== 'voucherType' && k !== 'numberingSeries').map((k, i) => entry('masters', `master.list.${k}`, i + 1)),
   entry('utilities', 'settings.company', 5),
   entry('utilities', 'company.user', 5.5),
+  entry('utilities', 'company.gmail', 5.6),
   entry('utilities', 'settings.invoicePdf', 6),
   entry('utilities', 'settings.voucherTypes', 7),
   entry('utilities', 'settings.numbering', 8),

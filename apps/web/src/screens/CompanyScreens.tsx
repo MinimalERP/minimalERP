@@ -1,7 +1,7 @@
 import type { Frame } from '@minimalerp/command';
 import type { Issue } from '@minimalerp/domain';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import type { CompanyChoice, CompanyUser, NewCompany } from '../books/books';
+import type { CompanyChoice, CompanyMail, CompanyUser, NewCompany } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
 import { useLeaveGuard } from '../shell/useLeaveGuard';
@@ -371,6 +371,118 @@ export function CompanyUserScreen() {
       </form>
       <div class="toolbar">
         <button type="button" class="button" disabled={busy || user === undefined} onClick={() => void accept()}>
+          Save {chord && <Kbd chord={chord} />}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+const GMAIL_SCOPE = 'screen:company-gmail';
+
+/**
+ * The Gmail this company emails vouchers from (ADR-0025): its own copy of the Gmail script, deployed in that business's Google account.
+ * A company without one cannot email — it never borrows another company's Gmail. The secret is written, never shown: the server keeps it.
+ */
+export function CompanyGmailScreen() {
+  const { books: host, keymapStore } = useServices();
+  useSubscriptions(host, keymapStore);
+  const [script, setScript] = useState<CompanyMail | null | undefined>(undefined);
+  const [values, setValues] = useState({ url: '', secret: '' });
+  const [at, setAt] = useState(0);
+  const [problem, setProblem] = useState<string | undefined>(undefined);
+  const [saved, setSaved] = useState<string | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const company = host.current?.masters.company.name;
+
+  useEffect(() => {
+    void host.companyMail().then((r) => {
+      if (r.ok) {
+        setScript(r.value);
+        setValues({ url: r.value?.url ?? '', secret: '' });
+      } else setProblem(r.issues.map((i) => i.message).join(' '));
+    });
+  }, [host, company]);
+  useLayoutEffect(() => {
+    formRef.current?.querySelector<HTMLInputElement>(`[data-field="${at === 0 ? 'url' : 'secret'}"]`)?.focus();
+  }, [at, script]);
+
+  const accept = async () => {
+    if (busy) return;
+    setBusy(true);
+    setProblem(undefined);
+    setSaved(undefined);
+    try {
+      const r = await host.setCompanyMail(values.url.trim(), values.secret.trim());
+      if (!r.ok) return setProblem(r.issues.map((i) => i.message).join(' '));
+      setScript(r.value);
+      setValues({ url: r.value?.url ?? '', secret: '' });
+      setSaved(r.value ? `${company ?? 'This company'} now emails from this Gmail.` : `Removed: ${company ?? 'this company'} cannot email until a Gmail is set.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  useCommandHandler(GMAIL_SCOPE, 'voucher.accept', () => (void accept(), true));
+  useCommandHandler(GMAIL_SCOPE, 'field.next', () => (setAt(1), true));
+  useCommandHandler(GMAIL_SCOPE, 'field.prev', () => (setAt(0), true));
+  useCommandHandler(GMAIL_SCOPE, 'nav.down', () => (setAt(1), true));
+  useCommandHandler(GMAIL_SCOPE, 'nav.up', () => (setAt(0), true));
+  useCommandHandler(GMAIL_SCOPE, 'nav.activate', () => (at === 0 ? setAt(1) : void accept(), true));
+
+  const chord = keymapStore.keymap.chordsFor('voucher.accept')[0];
+  const fields = [
+    { key: 'url' as const, label: 'Script address', type: 'url', hint: 'The web app address of the Gmail script in this business’s Google account: https://script.google.com/macros/s/…/exec' },
+    {
+      key: 'secret' as const,
+      label: 'Secret',
+      type: 'password',
+      hint: script ? 'Set, and never shown. Leave blank to keep it; type a new one to change it.' : 'The MAIL_SECRET in that script’s properties.',
+    },
+  ];
+  return (
+    <section class="screen form-screen" aria-labelledby="gmail-title" data-testid="company-gmail">
+      <h1 id="gmail-title">Company Gmail</h1>
+      <p class="lede">
+        {company ?? 'This company'} emails vouchers from its own Gmail and no other. Deploy the Gmail script in this business’s Google account
+        (see the add-on’s README), then enter its address and secret. A blank address stops this company emailing.
+      </p>
+      {problem && (
+        <p class="notice error" role="alert">
+          {problem}
+        </p>
+      )}
+      {saved && (
+        <p class="notice" role="status">
+          {saved}
+        </p>
+      )}
+      <form ref={formRef} class="form" onSubmit={(e) => e.preventDefault()} autocomplete="off">
+        {fields.map((f, i) => (
+          <div key={f.key} class={i === at ? 'field-row active' : 'field-row'}>
+            <label class="field-label" for={`gmail-${f.key}`}>
+              {f.label}
+            </label>
+            <div class="field-control">
+              <input
+                id={`gmail-${f.key}`}
+                data-field={f.key}
+                class="field-input"
+                type={f.type}
+                value={values[f.key]}
+                disabled={script === undefined || busy}
+                autocomplete={f.type === 'password' ? 'new-password' : 'off'}
+                spellcheck={false}
+                onFocus={() => i !== at && setAt(i)}
+                onInput={(e) => setValues({ ...values, [f.key]: (e.target as HTMLInputElement).value })}
+              />
+              {i === at && <span class="field-hint">{script === undefined ? 'Loading…' : f.hint}</span>}
+            </div>
+          </div>
+        ))}
+      </form>
+      <div class="toolbar">
+        <button type="button" class="button" disabled={busy || script === undefined} onClick={() => void accept()}>
           Save {chord && <Kbd chord={chord} />}
         </button>
       </div>

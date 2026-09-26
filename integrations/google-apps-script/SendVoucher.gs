@@ -5,8 +5,9 @@
  * as the formatted HTML the ERP built, and the files you attached (the voucher's PDF, perhaps signed with your DSC, and supporting documents). It is sent with MailApp, so
  * it goes from your own account and shows in your Gmail's Sent folder. Nothing is kept here.
  *
- * Deploy once: Deploy › New deployment › type "Web app" › Execute as: Me › Who has access: Anyone. The /exec address it gives is the
- * ERP's MAIL_SCRIPT_URL. Script property MAIL_SECRET must equal the ERP's MAIL_SCRIPT_SECRET: a request without it is refused.
+ * Deploy once per company, in that company's own Google account: Deploy › New deployment › type "Web app" › Execute as: Me › Who has
+ * access: Anyone. Enter the /exec address it gives, and this script's MAIL_SECRET property, in the ERP under that company's
+ * Utilities › Company Gmail. A request without the secret is refused.
  */
 function doPost(e) {
   var answer;

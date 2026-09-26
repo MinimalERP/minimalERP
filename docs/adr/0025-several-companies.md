@@ -35,3 +35,15 @@ in `company-create` and the browser always opening the first company. This repla
 4. **Isolation is the existing rule, not a new one**: every read and change asks `actor_can` for the company named, and row-level security
    does the same; a member simply has no row for any other company. `company-member.test.ts` proves it action by action.
 5. **What the member sees in the browser**: their one company, without the switcher, Create Company or Company User.
+
+## Step 3a: each company emails from its own Gmail
+1. **The Gmail script is the company's, not the project's.** `company_mail_scripts` (one row per company: the script's `/exec` address and
+   its secret) replaces the project-wide `MAIL_SCRIPT_URL` / `MAIL_SCRIPT_SECRET`. `send-mail` uses the voucher's company's script and
+   nothing else; a company without one is told to set it up. There is no fallback, so one business's mail can never leave from another's
+   Gmail. (The old project secrets are no longer read and can be unset.)
+2. **Set by the owner** in *Utilities › Company Gmail* (`company.admin`): the address must be a `https://script.google.com/macros/s/…/exec`
+   web app (so the server only ever calls Google); the secret is written, never shown or answered back — a blank secret keeps the one set
+   before. Row-level security shows the row to `company.admin` only, not to the company's extra person. Changes are audited, without the secret.
+3. **The Gmail add-on and the daily report never guess the company.** A sign-in with several companies must name one (`COMPANY_ID`),
+   or `intake` and `digest` refuse. The README recommends one add-on sign-in and one script copy per business.
+4. Gemini stays one key for the project: it keeps nothing, and each document is read for the company it was sent to.

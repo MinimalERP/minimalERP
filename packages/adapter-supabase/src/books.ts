@@ -58,6 +58,12 @@ export interface CompanyUser {
   readonly since: string;
 }
 
+/** A company's own Gmail script as the owner sees it: the address, and when it was set. */
+export interface CompanyMail {
+  readonly url: string;
+  readonly updatedAt: string;
+}
+
 /** A company this account belongs to, and the account's role in it ('owner' for the companies it made). */
 export interface CompanySummary {
   readonly id: CompanyId;
@@ -212,6 +218,18 @@ export class SupabaseBooksBackend
   async setCompanyUser(companyId: CompanyId, email: string): Promise<Result<CompanyUser | null>> {
     const r = await this.call({ action: 'company-user-set', companyId, email });
     return r.ok ? ok((r.value as { user: CompanyUser | null }).user) : r;
+  }
+
+  /** The company's own Gmail script (ADR-0025): its address, never its secret. Only the owner may ask. */
+  async companyMail(companyId: CompanyId): Promise<Result<CompanyMail | null>> {
+    const r = await this.call({ action: 'company-mail', companyId });
+    return r.ok ? ok((r.value as { script: CompanyMail | null }).script) : r;
+  }
+
+  /** Sets it: a blank address removes it, a blank secret keeps the one set before. */
+  async setCompanyMail(companyId: CompanyId, url: string, secret: string): Promise<Result<CompanyMail | null>> {
+    const r = await this.call({ action: 'company-mail-set', companyId, url, secret });
+    return r.ok ? ok((r.value as { script: CompanyMail | null }).script) : r;
   }
 
   /** Emails a voucher to its party through the company's Gmail (the server checks the addresses are that party's). */

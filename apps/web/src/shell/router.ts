@@ -17,6 +17,8 @@ export type ScreenRef =
   | { readonly type: 'company-switch' }
   /** The open company's one extra person (online books, owner only). */
   | { readonly type: 'company-user' }
+  /** The open company's own Gmail script (online books, owner only). */
+  | { readonly type: 'company-gmail' }
   | { readonly type: 'invoice-settings' }
   | { readonly type: 'import-export' }
   /** A master record's form. `seed` pre-fills a new one (Alt+C from a field) and `inline` makes it hand its result back; neither is part of the address. */
@@ -71,6 +73,8 @@ export function refToHash(ref: ScreenRef): string {
       return '#/company/switch';
     case 'company-user':
       return '#/company/user';
+    case 'company-gmail':
+      return '#/company/gmail';
     case 'invoice-settings':
       return '#/company/invoice-settings';
     case 'inbox':
@@ -110,6 +114,7 @@ export function hashToRef(hash: string): ScreenRef | undefined {
   if (path === '/company/reset') return { type: 'company-reset' };
   if (path === '/company/switch') return { type: 'company-switch' };
   if (path === '/company/user') return { type: 'company-user' };
+  if (path === '/company/gmail') return { type: 'company-gmail' };
   if (path === '/company/invoice-settings') return { type: 'invoice-settings' };
   if (path === '/inbox') return { type: 'inbox' };
   if (path === '/import-export') return { type: 'import-export' };

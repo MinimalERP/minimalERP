@@ -11,7 +11,7 @@
 export { SupabasePostingGateway, REQUEST_FAILED } from './gateway';
 export { SupabaseAuth, AUTH_FAILED } from './auth';
 export { SupabaseBooksBackend } from './books';
-export type { CompanySummary, CompanyUser } from './books';
+export type { CompanyMail, CompanySummary, CompanyUser } from './books';
 export type { SupabaseAuthOptions } from './auth';
 export { SupabaseJournalRepository, PAGE_SIZE } from './journal';
 export type { SupabaseAuthLike, SupabaseAuthSession, SupabaseLike, FilterBuilder, InvokeResult, QueryResult, SupabaseError } from './client';

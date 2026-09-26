@@ -20,6 +20,7 @@ describe('migrations', () => {
       'audit_log',
       'bill_allocations',
       'companies',
+      'company_mail_scripts',
       'company_members',
       'dash_events',
       'dash_jobs',

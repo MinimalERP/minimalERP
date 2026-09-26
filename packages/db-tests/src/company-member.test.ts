@@ -123,6 +123,15 @@ describe('the company’s one extra person', () => {
   });
 });
 
+describe('a sign-in with several companies', () => {
+  it('must name the company for the daily report: the ERP never guesses which business', async () => {
+    const guess = await call({ action: 'digest', asOn: '2024-05-31' });
+    expect(codes(guess)).toEqual([IssueCode.UnsupportedOperation]);
+    expect(!guess.ok && guess.issues[0]?.message).toMatch(/COMPANY_ID/);
+    expect((await call({ action: 'digest', companyId: second, asOn: '2024-05-31' })).ok).toBe(true);
+  });
+});
+
 describe('the member role', () => {
   it('holds every permission the owner holds except company.admin (later migrations must give both)', async () => {
     const r = await db.pool.query(

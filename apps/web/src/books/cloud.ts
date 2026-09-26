@@ -1,5 +1,5 @@
 import { type CompanyId, type Result, IssueCode, fail, issue, ok } from '@minimalerp/domain';
-import { Books, type BooksBackend, type BooksFactory, type CompanyChoice, type CompanyUser, type NewCompany, newCompanyIssues } from './books';
+import { Books, type BooksBackend, type BooksFactory, type CompanyChoice, type CompanyMail, type CompanyUser, type NewCompany, newCompanyIssues } from './books';
 import type { SaveTracker } from './saving';
 import type { KeyValueStore } from './store';
 
@@ -10,6 +10,8 @@ export interface CloudBackend extends BooksBackend {
   createCompany(input: NewCompany): Promise<Result<{ readonly companyId: CompanyId }>>;
   companyUser(companyId: CompanyId): Promise<Result<CompanyUser | null>>;
   setCompanyUser(companyId: CompanyId, email: string): Promise<Result<CompanyUser | null>>;
+  companyMail(companyId: CompanyId): Promise<Result<CompanyMail | null>>;
+  setCompanyMail(companyId: CompanyId, url: string, secret: string): Promise<Result<CompanyMail | null>>;
 }
 
 export interface CloudFactoryOptions {
@@ -60,6 +62,8 @@ export function createCloudFactory({ backend, drafts, saving, lastOpened }: Clou
     roleOf: (companyId) => roles.get(companyId),
     companyUser: (companyId) => backend.companyUser(companyId),
     setCompanyUser: (companyId, email) => backend.setCompanyUser(companyId, email),
+    companyMail: (companyId) => backend.companyMail(companyId),
+    setCompanyMail: (companyId, url, secret) => backend.setCompanyMail(companyId, url, secret),
 
     async create(input: NewCompany) {
       const problems = newCompanyIssues(input);

@@ -111,7 +111,13 @@ export function createIntakeHandler(deps: IntakeHandlerDeps): (request: Request)
       const cmd = parsed.data;
 
       const gateway = deps.gatewayFor(user.userId, requestId);
-      const companyId = cmd.companyId ?? (await gateway.companiesOf())[0]?.id;
+      // Without a company named, only a sign-in with exactly one company may send: with several, guessing could put one business's
+      // documents in another's inbox (ADR-0025). The add-on then needs its COMPANY_ID.
+      const mine = cmd.companyId ? [] : await gateway.companiesOf();
+      if (!cmd.companyId && mine.length > 1) {
+        return json(200, { ok: false, issues: [issue(IssueCode.UnsupportedOperation, 'This sign-in has several companies: set COMPANY_ID in the add-on to the one it sends to')] });
+      }
+      const companyId = cmd.companyId ?? mine[0]?.id;
       // the same answer for "no such company" and "not yours": a stranger learns nothing
       if (!companyId || !(await gateway.can(companyId, 'inbox.submit'))) {
         return json(200, { ok: false, issues: [issue(IssueCode.PermissionDenied, 'Not permitted: inbox.submit')] });
