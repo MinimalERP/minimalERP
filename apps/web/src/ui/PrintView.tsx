@@ -468,24 +468,16 @@ function ReportBody({ doc, company }: { doc: ReportDoc; company: PrintCompany })
   const hasBank = company.bankName || company.bankAccountNo || company.bankIfsc;
   return (
     <>
-      {st ? (
+      {/* a report's heading, centred: the company, then the document and its period (a voucher keeps the invoice's own heading) */}
+      <div class="rpt-head" data-testid="print-report-head">
+        <div class="rpt-company">{company.name}</div>
+        {(company.address || company.gstin) && <div class="rpt-company-line">{[company.address, company.gstin ? `GSTIN: ${company.gstin}` : ''].filter(Boolean).join(' · ')}</div>}
+        <div class="name">{st ? st.docTitle : doc.title}</div>
+        <div>{st ? st.details.map(([k, v]) => `${k} ${v}`).join(' · ') : doc.period}</div>
+        {!st && doc.filters.map((f, i) => <div key={i}>{f}</div>)}
+      </div>
+      {st && (
         <>
-          <div class="inv-head">
-            <CompanyBlock company={company} />
-            <div class="inv-doc">
-              <div class="title">{st.docTitle}</div>
-              <table>
-                <tbody>
-                  {st.details.map(([k, v]) => (
-                    <tr key={k}>
-                      <td>{k}</td>
-                      <td>{v}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
           <div class="inv-parties">
             <div>
               <div class="label">{st.party.label}</div>
@@ -514,14 +506,6 @@ function ReportBody({ doc, company }: { doc: ReportDoc; company: PrintCompany })
             </div>
           ))}
         </>
-      ) : (
-        <div class="rpt-head">
-          <div class="name">{doc.title}</div>
-          <div>{doc.period}</div>
-          {doc.filters.map((f, i) => (
-            <div key={i}>{f}</div>
-          ))}
-        </div>
       )}
       <ReportTable columns={doc.columns} rows={doc.rows} compact={!!st} />
       {!st && <p class="inv-narration">{doc.rowCount}</p>}

@@ -262,6 +262,7 @@ test.describe('Print', () => {
     const printedRows = printCopies(app).locator('table.items tbody tr');
     await expect(printedRows).toHaveCount(shown);
     await expect(printCopies(app)).toContainText('Day Book');
+    await expect(printCopies(app).getByTestId('print-report-head').locator('.rpt-company')).toHaveText('Demo Manufacturing Pvt Ltd'); // under its company's name
     await expect.poll(() => printedCount(app)).toBe(1);
   });
 
@@ -275,8 +276,11 @@ test.describe('Print', () => {
     await app.keyboard.press('Control+p');
     const page = printCopies(app).first();
     await expect(page).toHaveClass(/bordered/); // framed like a voucher, not a plain report page
-    await expect(page.locator('.inv-company')).toContainText('Demo Manufacturing Pvt Ltd');
-    await expect(page.locator('.inv-doc')).toContainText('Statement of Account');
+    const head = page.getByTestId('print-report-head'); // a report's heading is centred: the company, then the document
+    await expect(head).toHaveCSS('text-align', 'center');
+    await expect(head.locator('.rpt-company')).toHaveText('Demo Manufacturing Pvt Ltd');
+    await expect(head).toContainText('GSTIN: 27AABCD1234E1Z8');
+    await expect(head.locator('.name')).toHaveText('Statement of Account');
     await expect(page.locator('.inv-parties')).toContainText('ABC Industries');
     await expect(page).toContainText('accounts@abcindustries.in');
     const rows = page.locator('table.items').first().locator('tbody tr');

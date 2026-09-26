@@ -54,8 +54,12 @@
 .print-root .inv-parties .pname { font-weight: bold; }
 .print-root .inv-parties div div { margin-top: 1px; }
 
-.print-root .rpt-head { border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 10px; font-size: 12px; }
-.print-root .rpt-head .name { font-size: 17px; font-weight: bold; margin-bottom: 4px; }
+.print-root .rpt-head { border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 10px; font-size: 12px; text-align: center; }
+.print-root .rpt-head .rpt-company { font-size: 20px; font-weight: bold; letter-spacing: 0.01em; color: #000; }
+.print-root .rpt-head .rpt-company-line { margin-top: 1px; }
+.print-root .rpt-head .name { font-size: 15px; font-weight: bold; letter-spacing: 0.05em; margin: 8px 0 2px; }
+/* a statement in its frame: the heading's rule is the party box's own top line */
+.print-root .print-copy.bordered .rpt-head { border-bottom: 0; margin-bottom: 8px; }
 .print-root .stmt-summary { border-collapse: collapse; width: 100%; }
 .print-root .stmt-summary td { padding: 1px 0; }
 .print-root .stmt-summary td.num { text-align: right; font-variant-numeric: tabular-nums; }

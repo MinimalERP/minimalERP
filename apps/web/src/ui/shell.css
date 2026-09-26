@@ -593,6 +593,7 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 .mail-to { display: block; padding: var(--sp-1) 0; font-family: var(--font-figures); }
 .mail-body { font-family: var(--font-figures); min-height: 9em; resize: vertical; }
 .mail-file { display: flex; align-items: center; gap: var(--sp-2); padding: 2px 0; font-family: var(--font-figures); }
+.link-button { font: inherit; font-size: var(--fs-sm); padding: 0; border: 0; background: none; color: var(--c-accent); text-decoration: underline; cursor: pointer; }
 
 /* Print Layouts (ADR-0025): the HTML is code, the preview is a sheet of paper */
 .print-layouts .layout-html { font-family: var(--font-figures); font-size: var(--fs-sm); width: 100%; min-height: 18em; white-space: pre; }

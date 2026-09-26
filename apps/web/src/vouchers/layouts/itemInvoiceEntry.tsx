@@ -689,7 +689,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   // F6 on a Sales invoice (F5 on a Purchase bill) still to be paid: the Receipt (Payment) that settles it, filled in
   const settles = kind === 'sales' ? 'receipt' : kind === 'purchase' ? 'payment' : undefined;
   // a Sales invoice still unpaid: “Payment reminder” on the panel emails the customer a reminder with the invoice and its payment status
-  const reminder = useMemo(() => (mode === 'display' && voucher ? billReminder(voucher, books) : undefined), [mode, voucher, books.vouchers]);
+  const reminder = useMemo(() => (mode === 'display' && voucher ? billReminder(voucher, books, print) : undefined), [mode, voucher, books.vouchers]);
   useOtherVoucherHandlers(SCOPE, ENTRY_KINDS, () => mode === 'create' && isBlankSales(fresh()), (target) =>
     mode === 'display' && voucher && target === settles && pendingBillOf(voucher, books.vouchers, masters) ? voucher.id : undefined,
   );

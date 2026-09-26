@@ -22,6 +22,21 @@ function readBase64(file: File): Promise<string> {
   });
 }
 
+/** A file on this mail, in a new tab: a PDF opens in the browser's viewer (print, download); anything else downloads. */
+function openFile(a: { readonly name: string; readonly base64: string }): void {
+  const bytes = Uint8Array.from(atob(a.base64), (c) => c.charCodeAt(0));
+  const pdf = /\.pdf$/i.test(a.name);
+  const url = URL.createObjectURL(new Blob([bytes], { type: pdf ? 'application/pdf' : 'application/octet-stream' }));
+  if (pdf) window.open(url, '_blank', 'noopener');
+  else {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = a.name;
+    link.click();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 const sizeText = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 
 /**
@@ -63,13 +78,15 @@ export interface MailWindowProps {
   readonly fileHint: string;
   /** A file made for this mail (a payment reminder's PDF): attached as soon as it is ready, removable like any other. */
   readonly makeFile?: (() => Promise<{ readonly name: string; readonly base64: string }>) | undefined;
+  /** Prints that same document through the browser's print dialog (to check it, print it, or Save as PDF and sign it). */
+  readonly printFile?: (() => void) | undefined;
   readonly problems: (req: MailRequest) => Issue[];
   readonly send: (req: MailRequest) => Promise<Result<{ readonly sentTo: readonly string[] }>>;
   readonly onDone: (sentTo: readonly string[] | undefined) => void;
 }
 
 /** The mail window every mail from the books goes through: a voucher's (Email) and a payment reminder's. */
-export function MailWindow({ title, addresses, subject: startSubject, body: startBody, bodyHint, fileHint, makeFile, problems: problemsOf, send: sendIt, onDone }: MailWindowProps) {
+export function MailWindow({ title, addresses, subject: startSubject, body: startBody, bodyHint, fileHint, makeFile, printFile, problems: problemsOf, send: sendIt, onDone }: MailWindowProps) {
   useScope(SCOPE, 'overlay', true);
   const [picked, setPicked] = useState<readonly string[]>(addresses);
   const [subject, setSubject] = useState(startSubject);
@@ -237,7 +254,10 @@ export function MailWindow({ title, addresses, subject: startSubject, body: star
                 <div key={a.name} class="mail-file" data-testid="mail-attached">
                   <span>
                     {a.name} · {sizeText(a.size)}
-                  </span>
+                  </span>{' '}
+                  <button type="button" class="link-button" data-testid="mail-open" title="Open it in a new tab: look at it, print it or download it" onClick={() => openFile(a)}>
+                    Open
+                  </button>
                   <button type="button" class="line-x" aria-label={`Remove ${a.name}`} title="Remove this file" onClick={() => setAttached(attached.filter((x) => x.name !== a.name))}>
                     ×
                   </button>
@@ -246,6 +266,13 @@ export function MailWindow({ title, addresses, subject: startSubject, body: star
               <button type="button" class="button" data-mf onClick={() => file.current?.click()}>
                 {attached.length > 0 ? 'Add more files…' : 'Choose files…'}
               </button>{' '}
+              {printFile && (
+                <>
+                  <button type="button" class="button" data-mf data-testid="mail-print" title="Print this copy, or choose Save as PDF in the print window" onClick={printFile}>
+                    Print…
+                  </button>{' '}
+                </>
+              )}
               {making && (
                 <span class="field-hint" data-testid="mail-making">
                   Making the PDF…

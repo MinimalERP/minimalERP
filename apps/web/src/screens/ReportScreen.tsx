@@ -684,7 +684,7 @@ function ReportBody({
       {dialog === 'remind' &&
         ledger &&
         (() => {
-          const r = ledgerReminder(ledger.id, books, buildReportDoc());
+          const r = ledgerReminder(ledger.id, books, buildReportDoc(), print);
           return r ? (
             <MailWindow
               {...r}

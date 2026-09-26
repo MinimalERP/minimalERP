@@ -15,6 +15,26 @@ const TOP = 10.16;
 const WIDTH = 210 - LEFT - 5.08;
 const HEIGHT = A4_H - TOP - 5.08;
 
+/**
+ * The page is pictured from a copy of the document, whose linked style sheets would be fetched again — on a slow connection they are not back
+ * in time and the copy is drawn unstyled. So the copy gets the styles this page already has, written in, and no links to fetch.
+ */
+function inlineStyles(copy: Document): void {
+  const css = [...document.styleSheets]
+    .map((sheet) => {
+      try {
+        return [...sheet.cssRules].map((r) => r.cssText).join('\n');
+      } catch {
+        return ''; // a sheet from elsewhere cannot be read (none of ours are)
+      }
+    })
+    .join('\n');
+  for (const link of copy.querySelectorAll('link[rel="stylesheet"]')) link.remove();
+  const style = copy.createElement('style');
+  style.textContent = css;
+  copy.head.appendChild(style);
+}
+
 /** The PDF as base64 (what a mail carries). One unlabelled copy of each document. */
 export async function pdfOf(docs: readonly PrintDoc[], company: PrintCompany, layouts?: PrintLayouts): Promise<string> {
   const [{ jsPDF }, { default: html2canvas }] = await Promise.all([import('jspdf'), import('html2canvas-pro')]);
@@ -28,7 +48,7 @@ export async function pdfOf(docs: readonly PrintDoc[], company: PrintCompany, la
     const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
     let first = true;
     for (const page of host.querySelectorAll<HTMLElement>('.print-copy')) {
-      const canvas = await html2canvas(page, { scale: 2, backgroundColor: '#ffffff', logging: false });
+      const canvas = await html2canvas(page, { scale: 2, backgroundColor: '#ffffff', logging: false, onclone: inlineStyles });
       const perMm = canvas.width / WIDTH;
       const slice = Math.floor(HEIGHT * perMm);
       for (let y = 0; y < canvas.height; y += slice) {

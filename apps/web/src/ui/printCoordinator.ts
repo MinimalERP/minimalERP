@@ -47,6 +47,11 @@ export class PrintCoordinator {
 
   /** A report or a dispatch docket: one unlabelled copy, no dialog — not a document sent to anyone. */
   printReport(doc: ReportDoc | DocketDoc): void {
+    this.printCopy(doc);
+  }
+
+  /** One unlabelled copy of any document, no dialog: what a payment reminder attaches, printed exactly as it goes (Print, or Save as PDF). */
+  printCopy(doc: PrintDoc): void {
     this._docs = [doc];
     this._copies = [''];
     this._dialogOpen = false;
