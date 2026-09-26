@@ -28,7 +28,7 @@ import { reportsModule } from './modules/reports';
 import { roadmapModule } from './modules/roadmap';
 import { vouchersModule } from './modules/vouchers';
 import { ServicesContext } from './shell/hooks';
-import { bindRouter } from './shell/router';
+import { bindBackButton, bindRouter } from './shell/router';
 import { Shell } from './shell/Shell';
 import { type Account, type LocalBooks, createServices } from './shell/services';
 import './ui/tokens.css';
@@ -53,6 +53,16 @@ function root(): HTMLElement {
   return el;
 }
 
+/** A short message at the bottom of the screen that goes by itself (the phone's "Press Back again to close"). */
+function toast(text: string, ms = 2000): void {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.setAttribute('role', 'status');
+  el.textContent = text;
+  document.body.append(el);
+  setTimeout(() => el.remove(), ms);
+}
+
 /** Shows the application for an open (or not yet created) company. Called once. */
 function mountApp(books: BooksHost, saving: SaveTracker, account?: Account, localBooks?: LocalBooks): void {
   const services = createServices({
@@ -67,6 +77,16 @@ function mountApp(books: BooksHost, saving: SaveTracker, account?: Account, loca
 
   services.keyboard.start();
   bindRouter(services.screens, window);
+  // Back is Esc inside the app (sent to whatever has the focus, as the key would be); only the Gateway lets it leave — on a phone only
+  // after "Press Back again to close", so a stray Back does not close the books
+  bindBackButton(
+    services.screens,
+    () => services.scopes.snapshot().modal,
+    (l) => services.scopes.subscribe(l),
+    window,
+    () => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })),
+    window.matchMedia('(pointer: coarse)').matches ? { say: () => toast('Press Back again to close'), ms: 2000 } : undefined,
+  );
 
   render(
     <ServicesContext.Provider value={services}>

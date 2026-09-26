@@ -228,3 +228,84 @@ export function bindRouter(screens: ScreenStack<ScreenRef>, win: RouterWindow): 
     win.removeEventListener('hashchange', onHash);
   };
 }
+
+/** Only what the back button needs from `window`. */
+export interface BackWindow {
+  readonly location: { hash: string };
+  readonly history: { pushState(data: unknown, unused: string, url?: string | null): void; replaceState(data: unknown, unused: string, url?: string | null): void; back(): void };
+  addEventListener(type: 'popstate', listener: () => void): void;
+  removeEventListener(type: 'popstate', listener: () => void): void;
+}
+
+/**
+ * The phone's Back button (and the browser's) is Esc inside the application; only on the Gateway, with nothing open over it, does it leave.
+ * The address never piles up history (the router replaces it), so Back would close the app from any screen. Instead, while there is
+ * somewhere to go back to — a screen above the Gateway, or a dialog — ONE spare history entry is kept: Back uses it up, this presses Esc
+ * (whatever Esc does where the focus is: a field back, close the window, "Close and leave?"), and a new spare is laid while still away.
+ * With `warnLeave` (phones) the Gateway keeps a spare too, so an accidental Back there only warns.
+ */
+export function bindBackButton(
+  screens: ScreenStack<ScreenRef>,
+  isModal: () => boolean,
+  onScopes: (listener: () => void) => () => void,
+  win: BackWindow,
+  pressEsc: () => void,
+  /** On the Gateway, the first Back only says so ("Press Back again to close"); a second within `ms` leaves. Left out: the first leaves. */
+  warnLeave?: { readonly say: () => void; readonly ms: number },
+): () => void {
+  let spare = false; // our entry is on top of the history
+  let dropping = false; // we are taking our own spare back (home again by Esc): that Back is not the person's
+  let warned = false; // "Press Back again to close" is showing: the next Back leaves
+  let warnTimer: ReturnType<typeof setTimeout> | undefined;
+  const away = () => screens.depth > 1 || !sameScreen(screens.top.screen, GATEWAY) || isModal();
+  const wanted = () => away() || (warnLeave !== undefined && !warned);
+  const sync = () => {
+    if (dropping) return;
+    if (wanted() && !spare) {
+      win.history.pushState(null, '', refToHash(screens.top.screen));
+      spare = true;
+    } else if (!wanted() && spare) {
+      spare = false;
+      dropping = true;
+      win.history.back();
+    }
+  };
+  // the entry beneath ours may carry an older address: put the current one back before the router reads it and reopens that screen
+  const keepAddress = () => {
+    const hash = refToHash(screens.top.screen);
+    if (win.location.hash !== hash) win.history.replaceState(null, '', hash);
+  };
+  const onPop = () => {
+    if (dropping) {
+      dropping = false;
+      keepAddress();
+      sync();
+      return;
+    }
+    if (!spare) return; // Back on the Gateway: the browser leaves, as it should
+    spare = false;
+    keepAddress();
+    if (away() || !warnLeave) {
+      pressEsc();
+    } else {
+      warned = true;
+      warnLeave.say();
+      clearTimeout(warnTimer);
+      warnTimer = setTimeout(() => {
+        warned = false;
+        sync();
+      }, warnLeave.ms);
+    }
+    sync();
+  };
+  win.addEventListener('popstate', onPop);
+  const offStack = screens.subscribe(sync);
+  const offScopes = onScopes(sync);
+  sync();
+  return () => {
+    clearTimeout(warnTimer);
+    win.removeEventListener('popstate', onPop);
+    offStack();
+    offScopes();
+  };
+}

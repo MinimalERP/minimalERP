@@ -1,6 +1,7 @@
 import type { Frame } from '@minimalerp/command';
 import { type Voucher, type VoucherKindRegistry, defaultVoucherKinds } from '@minimalerp/domain';
 import type { InboxItem } from '@minimalerp/ports';
+import { useEffect, useRef } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { useCommandHandler, useServices, useSubscriptions } from '../shell/hooks';
 import type { ScreenRef, VoucherMode } from '../shell/router';
@@ -39,6 +40,10 @@ function VoucherPaging({ frame, books, voucher }: { frame: Frame<ScreenRef>; boo
   useCommandHandler('screen:voucher', 'nav.pageDown', () => turn(next));
   useCommandHandler('screen:voucher', 'nav.left', () => turn(prev));
   useCommandHandler('screen:voucher', 'nav.right', () => turn(next));
+  useSwipe(
+    () => turn(next),
+    () => turn(prev),
+  );
   return (
     <>
       <button type="button" class="voucher-turn prev" tabIndex={-1} disabled={!prev} onMouseDown={(e) => e.preventDefault()} onClick={() => turn(prev)} aria-label="Previous voucher" title={prev ? `Previous: ${prev.number} (← or PgUp)` : 'This is the first one'}>
@@ -49,6 +54,46 @@ function VoucherPaging({ frame, books, voucher }: { frame: Frame<ScreenRef>; boo
       </button>
     </>
   );
+}
+
+/**
+ * A sideways swipe on a touch screen turns the voucher, as the ‹ › arrows do: right to left is the next one. A swipe must be mostly sideways
+ * and quick (scrolling down a long voucher never turns it), and one that starts in a field or on something that scrolls sideways is left to it.
+ */
+function useSwipe(onLeft: () => void, onRight: () => void): void {
+  const handlers = useRef({ onLeft, onRight });
+  handlers.current = { onLeft, onRight };
+  useEffect(() => {
+    let start: { x: number; y: number; t: number } | undefined;
+    const sideways = (el: Element | null): boolean => {
+      for (let e = el; e && e !== document.body; e = e.parentElement) {
+        if (e.matches('input, textarea, select, [contenteditable="true"]')) return true;
+        if (e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflowX !== 'visible' && getComputedStyle(e).overflowX !== 'hidden') return true;
+      }
+      return false;
+    };
+    const onStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      start = e.touches.length === 1 && t && !sideways(e.target as Element) && (e.target as Element).closest('.voucher-screen') ? { x: t.clientX, y: t.clientY, t: Date.now() } : undefined;
+    };
+    const onEnd = (e: TouchEvent) => {
+      const t = e.changedTouches[0];
+      if (!start || !t) return;
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      const quick = Date.now() - start.t < 700;
+      start = undefined;
+      if (!quick || Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
+      if (dx < 0) handlers.current.onLeft();
+      else handlers.current.onRight();
+    };
+    window.addEventListener('touchstart', onStart, { passive: true });
+    window.addEventListener('touchend', onEnd, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', onStart);
+      window.removeEventListener('touchend', onEnd);
+    };
+  }, []);
 }
 
 // ---- outer: figure out what to show ------------------------------------------------------------------------------

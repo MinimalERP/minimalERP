@@ -149,3 +149,62 @@ test.describe('a touch screen reaches what the keys do (no Alt key on a phone)',
     await expect(heading(page)).toHaveText('Create Ledger');
   });
 });
+
+test('the phone\'s Back is Esc inside the app, and leaves only from the Gateway', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('.shell')).toBeVisible();
+  await loadDemo(page);
+  await goTo(page, 'ledgers');
+  await page.keyboard.press('Enter');
+  await expect(heading(page)).toHaveText('Ledgers');
+  await page.goBack();
+  await expect(page.locator('.shell')).toBeVisible(); // still in the app
+  await expect(page).toHaveURL(/#\/gateway$/); // Back did what Esc does: the list closed, back to the Gateway
+  await expect(heading(page)).not.toHaveText('Ledgers');
+  await page.goBack(); // on the Gateway, Back leaves
+  await expect(page).not.toHaveURL(/#\/gateway$/);
+});
+
+test.describe('swipes and the Back button on a phone', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  /** A finger drawn sideways across the voucher's title (not a field): from x1 to x2 in 150 ms. */
+  const swipe = (page: Page, x1: number, x2: number) =>
+    page.evaluate(
+      ([a, b]) => {
+        const el = document.querySelector('.voucher-screen h1, .voucher-screen .vtitle') as Element;
+        const touch = (x: number) => new Touch({ identifier: 1, target: el, clientX: x, clientY: 300 });
+        el.dispatchEvent(new TouchEvent('touchstart', { touches: [touch(a)], changedTouches: [touch(a)], bubbles: true }));
+        return new Promise<void>((done) =>
+          setTimeout(() => {
+            el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [touch(b)], bubbles: true }));
+            done();
+          }, 150),
+        );
+      },
+      [x1, x2] as const,
+    );
+
+  test('a sideways swipe on a displayed voucher turns it, as the ‹ › arrows do; right to left is the next one', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.shell')).toBeVisible();
+    await loadDemo(page);
+    await openSharmaInvoice(page);
+    await swipe(page, 60, 330); // left to right: the previous one
+    await expect(page.locator('.screen')).toContainText('ABC Industries');
+    await swipe(page, 330, 60); // right to left: the next one
+    await expect(page.locator('.screen')).toContainText('Sharma Traders');
+  });
+
+  test('on the Gateway the first Back only warns — "Press Back again to close" — and the second leaves', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.shell')).toBeVisible();
+    await loadDemo(page);
+    await expect(page).toHaveURL(/#\/gateway$/);
+    await page.goBack();
+    await expect(page.locator('.toast')).toHaveText('Press Back again to close');
+    await expect(page.locator('.shell')).toBeVisible();
+    await page.goBack();
+    await expect(page).not.toHaveURL(/#\/gateway$/);
+  });
+});
