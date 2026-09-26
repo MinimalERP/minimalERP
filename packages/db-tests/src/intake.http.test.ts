@@ -157,6 +157,11 @@ describe('who may send', () => {
     expect((await send({ kind: 'journal', document: pdf })).status).toBe(400);
     expect((await send({ kind: 'salesOrder' })).status).toBe(400);
   });
+
+  it('the browser may send x-region (the web app pins the region): without it the Upload button cannot reach the function', async () => {
+    const pre = await handler()(new Request('http://x/intake', { method: 'OPTIONS' }));
+    expect(pre.headers.get('access-control-allow-headers')).toContain('x-region');
+  });
 });
 
 describe('a payment advice a fixed rule knows (Gmail: "Send to ERP → Eclipse Receipt")', () => {
@@ -185,6 +190,26 @@ describe('a payment advice a fixed rule knows (Gmail: "Send to ERP → Eclipse R
         { ref: '24-25/001', amount: '1000.00', tds: '2.00' },
         { ref: '24-25/002', amount: '2000.00', tds: '4.00' },
       ],
+    });
+  });
+
+  it('a sales order PO in a layout a rule knows is read from the PDF itself too — the reader is never asked', async () => {
+    const asked = seen.length;
+    const text =
+      `Sold To: Eclipse Combustion Private Limited Bill to address: GSTIN: 27AAACE9659G1ZB\n` +
+      `Item Material/Description Quantity UoM Unit Price Net Amount TAX\n10 BLT-M8 100.00 EA 4.50 / EA 450.00 Y\nHEX BOLT M8\n` +
+      `HSN/SAC Code : 73181500\nPurchase order\nNumber\n4423700001\nVersion\n0\nDate\n12-JUN-2024\nHoneywell Request Date: 30-JUL-2024\n` +
+      `Total net value excl. tax INR 450.00`;
+    const r = await send({ kind: 'salesOrder', document: { mimeType: 'application/pdf', base64: Buffer.from(text).toString('base64') } });
+    expect(r.body.ok).toBe(true);
+    expect(seen.length).toBe(asked);
+    const item = mustOk(await w.backend.inbox(w.companyId)).find((i) => i.id === r.body.value?.id);
+    expect(item?.proposal).toMatchObject({
+      kind: 'salesOrder',
+      date: '2024-06-12',
+      reference: '4423700001',
+      party: { partyId: w.uuid('party:eclipse') },
+      lines: [{ itemId: w.uuid('item:bolt'), qty: '100.00', rate: '4.5', dueDate: '2024-07-30' }],
     });
   });
 

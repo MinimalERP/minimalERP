@@ -14,6 +14,7 @@ import {
   ok,
   orderBookOf,
   proposeFromExtraction,
+  readPurchaseOrder,
   readRemittanceAdvice,
 } from '@minimalerp/domain';
 import type { DocumentReader, InboxSubmission } from '@minimalerp/ports';
@@ -36,7 +37,8 @@ import { z } from 'zod';
  *
  * A receipt PDF is first tried against the fixed payment-advice rules (`readRemittanceAdvice`), read from the PDF's own text: a layout
  * a rule knows never goes to the reader. `rule: 'remittance'` (Gmail's "Eclipse Receipt") means ONLY the rule: a document it does
- * not recognise is queued as not read, never handed to Gemini to guess.
+ * not recognise is queued as not read, never handed to Gemini to guess. A sales-order PDF is likewise first tried against the fixed
+ * customer-PO rules (`readPurchaseOrder`); one they do not know goes to the reader as before.
  */
 
 /** What the handler needs from the server-side backend (PostgresBackend is one). */
@@ -84,7 +86,7 @@ const indiaToday = (): string => new Date(Date.now() + 330 * 60_000).toISOString
 export function createIntakeHandler(deps: IntakeHandlerDeps): (request: Request) => Promise<Response> {
   const cors = {
     'access-control-allow-origin': deps.allowOrigin ?? '*',
-    'access-control-allow-headers': 'authorization, x-client-info, apikey, content-type, x-request-id',
+    'access-control-allow-headers': 'authorization, x-client-info, apikey, content-type, x-request-id, x-region',
     'access-control-allow-methods': 'POST, OPTIONS',
     'access-control-max-age': '7200',
   };
@@ -133,9 +135,10 @@ export function createIntakeHandler(deps: IntakeHandlerDeps): (request: Request)
 
       /** Read, match, queue. In the background a failed reading is queued too, as an item that says so — the person sent something and must learn it did not arrive. */
       const work = async (background: boolean): Promise<Result<{ id: string; party?: string; notes: string[] }>> => {
+        const rule = cmd.kind === 'receipt' ? readRemittanceAdvice : cmd.kind === 'salesOrder' ? readPurchaseOrder : undefined;
         const ruled =
-          cmd.kind === 'receipt' && 'base64' in cmdDocument && cmdDocument.mimeType === 'application/pdf' && deps.pdfText
-            ? await deps.pdfText(cmdDocument.base64).then(readRemittanceAdvice, () => undefined)
+          rule && 'base64' in cmdDocument && cmdDocument.mimeType === 'application/pdf' && deps.pdfText
+            ? await deps.pdfText(cmdDocument.base64).then(rule, () => undefined)
             : undefined;
         const read =
           'extraction' in cmdDocument

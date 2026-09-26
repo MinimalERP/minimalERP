@@ -84,6 +84,7 @@ export * from './intake/propose';
 export * from './intake/exchange';
 export * from './print/template';
 export * from './intake/remittance';
+export * from './intake/purchaseOrder';
 export * from './reports/digest';
 export * from './csv/format';
 export * from './csv/items';
