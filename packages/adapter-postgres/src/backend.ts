@@ -605,6 +605,30 @@ export class PostgresBackend
     return r.ok ? ok({ id: s.id }) : r;
   }
 
+  /** The company's one extra person (ADR-0025), or null. The database refuses anyone without `company.admin`. */
+  async companyMember(companyId: string): Promise<Result<{ readonly email: string; readonly since: string } | null>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    return this.memberCall('select public.company_member_get($1::uuid, $2::uuid) as r', [this.options.actorId, companyId]);
+  }
+
+  /** Links the account with this email to the company as its one extra person (replacing whoever it was); a blank email removes them. */
+  async setCompanyMember(companyId: string, email: string): Promise<Result<{ readonly email: string; readonly since: string } | null>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    return this.memberCall('select public.company_member_set($1::uuid, $2::uuid, $3, $4) as r', [this.options.actorId, companyId, this.options.requestId ?? null, email]);
+  }
+
+  private async memberCall(sql: string, values: readonly unknown[]): Promise<Result<{ readonly email: string; readonly since: string } | null>> {
+    try {
+      const r = await this.db.query(sql, values);
+      const v = r.rows[0]?.['r'] as { email?: unknown; since?: unknown } | null | undefined;
+      return ok(v && typeof v === 'object' ? { email: text(v.email), since: text(v.since) } : null);
+    } catch (e) {
+      const known = issueFromDbError(e);
+      if (known) return fail(known);
+      throw e;
+    }
+  }
+
   /** Throws a proposal away. One already accepted or rejected is not an error: the inbox simply no longer has it. */
   async rejectInbox(companyId: CompanyId, id: string, reason?: string): Promise<Result<void>> {
     if (!isUuid(companyId)) return fail(companyMismatch(companyId));

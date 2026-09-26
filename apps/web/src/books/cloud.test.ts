@@ -23,6 +23,7 @@ function fakeOnline(options: { existing?: boolean; listFails?: boolean; ownsNone
     if (mine.length > 0 && !mine.some((c) => c.role === 'owner')) return fail(issue(IssueCode.UnsupportedOperation, 'Only the owner of the books can create a company'));
     return ok({ companyId: add(input.name) });
   });
+  const setCompanyUser = vi.fn(async (_id: CompanyId, email: string) => ok(email ? { email, since: '2026-09-26' } : null));
   const companies = vi.fn(async (_open?: CompanyId) => (options.listFails ? fail(issue('REQUEST_FAILED', 'offline')) : ok([...mine])));
   // Every books call names its company, either as the first argument or as `companyId` on it: route it to that company's backend.
   const backendOf = (arg: unknown) => backends.get(typeof arg === 'string' ? arg : String((arg as { companyId?: string } | undefined)?.companyId));
@@ -30,13 +31,14 @@ function fakeOnline(options: { existing?: boolean; listFails?: boolean; ownsNone
     get: (_t, key: string) => {
       if (key === 'companies') return companies;
       if (key === 'createCompany') return createCompany;
+      if (key === 'setCompanyUser') return setCompanyUser;
       return (...args: unknown[]) => {
         const backend = backendOf(args[0]) ?? [...backends.values()][0]!;
         return (backend as unknown as Record<string, (...a: unknown[]) => unknown>)[key]!(...args);
       };
     },
   });
-  return { online, createCompany, companies, add };
+  return { online, createCompany, companies, add, setCompanyUser };
 }
 
 function remembered(initial?: string) {
@@ -123,6 +125,22 @@ describe('several companies online', () => {
     const r = await host.create({ name: 'Third Co', fyStart: '2024-04-01' });
     expect(r.ok).toBe(true);
     expect(host.current?.masters.company.name).toBe('Third Co');
+  });
+
+  it('the owner may set the company’s user; the company’s user may not, nor switch or create companies', async () => {
+    const owned = fakeOnline({ existing: true });
+    const host = new BooksHost(createCloudFactory({ backend: owned.online }));
+    await host.restore();
+    expect(host.ownsOpenCompany).toBe(true);
+    expect(host.canManageUser).toBe(true);
+    const r = await host.setCompanyUser('helper@example.test');
+    expect(r.ok && r.value?.email).toBe('helper@example.test');
+    expect(owned.setCompanyUser).toHaveBeenCalledWith(host.current?.masters.company.id, 'helper@example.test');
+
+    const theirs = new BooksHost(createCloudFactory({ backend: fakeOnline({ existing: true, ownsNone: true }).online }));
+    await theirs.restore();
+    expect(theirs.ownsOpenCompany).toBe(false);
+    expect(theirs.canManageUser).toBe(false);
   });
 
   it('the books kept in the browser stay one company: no switching', () => {

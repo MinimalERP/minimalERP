@@ -61,6 +61,9 @@ supabase secrets set GEMINI_API_KEY=<key> GEMINI_MODEL=<model> --project-ref <re
 2. **Authentication › URL Configuration**: *Site URL* = the site (`https://minimalerp.github.io/minimalERP/`); add it (and `http://localhost:5173/**` for development) to *Redirect URLs*.
    Invitation and reset links come back to these addresses; a link to an address not on the list is refused.
 3. **Invite a person**: Authentication › Users › *Invite user*. They follow the emailed link, choose a password, and create their company.
+   **A company's one extra user** (ADR-0025): Authentication › Users › *Add user* → *Create new user* with their email and a password
+   (tick *Auto Confirm User*), give them the password, then in the ERP open that company and *Utilities › Company User* and enter the email.
+   They see that company only. Use a different email for each company's user.
 4. The built-in email service allows only a few emails an hour; use a custom SMTP provider (Project Settings › Authentication) before inviting many people.
 5. GitHub: repository *variables* `SUPABASE_URL` and `SUPABASE_ANON_KEY` (Settings › Secrets and variables › Actions › Variables). The anon key is public by design;
    never store the service-role key or an access token there.
@@ -68,6 +71,7 @@ supabase secrets set GEMINI_API_KEY=<key> GEMINI_MODEL=<model> --project-ref <re
 ## Rules for every future migration
 - every business table has `company_id`, and every foreign key is composite `(company_id, id)`
 - add RLS + a `SELECT` policy + explicit grants in the same change — the privilege audit in `packages/db-tests` fails otherwise
+- a new permission for `owner` is given to `member` too (everything but `company.admin`) — `company-member.test.ts` fails otherwise
 - new SQL functions are executable by `service_role` only unless they are RLS helpers in `private`
 - a new voucher kind = a migration adding its `role_permissions` rows and widening `voucher_types.base_kind`
 - a new master kind = a table (RLS + grants as above), a domain definition, a row mapper in `adapter-postgres/src/masters.ts`, and (if it

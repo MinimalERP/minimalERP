@@ -44,6 +44,8 @@ import { z } from 'zod';
  *         { action: 'inbox', companyId }                 the AI Inbox: the proposals waiting (ADR-0023)
  *         { action: 'inbox-reject', companyId, id, reason? }   throw a proposal away (accepting one is an ordinary 'post' under its id)
  *         { action: 'digest', companyId?, asOn? }        the daily report: { asOn, subject, html, sheetRows, dueItemRows }
+ *         { action: 'company-user', companyId }          the company's one extra person: { user: { email, since } | null } (owner only)
+ *         { action: 'company-user-set', companyId, email }   link the account with that email to the company ('' removes it)
  *   200   { ok: true,  value: { voucher, journal?, replayed? } }   money as decimal strings
  *   200   { ok: false, issues: [{ code, message, path? }] }        a business-rule refusal
  *   400 malformed request · 401 not signed in · 405 wrong method · 500 unexpected failure
@@ -113,6 +115,8 @@ const body = z.discriminatedUnion('action', [
   // the daily report: for the company given, or the caller's only one (the add-on's sign-in); `asOn` defaults to today in India
   z.object({ action: z.literal('digest'), companyId: companyId.optional(), asOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }),
   z.object({ action: z.literal('inbox-reject'), companyId, id: z.string().min(1), reason: z.string().max(200).optional() }),
+  z.object({ action: z.literal('company-user'), companyId }),
+  z.object({ action: z.literal('company-user-set'), companyId, email: z.string().max(200) }),
 ]);
 
 /**
@@ -124,6 +128,9 @@ export interface BooksServer extends PostingGateway, MasterGateway, MastersRepos
   can(companyId: string, permission: string): Promise<boolean>;
   loadJson(companyId: string): Promise<{ readonly core: unknown; readonly ledgers: unknown } | undefined>;
   createCompany(masters: Masters): Promise<Result<{ companyId: CompanyId }>>;
+  /** The company's one extra person (ADR-0025): `company.admin` only, checked by the database. */
+  companyMember(companyId: string): Promise<Result<{ readonly email: string; readonly since: string } | null>>;
+  setCompanyMember(companyId: string, email: string): Promise<Result<{ readonly email: string; readonly since: string } | null>>;
   /** The audit line for a voucher emailed to its party: to whom — never the message or the file. */
   recordMail(companyId: CompanyId, voucherId: string, to: readonly string[]): Promise<void>;
 }
@@ -330,6 +337,10 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
           return asResponse(await gateway.inbox(cmd.companyId as never), (items) => ({ items }));
         case 'inbox-reject':
           return asResponse(await gateway.rejectInbox(cmd.companyId as never, cmd.id, cmd.reason), () => ({}));
+        case 'company-user':
+          return asResponse(await gateway.companyMember(cmd.companyId), (user) => ({ user }));
+        case 'company-user-set':
+          return asResponse(await gateway.setCompanyMember(cmd.companyId, cmd.email), (user) => ({ user }));
         case 'digest': {
           const company = cmd.companyId ?? (await gateway.companiesOf())[0]?.id;
           const denied = company ? await refuse(gateway, company, 'report.view') : { ok: false as const, issues: [issue(IssueCode.PermissionDenied, 'Not permitted: report.view')] };

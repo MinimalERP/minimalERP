@@ -394,6 +394,12 @@ export interface CompanyChoice {
   readonly role: string;
 }
 
+/** The one extra person of a company (ADR-0025): their account's email, and since when. */
+export interface CompanyUser {
+  readonly email: string;
+  readonly since: string;
+}
+
 /** Builds and restores companies. The composition root supplies it (it knows which backend and which storage). */
 export interface BooksFactory {
   /** The company saved from a previous visit, if any. */
@@ -403,6 +409,11 @@ export interface BooksFactory {
   companies?(): Promise<readonly CompanyChoice[]>;
   /** Opens one of `companies()`. */
   open?(companyId: CompanyId): Promise<Books>;
+  /** The person's role in a company listed by `companies()` (or opened since). */
+  roleOf?(companyId: CompanyId): string | undefined;
+  /** A company's one extra person, and linking one (online books, owner only; the server decides). */
+  companyUser?(companyId: CompanyId): Promise<Result<CompanyUser | null>>;
+  setCompanyUser?(companyId: CompanyId, email: string): Promise<Result<CompanyUser | null>>;
   /** Forget the saved company (start over). Absent when the company is not the browser's to delete (the online books). */
   discard?(): Promise<void>;
   /** Whether the sample company may be loaded. False for the online books: it would fill someone's real books with make-believe. */
@@ -445,6 +456,29 @@ export class BooksHost {
   /** The companies the person may open (empty where there is only ever one). */
   async companies(): Promise<readonly CompanyChoice[]> {
     return (await this.factory?.companies?.()) ?? [];
+  }
+
+  /** Whether the person owns the open company (online books). A company's extra person does not: they cannot switch, create or give access. */
+  get ownsOpenCompany(): boolean {
+    const id = this.books?.masters.company.id;
+    return id !== undefined && this.factory?.roleOf?.(id) === 'owner';
+  }
+
+  /** Whether the open company's extra person can be set from here: online books, and the person is its owner. */
+  get canManageUser(): boolean {
+    return this.ownsOpenCompany && this.factory?.setCompanyUser !== undefined;
+  }
+
+  async companyUser(): Promise<Result<CompanyUser | null>> {
+    const id = this.books?.masters.company.id;
+    if (!id || !this.factory?.companyUser) return fail(issue(IssueCode.UnsupportedOperation, 'A company user can be set for online books only'));
+    return this.factory.companyUser(id);
+  }
+
+  async setCompanyUser(email: string): Promise<Result<CompanyUser | null>> {
+    const id = this.books?.masters.company.id;
+    if (!id || !this.factory?.setCompanyUser) return fail(issue(IssueCode.UnsupportedOperation, 'A company user can be set for online books only'));
+    return this.factory.setCompanyUser(id, email);
   }
 
   /** Opens another company in place of the open one. */

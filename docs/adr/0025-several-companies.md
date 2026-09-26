@@ -20,3 +20,18 @@ in `company-create` and the browser always opening the first company. This repla
    before is closed (back to the Gateway). The top bar's company name is the switcher's button, **Alt+F3** and Go To "Switch Company" open
    it, and Create Company is offered while a company is open. Half-entered vouchers were already kept per company.
 5. **The books kept in the browser stay one company** (no `open`/`companies` on the local factory, so no switcher).
+
+## Step 2: one extra person per company
+1. **A new role, `member`: everything the owner may do except `company.admin`.** Posting, altering and cancelling every voucher kind,
+   masters, reports, the inbox, email, settings. They cannot give anyone access, and (step 1) cannot create companies. The migration
+   copies the owner's permissions; every later migration that gives the owner a permission gives it to `member` too, and a test holds the
+   two together.
+2. **The account is made in Supabase, not by the ERP** (the owner's choice): *Authentication › Users › Add user* with a password the owner
+   hands over. The ERP only links it: *Utilities › Company User* (owner only) takes the email, and `company_member_set` looks it up in
+   `auth.users` (through `private.user_by_email`, SECURITY DEFINER, server only). No invitation mail is sent.
+3. **One person, one company.** Setting another email replaces the company's member; a blank one removes them. An account that already
+   belongs to any other company, or already has its own role in this one (the owner), is refused. Every change is an `audit_log` line
+   (`company.member`).
+4. **Isolation is the existing rule, not a new one**: every read and change asks `actor_can` for the company named, and row-level security
+   does the same; a member simply has no row for any other company. `company-member.test.ts` proves it action by action.
+5. **What the member sees in the browser**: their one company, without the switcher, Create Company or Company User.

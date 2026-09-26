@@ -65,6 +65,7 @@ describe('migrations', () => {
     // role of the Gmail add-on: it submits and reads (master, voucher, report) and posts nothing: 4.
     // Quotation adds three permissions for owner and accountant and clerk post: owner 43, accountant 42, clerk 12.
     // minimalDASH adds dash.view + dash.edit for owner, accountant, clerk and automation, and dash.view for viewer.
-    expect(byRole).toEqual({ accountant: 44, automation: 6, clerk: 14, owner: 45, viewer: 4 });
+    // ADR-0025's member holds everything the owner does except company.admin.
+    expect(byRole).toEqual({ accountant: 44, automation: 6, clerk: 14, member: 44, owner: 45, viewer: 4 });
   });
 });

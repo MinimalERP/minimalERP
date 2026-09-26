@@ -15,6 +15,8 @@ export type ScreenRef =
   | { readonly type: 'company-reset' }
   /** Pick which of the account's companies to open (online books). */
   | { readonly type: 'company-switch' }
+  /** The open company's one extra person (online books, owner only). */
+  | { readonly type: 'company-user' }
   | { readonly type: 'invoice-settings' }
   | { readonly type: 'import-export' }
   /** A master record's form. `seed` pre-fills a new one (Alt+C from a field) and `inline` makes it hand its result back; neither is part of the address. */
@@ -67,6 +69,8 @@ export function refToHash(ref: ScreenRef): string {
       return '#/company/reset';
     case 'company-switch':
       return '#/company/switch';
+    case 'company-user':
+      return '#/company/user';
     case 'invoice-settings':
       return '#/company/invoice-settings';
     case 'inbox':
@@ -105,6 +109,7 @@ export function hashToRef(hash: string): ScreenRef | undefined {
   if (path === '/company/new') return { type: 'company-new' };
   if (path === '/company/reset') return { type: 'company-reset' };
   if (path === '/company/switch') return { type: 'company-switch' };
+  if (path === '/company/user') return { type: 'company-user' };
   if (path === '/company/invoice-settings') return { type: 'invoice-settings' };
   if (path === '/inbox') return { type: 'inbox' };
   if (path === '/import-export') return { type: 'import-export' };

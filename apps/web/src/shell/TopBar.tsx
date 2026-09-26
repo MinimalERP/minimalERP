@@ -24,6 +24,8 @@ export function useScreenTitle() {
         return 'Close Company';
       case 'company-switch':
         return 'Switch Company';
+      case 'company-user':
+        return 'Company User';
       case 'invoice-settings':
         return 'Invoice / PDF Settings';
       case 'inbox':
@@ -104,7 +106,7 @@ export function TopBar() {
         ))}
       </nav>
       <span class="spacer" />
-      {books.canSwitch && books.current ? (
+      {books.canSwitch && books.ownsOpenCompany && books.current ? (
         <button
           type="button"
           class="company company-switch"

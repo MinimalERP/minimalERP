@@ -52,6 +52,12 @@ const FRESH_MS = 5_000;
  */
 const CHANGES = new Set(['master', 'companies', 'company-create']);
 
+/** The one extra person of a company: their account's email, and since when. */
+export interface CompanyUser {
+  readonly email: string;
+  readonly since: string;
+}
+
 /** A company this account belongs to, and the account's role in it ('owner' for the companies it made). */
 export interface CompanySummary {
   readonly id: CompanyId;
@@ -194,6 +200,18 @@ export class SupabaseBooksBackend
   async rejectInbox(companyId: CompanyId, id: string, reason?: string): Promise<Result<void>> {
     const r = await this.call({ action: 'inbox-reject', companyId, id, ...(reason ? { reason } : {}) });
     return r.ok ? ok(undefined) : r;
+  }
+
+  /** The company's one extra person (ADR-0025), or null. Only the owner may ask. */
+  async companyUser(companyId: CompanyId): Promise<Result<CompanyUser | null>> {
+    const r = await this.call({ action: 'company-user', companyId });
+    return r.ok ? ok((r.value as { user: CompanyUser | null }).user) : r;
+  }
+
+  /** Links the account with this email to the company as its one extra person; '' removes them. */
+  async setCompanyUser(companyId: CompanyId, email: string): Promise<Result<CompanyUser | null>> {
+    const r = await this.call({ action: 'company-user-set', companyId, email });
+    return r.ok ? ok((r.value as { user: CompanyUser | null }).user) : r;
   }
 
   /** Emails a voucher to its party through the company's Gmail (the server checks the addresses are that party's). */

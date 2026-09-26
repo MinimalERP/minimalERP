@@ -1,7 +1,7 @@
 import type { Frame } from '@minimalerp/command';
 import type { Issue } from '@minimalerp/domain';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import type { CompanyChoice, NewCompany } from '../books/books';
+import type { CompanyChoice, CompanyUser, NewCompany } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
 import { useLeaveGuard } from '../shell/useLeaveGuard';
@@ -114,7 +114,7 @@ export function CompanyCreateScreen({ frame }: { frame: Frame<ScreenRef> }) {
 
   const chord = (id: string) => keymapStore.keymap.chordsFor(id)[0];
 
-  if (host.current && !host.canSwitch) {
+  if (host.current && !(host.canSwitch && host.ownsOpenCompany)) {
     return (
       <section class="screen" aria-labelledby="company-title">
         <h1 id="company-title">Create Company</h1>
@@ -278,6 +278,102 @@ export function CompanySwitchScreen() {
           onDone={(v) => void open(v)}
         />
       )}
+    </section>
+  );
+}
+
+const USER_SCOPE = 'screen:company-user';
+
+/**
+ * The open company's one extra person (ADR-0025). Their account is made in Supabase (Authentication › Users › Add user, with a password
+ * you share with them); here it is linked to this company by its email. They then have full use of this company and cannot see any other,
+ * give anyone access, or create companies. A different email replaces them; a blank one removes them.
+ */
+export function CompanyUserScreen() {
+  const { books: host, keymapStore } = useServices();
+  useSubscriptions(host, keymapStore);
+  const [user, setUser] = useState<CompanyUser | null | undefined>(undefined);
+  const [email, setEmail] = useState('');
+  const [problem, setProblem] = useState<string | undefined>(undefined);
+  const [saved, setSaved] = useState<string | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const company = host.current?.masters.company.name;
+
+  useEffect(() => {
+    void host.companyUser().then((r) => {
+      if (r.ok) {
+        setUser(r.value);
+        setEmail(r.value?.email ?? '');
+      } else setProblem(r.issues.map((i) => i.message).join(' '));
+      inputRef.current?.focus();
+    });
+  }, [host, company]);
+
+  const accept = async () => {
+    if (busy) return;
+    setBusy(true);
+    setProblem(undefined);
+    setSaved(undefined);
+    try {
+      const r = await host.setCompanyUser(email.trim());
+      if (!r.ok) return setProblem(r.issues.map((i) => i.message).join(' '));
+      setUser(r.value);
+      setEmail(r.value?.email ?? '');
+      setSaved(r.value ? `${r.value.email} can now sign in and use ${company ?? 'this company'}.` : 'Removed: nobody else can use this company now.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  useCommandHandler(USER_SCOPE, 'voucher.accept', () => (void accept(), true));
+  useCommandHandler(USER_SCOPE, 'nav.activate', () => (void accept(), true));
+
+  const chord = keymapStore.keymap.chordsFor('voucher.accept')[0];
+  return (
+    <section class="screen form-screen" aria-labelledby="user-title" data-testid="company-user">
+      <h1 id="user-title">Company User</h1>
+      <p class="lede">
+        One more person may use {company ?? 'this company'} — with full access to it, and no access to your other companies. Make their account in
+        Supabase first (Authentication › Users › Add user, with a password you give them), then enter its email here.
+      </p>
+      {problem && (
+        <p class="notice error" role="alert">
+          {problem}
+        </p>
+      )}
+      {saved && (
+        <p class="notice" role="status">
+          {saved}
+        </p>
+      )}
+      <form class="form" onSubmit={(e) => e.preventDefault()} autocomplete="off">
+        <div class="field-row active">
+          <label class="field-label" for="company-user-email">
+            User email
+          </label>
+          <div class="field-control">
+            <input
+              id="company-user-email"
+              ref={inputRef}
+              class="field-input"
+              type="email"
+              value={email}
+              disabled={user === undefined || busy}
+              autocomplete="off"
+              spellcheck={false}
+              onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
+            />
+            <span class="field-hint">
+              {user === undefined ? 'Loading…' : user ? `Linked since ${user.since.slice(0, 10)}. Another email replaces them; a blank one removes them.` : 'Nobody yet.'}
+            </span>
+          </div>
+        </div>
+      </form>
+      <div class="toolbar">
+        <button type="button" class="button" disabled={busy || user === undefined} onClick={() => void accept()}>
+          Save {chord && <Kbd chord={chord} />}
+        </button>
+      </div>
     </section>
   );
 }

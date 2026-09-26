@@ -1,5 +1,5 @@
 import { type CompanyId, type Result, IssueCode, fail, issue, ok } from '@minimalerp/domain';
-import { Books, type BooksBackend, type BooksFactory, type CompanyChoice, type NewCompany, newCompanyIssues } from './books';
+import { Books, type BooksBackend, type BooksFactory, type CompanyChoice, type CompanyUser, type NewCompany, newCompanyIssues } from './books';
 import type { SaveTracker } from './saving';
 import type { KeyValueStore } from './store';
 
@@ -8,6 +8,8 @@ export interface CloudBackend extends BooksBackend {
   /** `open` names the company about to be opened, so the server can send its books along with the list. */
   companies(open?: CompanyId): Promise<Result<readonly CompanyChoice[]>>;
   createCompany(input: NewCompany): Promise<Result<{ readonly companyId: CompanyId }>>;
+  companyUser(companyId: CompanyId): Promise<Result<CompanyUser | null>>;
+  setCompanyUser(companyId: CompanyId, email: string): Promise<Result<CompanyUser | null>>;
 }
 
 export interface CloudFactoryOptions {
@@ -34,9 +36,11 @@ export function createCloudFactory({ backend, drafts, saving, lastOpened }: Clou
     return books;
   };
 
+  const roles = new Map<string, string>();
   const list = async (open?: CompanyId): Promise<readonly CompanyChoice[]> => {
     const listed = await backend.companies(open);
     if (!listed.ok) throw new Error(listed.issues.map((i) => i.message).join('; '));
+    for (const c of listed.value) roles.set(c.id, c.role);
     return listed.value;
   };
 
@@ -53,12 +57,16 @@ export function createCloudFactory({ backend, drafts, saving, lastOpened }: Clou
 
     companies: () => list(),
     open,
+    roleOf: (companyId) => roles.get(companyId),
+    companyUser: (companyId) => backend.companyUser(companyId),
+    setCompanyUser: (companyId, email) => backend.setCompanyUser(companyId, email),
 
     async create(input: NewCompany) {
       const problems = newCompanyIssues(input);
       if (problems.length > 0) return fail<Books>(...problems);
       const created = await backend.createCompany(input);
       if (!created.ok) return created;
+      roles.set(created.value.companyId, 'owner');
       try {
         return ok(await open(created.value.companyId));
       } catch (error) {

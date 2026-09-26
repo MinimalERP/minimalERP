@@ -80,7 +80,7 @@ const commands: Command<AppContext>[] = [
     category: 'Company',
     keywords: ['new company', 'onboarding', 'books', 'financial year'],
     description: 'Start a company’s books: name, financial year and GSTIN',
-    when: (app) => app.books.canCreate && (!NEEDS_COMPANY(app) || app.books.canSwitch),
+    when: (app) => app.books.canCreate && (!NEEDS_COMPANY(app) || (app.books.canSwitch && app.books.ownsOpenCompany)),
     run: (app) => app.navigate({ type: 'company-new' }),
   },
   {
@@ -103,8 +103,17 @@ const commands: Command<AppContext>[] = [
     category: 'Company',
     keywords: ['change company', 'open company', 'other company', 'select company'],
     description: 'Open another of your companies',
-    when: (app) => NEEDS_COMPANY(app) && app.books.canSwitch,
+    when: (app) => NEEDS_COMPANY(app) && app.books.canSwitch && app.books.ownsOpenCompany,
     run: (app) => app.navigate({ type: 'company-switch' }),
+  },
+  {
+    id: 'company.user',
+    title: 'Company User',
+    category: 'Settings',
+    keywords: ['user', 'access', 'login', 'staff', 'member', 'email', 'password', 'share'],
+    description: 'The one extra person who may use this company (and no other): link their account by its email',
+    when: (app) => NEEDS_COMPANY(app) && app.books.canManageUser,
+    run: (app) => app.navigate({ type: 'company-user' }),
   },
   {
     id: 'company.reset',
@@ -209,6 +218,7 @@ const entry = (section: string, commandId: string, order: number): MenuEntry => 
 const menu: MenuEntry[] = [
   ...LISTS.filter((k) => k !== 'voucherType' && k !== 'numberingSeries').map((k, i) => entry('masters', `master.list.${k}`, i + 1)),
   entry('utilities', 'settings.company', 5),
+  entry('utilities', 'company.user', 5.5),
   entry('utilities', 'settings.invoicePdf', 6),
   entry('utilities', 'settings.voucherTypes', 7),
   entry('utilities', 'settings.numbering', 8),
