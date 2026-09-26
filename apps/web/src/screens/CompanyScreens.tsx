@@ -1,12 +1,13 @@
 import type { Frame } from '@minimalerp/command';
 import type { Issue } from '@minimalerp/domain';
-import { useLayoutEffect, useRef, useState } from 'preact/hooks';
-import type { NewCompany } from '../books/books';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import type { CompanyChoice, NewCompany } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
 import { useLeaveGuard } from '../shell/useLeaveGuard';
 import type { ScreenRef } from '../shell/router';
 import { Kbd } from '../ui/Kbd';
+import { ChooseOneDialog } from './ReportDialogs';
 
 /** The first day of the financial year in progress (1 April — the Indian default). */
 function defaultFyStart(now = new Date()): string {
@@ -61,7 +62,7 @@ export function CompanyCreateScreen({ frame }: { frame: Frame<ScreenRef> }) {
       };
       const result = await host.create(input);
       if (result.ok) {
-        app.back();
+        app.goHome(); // the new company is the open one now; the screens beneath belonged to the one before
         return;
       }
       const next: Record<string, string> = {};
@@ -113,7 +114,7 @@ export function CompanyCreateScreen({ frame }: { frame: Frame<ScreenRef> }) {
 
   const chord = (id: string) => keymapStore.keymap.chordsFor(id)[0];
 
-  if (host.current) {
+  if (host.current && !host.canSwitch) {
     return (
       <section class="screen" aria-labelledby="company-title">
         <h1 id="company-title">Create Company</h1>
@@ -218,6 +219,64 @@ export function CompanyResetScreen() {
         </div>
       ) : (
         <p class="empty">No company is open.</p>
+      )}
+    </section>
+  );
+}
+
+const ROLE_NAMES: Readonly<Record<string, string>> = { owner: 'Owner', member: 'Full access' };
+
+/**
+ * Opens another of the account's companies (online books). Each company's books, inbox and settings are its own: switching closes
+ * every screen of the one before and starts again at the Gateway of the one chosen.
+ */
+export function CompanySwitchScreen() {
+  const { books: host, app } = useServices();
+  useSubscriptions(host);
+  const [companies, setCompanies] = useState<readonly CompanyChoice[] | undefined>(undefined);
+  const [problem, setProblem] = useState<string | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    host.companies().then(setCompanies, (error: unknown) => setProblem(`Could not list your companies: ${String(error instanceof Error ? error.message : error)}`));
+  }, [host]);
+
+  const open = async (id: string | undefined) => {
+    if (id === undefined) return void app.back();
+    if (id === host.current?.masters.company.id) return void app.goHome();
+    setBusy(true);
+    try {
+      await host.switchTo(id as CompanyChoice['id']);
+      app.goHome();
+    } catch (error) {
+      setProblem(`Could not open the company: ${String(error instanceof Error ? error.message : error)}`);
+      setBusy(false);
+    }
+  };
+
+  const current = host.current?.masters.company.id;
+  // The open company first, so Enter on arriving stays put and one Down moves to another.
+  const ordered = companies && [...companies].sort((a, b) => Number(b.id === current) - Number(a.id === current));
+  return (
+    <section class="screen" aria-labelledby="switch-title" data-testid="company-switch">
+      <h1 id="switch-title">Switch Company</h1>
+      {problem && (
+        <p class="notice error" role="alert">
+          {problem}
+        </p>
+      )}
+      {!ordered && !problem && <p class="empty">Loading your companies…</p>}
+      {busy && <p class="empty">Opening…</p>}
+      {ordered && !busy && (
+        <ChooseOneDialog
+          title="Open which company?"
+          options={ordered.map((c) => ({
+            value: c.id,
+            label: c.name,
+            hint: [c.id === current ? 'open now' : '', ROLE_NAMES[c.role] ?? c.role].filter(Boolean).join(' · '),
+          }))}
+          onDone={(v) => void open(v)}
+        />
       )}
     </section>
   );

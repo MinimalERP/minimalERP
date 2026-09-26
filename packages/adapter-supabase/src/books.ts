@@ -52,10 +52,11 @@ const FRESH_MS = 5_000;
  */
 const CHANGES = new Set(['master', 'companies', 'company-create']);
 
-/** A company this account belongs to. */
+/** A company this account belongs to, and the account's role in it ('owner' for the companies it made). */
 export interface CompanySummary {
   readonly id: CompanyId;
   readonly name: string;
+  readonly role: string;
 }
 
 /**
@@ -118,9 +119,9 @@ export class SupabaseBooksBackend
     return r;
   }
 
-  /** The companies this account belongs to (none until the person creates theirs). */
-  async companies(): Promise<Result<readonly CompanySummary[]>> {
-    const r = await this.call({ action: 'companies' });
+  /** The companies this account belongs to (none until the person creates theirs). The books that come with the answer are `open`'s, or the first's. */
+  async companies(open?: CompanyId): Promise<Result<readonly CompanySummary[]>> {
+    const r = await this.call({ action: 'companies', ...(open ? { companyId: open } : {}) });
     return r.ok ? ok((r.value as { companies: CompanySummary[] }).companies) : r;
   }
 

@@ -6,31 +6,48 @@ import { type CloudBackend, createCloudFactory } from './cloud';
 import { createLocalFactory, memoryStore } from './local';
 
 /**
- * A stand-in for the online backend: the in-memory backend holds the books (it enforces every rule, as the server does), and the two
- * account-level calls the factory needs — which company is mine, and make it — are played by this test.
+ * A stand-in for the online backend: an in-memory backend per company holds the books (it enforces every rule, as the server does), and
+ * the account-level calls the factory needs — which companies are mine, and make one — are played by this test.
  */
-function fakeOnline(options: { existing?: boolean; listFails?: boolean } = {}) {
-  const made = seedCompany({ name: 'Existing Co', fyStart: localDate('2024-04-01'), newId: (n) => deterministicUuid(`cloud-test|${n}`) });
-  let mine: { id: CompanyId; name: string } | undefined = options.existing ? { id: asCompanyId(made.company.id), name: 'Existing Co' } : undefined;
-  let backend = new MemoryBackend(made);
+function fakeOnline(options: { existing?: boolean; listFails?: boolean; ownsNone?: boolean } = {}) {
+  const backends = new Map<string, MemoryBackend>();
+  const mine: { id: CompanyId; name: string; role: string }[] = [];
+  const add = (name: string, role = 'owner') => {
+    const seeded = seedCompany({ name, fyStart: localDate('2024-04-01'), newId: (n) => deterministicUuid(`cloud-test|${name}|${n}`) });
+    backends.set(seeded.company.id, new MemoryBackend(seeded));
+    mine.push({ id: asCompanyId(seeded.company.id), name, role });
+    return asCompanyId(seeded.company.id);
+  };
+  if (options.existing) add('Existing Co', options.ownsNone ? 'member' : 'owner');
   const createCompany = vi.fn(async (input: NewCompany) => {
-    if (mine) return fail(issue(IssueCode.UnsupportedOperation, 'This account already has a company'));
-    const seeded = seedCompany({ name: input.name, fyStart: localDate(input.fyStart), newId: (n) => deterministicUuid(`created|${n}`) });
-    backend = new MemoryBackend(seeded);
-    mine = { id: asCompanyId(seeded.company.id), name: input.name };
-    return ok({ companyId: mine.id });
+    if (mine.length > 0 && !mine.some((c) => c.role === 'owner')) return fail(issue(IssueCode.UnsupportedOperation, 'Only the owner of the books can create a company'));
+    return ok({ companyId: add(input.name) });
   });
+  const companies = vi.fn(async (_open?: CompanyId) => (options.listFails ? fail(issue('REQUEST_FAILED', 'offline')) : ok([...mine])));
+  // Every books call names its company, either as the first argument or as `companyId` on it: route it to that company's backend.
+  const backendOf = (arg: unknown) => backends.get(typeof arg === 'string' ? arg : String((arg as { companyId?: string } | undefined)?.companyId));
   const online = new Proxy({} as CloudBackend, {
     get: (_t, key: string) => {
-      if (key === 'companies') {
-        return async () => (options.listFails ? fail(issue('REQUEST_FAILED', 'offline')) : ok(mine ? [mine] : []));
-      }
+      if (key === 'companies') return companies;
       if (key === 'createCompany') return createCompany;
-      const member = (backend as unknown as Record<string, unknown>)[key];
-      return typeof member === 'function' ? member.bind(backend) : member;
+      return (...args: unknown[]) => {
+        const backend = backendOf(args[0]) ?? [...backends.values()][0]!;
+        return (backend as unknown as Record<string, (...a: unknown[]) => unknown>)[key]!(...args);
+      };
     },
   });
-  return { online, createCompany };
+  return { online, createCompany, companies, add };
+}
+
+function remembered(initial?: string) {
+  let value = initial;
+  return {
+    get: () => value,
+    set: (id: string) => void (value = id),
+    get value() {
+      return value;
+    },
+  };
 }
 
 describe('the online books factory', () => {
@@ -63,10 +80,54 @@ describe('the online books factory', () => {
     expect(createCompany).not.toHaveBeenCalled();
   });
 
-  it('passes the server’s refusal on (one company per account)', async () => {
-    const { online } = fakeOnline({ existing: true });
+  it('passes the server’s refusal on (someone given access to a company cannot make one)', async () => {
+    const { online } = fakeOnline({ existing: true, ownsNone: true });
     const r = await createCloudFactory({ backend: online }).create({ name: 'Second', fyStart: '2024-04-01' });
     expect(!r.ok && r.issues[0]?.code).toBe(IssueCode.UnsupportedOperation);
+  });
+});
+
+describe('several companies online', () => {
+  it('opens the company opened last on this device, asking the server for its books with the list', async () => {
+    const { online, add, companies } = fakeOnline({ existing: true });
+    const second = add('Second Co');
+    const last = remembered(second);
+    const books = await createCloudFactory({ backend: online, lastOpened: last }).restore();
+    expect(books?.masters.company.name).toBe('Second Co');
+    expect(companies).toHaveBeenCalledWith(second);
+  });
+
+  it('opens the first company when the remembered one is not (or no longer) the account’s', async () => {
+    const { online } = fakeOnline({ existing: true });
+    const books = await createCloudFactory({ backend: online, lastOpened: remembered('gone') }).restore();
+    expect(books?.masters.company.name).toBe('Existing Co');
+  });
+
+  it('switches to another company and remembers it', async () => {
+    const { online, add } = fakeOnline({ existing: true });
+    const second = add('Second Co');
+    const last = remembered();
+    const host = new BooksHost(createCloudFactory({ backend: online, lastOpened: last }));
+    await host.restore();
+    expect(host.canSwitch).toBe(true);
+    expect((await host.companies()).map((c) => c.name)).toEqual(['Existing Co', 'Second Co']);
+    await host.switchTo(second);
+    expect(host.current?.masters.company.name).toBe('Second Co');
+    expect(last.value).toBe(second);
+  });
+
+  it('creates another company while one is open, and opens it', async () => {
+    const { online } = fakeOnline({ existing: true });
+    const host = new BooksHost(createCloudFactory({ backend: online }));
+    await host.restore();
+    const r = await host.create({ name: 'Third Co', fyStart: '2024-04-01' });
+    expect(r.ok).toBe(true);
+    expect(host.current?.masters.company.name).toBe('Third Co');
+  });
+
+  it('the books kept in the browser stay one company: no switching', () => {
+    const host = new BooksHost(createLocalFactory({ makeBackend: (m) => new MemoryBackend(m) as never, store: memoryStore() }));
+    expect(host.canSwitch).toBe(false);
   });
 });
 

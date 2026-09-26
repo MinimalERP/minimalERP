@@ -75,7 +75,7 @@ describe('creating a company', () => {
     expect(role.rows[0]?.role).toBe('owner');
 
     const listed = await call<{ companies: { id: string; name: string }[] }>({ action: 'companies' }, other);
-    expect(listed.body.ok && listed.body.value.companies).toEqual([{ id, name: 'Acme Traders' }]);
+    expect(listed.body.ok && listed.body.value.companies).toEqual([{ id, name: 'Acme Traders', role: 'owner' }]);
 
     const loaded = await call<{ core: unknown; ledgers: unknown }>({ action: 'load', companyId: id }, other);
     if (!loaded.body.ok) throw new Error(JSON.stringify(loaded.body.issues));
@@ -84,9 +84,28 @@ describe('creating a company', () => {
     expect(masters.financialYears[0]?.label).toBe('2024-25');
   });
 
-  it('is one company per account: a second attempt is refused and nothing is created', async () => {
+  it('lets an owner make several companies, listed oldest first, and sends the books of the one asked for', async () => {
+    const second = await call<{ companyId: string }>({ action: 'company-create', company: { name: 'Second Co', fyStart: '2024-04-01' } }, other);
+    if (!second.body.ok) throw new Error(JSON.stringify(second.body.issues));
+    const listed = await call<{ companies: { name: string; role: string }[] }>({ action: 'companies' }, other);
+    expect(listed.body.ok && listed.body.value.companies.map((c) => [c.name, c.role])).toEqual([
+      ['Acme Traders', 'owner'],
+      ['Second Co', 'owner'],
+    ]);
+    const res = await handler(
+      new Request('http://localhost/functions/v1/post-voucher', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${other}` },
+        body: JSON.stringify({ action: 'companies', companyId: second.body.value.companyId, fresh: true }),
+      }),
+    );
+    const fresh = ((await res.json()) as { fresh?: { companyId: string } }).fresh;
+    expect(fresh?.companyId).toBe(second.body.value.companyId);
+  });
+
+  it('refuses a new company to someone who was only given access to another’s, and creates nothing', async () => {
     const before = await db.pool.query(`select count(*)::int as n from public.companies`);
-    const again = await call({ action: 'company-create', company: { name: 'Second Co', fyStart: '2024-04-01' } }, other);
+    const again = await call({ action: 'company-create', company: { name: 'Viewer Co', fyStart: '2024-04-01' } }, viewer);
     expect(codes(again.body)).toEqual([IssueCode.UnsupportedOperation]);
     const after = await db.pool.query(`select count(*)::int as n from public.companies`);
     expect(after.rows[0]?.n).toBe(before.rows[0]?.n);

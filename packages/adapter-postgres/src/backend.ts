@@ -356,16 +356,16 @@ export class PostgresBackend
     return core.with({ ledgers: ledgersFromJson(r.rows[0]?.['l'], companyId) });
   }
 
-  /** The companies the actor belongs to, oldest first (what the browser opens on sign-in). */
-  async companiesOf(): Promise<readonly { readonly id: string; readonly name: string }[]> {
+  /** The companies the actor belongs to, oldest first, each with the actor's role in it (the browser lists them in its company switcher). */
+  async companiesOf(): Promise<readonly { readonly id: string; readonly name: string; readonly role: string }[]> {
     const r = await this.db.query(
-      `select c.id, c.name
+      `select c.id, c.name, m.role
          from public.companies c join public.company_members m on m.company_id = c.id
         where m.user_id = $1::uuid
         order by c.created_at, c.id`,
       [this.options.actorId],
     );
-    return r.rows.map((row) => ({ id: text(row['id']), name: text(row['name']) }));
+    return r.rows.map((row) => ({ id: text(row['id']), name: text(row['name']), role: text(row['role']) }));
   }
 
   /** Whether the actor holds a permission in a company (false for a company that does not exist, or that they are not in). */

@@ -29,6 +29,8 @@
 .crumbs span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar .spacer { flex: 1; }
 .company { color: var(--c-text-muted); font-size: var(--fs-sm); }
+.company-switch { font: inherit; font-size: var(--fs-sm); background: none; border: 1px solid transparent; border-radius: var(--radius); padding: 0 var(--sp-2); cursor: pointer; }
+.company-switch:hover { color: var(--c-text); border-color: var(--c-border); }
 .goto-button {
   display: inline-flex; align-items: center; gap: var(--sp-3);
   white-space: nowrap; flex-shrink: 0;

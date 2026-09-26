@@ -387,11 +387,22 @@ async function postOpeningStockFor(
   return posted.ok ? ok({ number: posted.value.voucher.number }) : posted;
 }
 
+/** A company the person may open, and their role in it ('owner' for the companies they made). */
+export interface CompanyChoice {
+  readonly id: CompanyId;
+  readonly name: string;
+  readonly role: string;
+}
+
 /** Builds and restores companies. The composition root supplies it (it knows which backend and which storage). */
 export interface BooksFactory {
   /** The company saved from a previous visit, if any. */
   restore(): Promise<Books | undefined>;
   create(input: NewCompany): Promise<Result<Books>>;
+  /** The companies the person may open. Absent where there is only ever one (the browser's own books). */
+  companies?(): Promise<readonly CompanyChoice[]>;
+  /** Opens one of `companies()`. */
+  open?(companyId: CompanyId): Promise<Books>;
   /** Forget the saved company (start over). Absent when the company is not the browser's to delete (the online books). */
   discard?(): Promise<void>;
   /** Whether the sample company may be loaded. False for the online books: it would fill someone's real books with make-believe. */
@@ -426,6 +437,22 @@ export class BooksHost {
     return this.factory !== undefined && this.factory.allowsDemo !== false;
   }
 
+  /** Whether another company can be opened in place of this one (the online books; the browser keeps only one). */
+  get canSwitch(): boolean {
+    return this.factory?.open !== undefined && this.factory.companies !== undefined;
+  }
+
+  /** The companies the person may open (empty where there is only ever one). */
+  async companies(): Promise<readonly CompanyChoice[]> {
+    return (await this.factory?.companies?.()) ?? [];
+  }
+
+  /** Opens another company in place of the open one. */
+  async switchTo(companyId: CompanyId): Promise<void> {
+    if (!this.factory?.open) throw new Error('Switching company is not available here');
+    this.adopt(await this.factory.open(companyId));
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => void this.listeners.delete(listener);
@@ -443,7 +470,7 @@ export class BooksHost {
 
   async create(input: NewCompany): Promise<Result<Books>> {
     if (!this.factory) return fail(issue(IssueCode.UnsupportedOperation, 'Creating a company is not available here'));
-    if (this.books) return fail(issue(IssueCode.UnsupportedOperation, 'A company is already open'));
+    if (this.books && !this.canSwitch) return fail(issue(IssueCode.UnsupportedOperation, 'A company is already open'));
     const result = await this.factory.create(input);
     if (result.ok) this.adopt(result.value);
     return result;

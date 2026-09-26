@@ -36,8 +36,9 @@ import { z } from 'zod';
  *         { action: 'alter',  companyId, voucherId, expectedVersion, draft }
  *         { action: 'cancel', companyId, voucherId, expectedVersion }
  *         { action: 'master', companyId, command }      a master-data command: create / alter / setActive
- *         { action: 'companies' }                        the caller's companies: [{ id, name }]
- *         { action: 'company-create', company }          seed a company for the caller (one per account), who becomes its owner
+ *         { action: 'companies', companyId? }            the caller's companies: [{ id, name, role }] (fresh: the one asked for, else the first)
+ *         { action: 'company-create', company }          seed a company for the caller, who becomes its owner (refused to
+ *                                                        someone who belongs to companies but owns none of them)
  *         { action: 'load', companyId }                  the masters as JSON ({ core, ledgers }; the browser rebuilds them with buildMasters)
  *         { action: 'vouchers' | 'voucher' | 'lines' | 'stock', companyId, … }   reads, each checked against the caller's permission
  *         { action: 'inbox', companyId }                 the AI Inbox: the proposals waiting (ADR-0023)
@@ -74,7 +75,7 @@ const body = z.discriminatedUnion('action', [
     fresh: z.boolean().optional(),
   }),
   z.object({ action: z.literal('master'), companyId, command: z.unknown(), fresh: z.boolean().optional() }),
-  z.object({ action: z.literal('companies'), fresh: z.boolean().optional() }),
+  z.object({ action: z.literal('companies'), companyId: companyId.optional(), fresh: z.boolean().optional() }),
   z.object({
     action: z.literal('company-create'),
     company: z.object({
@@ -119,7 +120,7 @@ const body = z.discriminatedUnion('action', [
  * The reads run as the service role (they bypass row-level security), so the handler asks `can` before every one of them.
  */
 export interface BooksServer extends PostingGateway, MasterGateway, MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway {
-  companiesOf(): Promise<readonly { readonly id: string; readonly name: string }[]>;
+  companiesOf(): Promise<readonly { readonly id: string; readonly name: string; readonly role: string }[]>;
   can(companyId: string, permission: string): Promise<boolean>;
   loadJson(companyId: string): Promise<{ readonly core: unknown; readonly ledgers: unknown } | undefined>;
   createCompany(masters: Masters): Promise<Result<{ companyId: CompanyId }>>;
@@ -228,15 +229,16 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
 
         case 'companies': {
           const companies = await gateway.companiesOf();
-          const first = companies[0];
-          return json(200, { ok: true, value: { companies }, ...(cmd.fresh && first ? { fresh: await freshAll(gateway, first.id) } : {}) });
+          const opened = companies.find((c) => c.id === cmd.companyId) ?? companies[0];
+          return json(200, { ok: true, value: { companies }, ...(cmd.fresh && opened ? { fresh: await freshAll(gateway, opened.id) } : {}) });
         }
 
         case 'company-create': {
           const input = cmd.company;
-          // One company per account (someone who wants another asks to be invited to it).
-          if ((await gateway.companiesOf()).length > 0) {
-            return json(200, { ok: false, issues: [issue(IssueCode.UnsupportedOperation, 'This account already has a company')] });
+          // Anyone who owns a company (or has none yet) may make another; someone who was only given access to a company may not.
+          const mine = await gateway.companiesOf();
+          if (mine.length > 0 && !mine.some((c) => c.role === 'owner')) {
+            return json(200, { ok: false, issues: [issue(IssueCode.UnsupportedOperation, 'Only the owner of the books can create a company')] });
           }
           const problems = newCompanyIssues(input);
           if (problems.length > 0) return json(200, { ok: false, issues: problems });

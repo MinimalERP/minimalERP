@@ -79,8 +79,8 @@ const commands: Command<AppContext>[] = [
     title: 'Create Company',
     category: 'Company',
     keywords: ['new company', 'onboarding', 'books', 'financial year'],
-    description: 'Start your books: name, financial year and GSTIN',
-    when: (app) => !NEEDS_COMPANY(app) && app.books.canCreate,
+    description: 'Start a company’s books: name, financial year and GSTIN',
+    when: (app) => app.books.canCreate && (!NEEDS_COMPANY(app) || app.books.canSwitch),
     run: (app) => app.navigate({ type: 'company-new' }),
   },
   {
@@ -96,6 +96,15 @@ const commands: Command<AppContext>[] = [
         else console.error('Could not load the demo company', result.issues);
       });
     },
+  },
+  {
+    id: 'company.switch',
+    title: 'Switch Company',
+    category: 'Company',
+    keywords: ['change company', 'open company', 'other company', 'select company'],
+    description: 'Open another of your companies',
+    when: (app) => NEEDS_COMPANY(app) && app.books.canSwitch,
+    run: (app) => app.navigate({ type: 'company-switch' }),
   },
   {
     id: 'company.reset',
@@ -183,6 +192,7 @@ const commands: Command<AppContext>[] = [
 ];
 
 const bindings: DefaultBinding[] = [
+  { commandId: 'company.switch', chord: 'Alt+F3' },
   { commandId: 'voucher.accept', chord: 'Ctrl+A' },
   { commandId: 'master.createInline', chord: 'Alt+C' },
   { commandId: 'master.alter', chord: 'Alt+A' },
@@ -203,6 +213,7 @@ const menu: MenuEntry[] = [
   entry('utilities', 'settings.voucherTypes', 7),
   entry('utilities', 'settings.numbering', 8),
   entry('utilities', 'company.create', 2),
+  entry('utilities', 'company.switch', 1),
   entry('utilities', 'company.loadDemo', 3),
   entry('utilities', 'company.reset', 4),
 ];

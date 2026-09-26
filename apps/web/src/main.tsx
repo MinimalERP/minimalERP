@@ -92,6 +92,27 @@ async function startLocal(localBooks?: LocalBooks): Promise<void> {
 }
 
 /** The address carries the invitation's tokens until the auth library has read them; after that they are only clutter (and the router reads the hash). */
+/** Which of the account's companies was open last on this device (a convenience: without it, the first company opens). */
+function rememberedCompany(storage: Storage | undefined, userId: string) {
+  const key = `minimalerp-company-${userId}`;
+  return {
+    get: () => {
+      try {
+        return storage?.getItem(key) ?? undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    set: (companyId: string) => {
+      try {
+        storage?.setItem(key, companyId);
+      } catch {
+        // private window or blocked storage: the first company opens next time
+      }
+    },
+  };
+}
+
 function clearAuthHash(): void {
   if (/access_token|error/.test(window.location.hash)) window.history.replaceState(null, '', window.location.pathname + window.location.search);
 }
@@ -123,6 +144,7 @@ async function startCloud(config: CloudConfig): Promise<void> {
       backend: new SupabaseBooksBackend(client as unknown as SupabaseLike, { region: config.region }),
       drafts: indexedDbStore(`minimalerp-drafts-${session.userId}`) ?? memoryStore(), // scratch work, per person, on this device
       saving,
+      lastOpened: rememberedCompany(storage, session.userId),
     });
     const host = new BooksHost(factory);
     render(<StartupLoading />, root());

@@ -1,11 +1,12 @@
 import { type CompanyId, type Result, IssueCode, fail, issue, ok } from '@minimalerp/domain';
-import { Books, type BooksBackend, type BooksFactory, type NewCompany, newCompanyIssues } from './books';
+import { Books, type BooksBackend, type BooksFactory, type CompanyChoice, type NewCompany, newCompanyIssues } from './books';
 import type { SaveTracker } from './saving';
 import type { KeyValueStore } from './store';
 
-/** What the factory needs from the online backend beyond the books themselves: which company is this account's, and making it. */
+/** What the factory needs from the online backend beyond the books themselves: which companies are this account's, and making one. */
 export interface CloudBackend extends BooksBackend {
-  companies(): Promise<Result<readonly { readonly id: CompanyId; readonly name: string }[]>>;
+  /** `open` names the company about to be opened, so the server can send its books along with the list. */
+  companies(open?: CompanyId): Promise<Result<readonly CompanyChoice[]>>;
   createCompany(input: NewCompany): Promise<Result<{ readonly companyId: CompanyId }>>;
 }
 
@@ -15,18 +16,28 @@ export interface CloudFactoryOptions {
   readonly drafts?: KeyValueStore | undefined;
   /** Shared for the account's session, so the saving overlay is the same object whenever the company is opened. */
   readonly saving?: SaveTracker | undefined;
+  /** Which company was open last on this device, so the next visit opens it again. */
+  readonly lastOpened?: { get(): string | undefined; set(companyId: string): void } | undefined;
 }
 
 /**
- * The company that lives online. It is not saved by the browser at all: opening it asks the server which company this account owns,
- * and every change goes to the server, which validates and commits it. There is nothing to discard here (the browser holds no copy),
- * and no sample company (this is someone's real books).
+ * The companies that live online. They are not saved by the browser at all: opening one asks the server which companies this account
+ * belongs to, and every change goes to the server, which validates and commits it. There is nothing to discard here (the browser holds
+ * no copy), and no sample company (these are someone's real books). An account may have several companies; the one opened last on this
+ * device is opened again, and the others are a switch away.
  */
-export function createCloudFactory({ backend, drafts, saving }: CloudFactoryOptions): BooksFactory {
+export function createCloudFactory({ backend, drafts, saving, lastOpened }: CloudFactoryOptions): BooksFactory {
   const open = async (companyId: CompanyId): Promise<Books> => {
     const books = new Books(backend, companyId, await backend.load(companyId), drafts, saving);
     await books.loadData();
+    lastOpened?.set(companyId);
     return books;
+  };
+
+  const list = async (open?: CompanyId): Promise<readonly CompanyChoice[]> => {
+    const listed = await backend.companies(open);
+    if (!listed.ok) throw new Error(listed.issues.map((i) => i.message).join('; '));
+    return listed.value;
   };
 
   return {
@@ -34,11 +45,14 @@ export function createCloudFactory({ backend, drafts, saving }: CloudFactoryOpti
 
     /** Undefined when the account has no company yet (the person is then offered to create one). Throws when the server cannot be asked. */
     async restore() {
-      const listed = await backend.companies();
-      if (!listed.ok) throw new Error(listed.issues.map((i) => i.message).join('; '));
-      const mine = listed.value[0];
+      const remembered = lastOpened?.get() as CompanyId | undefined;
+      const companies = await list(remembered);
+      const mine = companies.find((c) => c.id === remembered) ?? companies[0];
       return mine ? open(mine.id) : undefined;
     },
+
+    companies: () => list(),
+    open,
 
     async create(input: NewCompany) {
       const problems = newCompanyIssues(input);

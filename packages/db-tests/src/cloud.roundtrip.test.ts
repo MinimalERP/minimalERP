@@ -96,7 +96,7 @@ describe('the online backend, end to end', () => {
     expect(own.ok && own.value).toEqual([]);
   });
 
-  it('a new account creates its own company, and it is the only one it can make', async () => {
+  it('a new account creates its own company, then another, and opens each', async () => {
     const fresh = randomUUID();
     await db.pool.query(`insert into auth.users (id, email) values ($1, $2)`, [fresh, `${fresh}@example.test`]);
     const b = browserAs(fresh);
@@ -108,7 +108,10 @@ describe('the online backend, end to end', () => {
     expect(await b.list(created.value.companyId)).toEqual([]);
 
     const again = await b.createCompany({ name: 'Another', fyStart: '2024-04-01' });
-    expect(again.ok).toBe(false);
+    if (!again.ok) throw new Error(JSON.stringify(again.issues));
+    expect((await b.load(again.value.companyId)).company.name).toBe('Another');
+    const listed = await b.companies();
+    expect(listed.ok && listed.value.map((c) => c.name)).toEqual(['Round Trip Traders', 'Another']);
   });
 });
 

@@ -22,6 +22,8 @@ export function useScreenTitle() {
         return 'Create Company';
       case 'company-reset':
         return 'Close Company';
+      case 'company-switch':
+        return 'Switch Company';
       case 'invoice-settings':
         return 'Invoice / PDF Settings';
       case 'inbox':
@@ -102,7 +104,20 @@ export function TopBar() {
         ))}
       </nav>
       <span class="spacer" />
-      <span class="company" data-testid="company-name">{books.current?.masters.company.name ?? 'No company open'}</span>
+      {books.canSwitch && books.current ? (
+        <button
+          type="button"
+          class="company company-switch"
+          data-testid="company-name"
+          title="Switch company"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => registry.dispatch('company.switch', { scopes: scopes.snapshot().ids, modal: scopes.snapshot().modal })}
+        >
+          {books.current.masters.company.name} ▾
+        </button>
+      ) : (
+        <span class="company" data-testid="company-name">{books.current?.masters.company.name ?? 'No company open'}</span>
+      )}
       {app.account && (
         <>
           <span class="account" data-testid="account-email" title={app.account.email}>
