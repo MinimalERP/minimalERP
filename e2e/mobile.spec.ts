@@ -196,15 +196,38 @@ test.describe('swipes and the Back button on a phone', () => {
     await expect(page.locator('.screen')).toContainText('Sharma Traders');
   });
 
-  test('on the Gateway the first Back only warns — "Press Back again to close" — and the second leaves', async ({ page }) => {
+  test('on the Gateway Back asks "Exit MinimalERP?": Stay keeps the app, and a Back while it asks leaves', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('.shell')).toBeVisible();
     await loadDemo(page);
     await expect(page).toHaveURL(/#\/gateway$/);
+    await page.locator('.topbar').tap(); // the person has touched the app (Chrome honours Back entries only after that)
     await page.goBack();
-    await expect(page.locator('.toast')).toHaveText('Press Back again to close');
+    await expect(page.locator('.exit-card')).toContainText('Exit MinimalERP?');
+    await page.getByRole('button', { name: 'Stay' }).tap();
+    await expect(page.locator('.exit-ask')).toHaveCount(0);
+    await page.goBack();
+    await expect(page.locator('.exit-card')).toBeVisible(); // asked again
+    await page.goBack();
+    await expect(page).not.toHaveURL(/#\/gateway$/); // Back while it asks: gone
+  });
+
+  test('inside the app, Back after Back keeps stepping back (Esc) and never drops out of the app', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.shell')).toBeVisible();
+    await loadDemo(page);
+    await goTo(page, 'ledgers');
+    await page.keyboard.press('Enter');
+    await expect(heading(page)).toHaveText('Ledgers');
+    await page.keyboard.type('factory rent');
+    await page.keyboard.press('Enter');
+    await expect(heading(page)).toHaveText('Display Ledger: Factory Rent');
+    await page.goBack();
+    await expect(heading(page)).toHaveText('Ledgers');
+    await page.goBack();
+    await expect(page).toHaveURL(/#\/gateway$/);
     await expect(page.locator('.shell')).toBeVisible();
     await page.goBack();
-    await expect(page).not.toHaveURL(/#\/gateway$/);
+    await expect(page.locator('.exit-card')).toBeVisible();
   });
 });

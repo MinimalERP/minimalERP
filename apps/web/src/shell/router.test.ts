@@ -209,120 +209,123 @@ describe('master addresses', () => {
   );
 });
 
-/** A browser history of entries with the address on the top one; Back pops it and tells the listener (as popstate does). */
-function fakeHistory(hash = '#/gateway') {
-  const entries = [hash];
-  let onPop: (() => void) | undefined;
+/**
+ * A browser history with Chrome's rule: entries a page pushes with no tap since it loaded or since the last Back are all skipped by Back
+ * (so Back leaves the app), until the person taps again. `tap()` is a touch on the screen; `back()` the phone's Back.
+ */
+function fakeHistory() {
+  const entries: { hash: string; state: unknown; skip: boolean }[] = [{ hash: '#/gateway', state: null, skip: false }];
+  let at = 0;
+  let tapped = false;
   let left = false;
+  const listeners: Record<string, ((e: Event) => void)[]> = {};
+  const fire = (type: string, e: Event = { isTrusted: true } as Event) => (listeners[type] ?? []).forEach((l) => l(e));
   const win: BackWindow = {
-    location: { get hash() { return entries.at(-1) as string; }, set hash(v: string) { entries[entries.length - 1] = v; } },
+    location: { get hash() { return (entries[at] as { hash: string }).hash; }, set hash(v: string) { (entries[at] as { hash: string }).hash = v; } },
     history: {
-      pushState: (_d, _u, url) => void entries.push(url ?? (entries.at(-1) as string)),
-      replaceState: (_d, _u, url) => void (entries[entries.length - 1] = url ?? (entries.at(-1) as string)),
-      back: () => {
-        if (entries.length === 1) left = true;
-        else entries.pop();
-        onPop?.();
+      get state() { return (entries[at] as { state: unknown }).state; },
+      pushState: (state, _u, url) => {
+        entries.splice(at + 1);
+        entries.push({ hash: url ?? (entries[at] as { hash: string }).hash, state, skip: false });
+        at++;
+        if (!tapped) entries.forEach((e) => (e.skip = true));
+      },
+      replaceState: (state, _u, url) => void Object.assign(entries[at] as object, { state, hash: url ?? (entries[at] as { hash: string }).hash }),
+      go: (delta) => {
+        at = Math.max(0, at + delta);
+        fire('popstate');
       },
     },
-    addEventListener: (_t, l) => { onPop = l; },
-    removeEventListener: () => { onPop = undefined; },
+    addEventListener: (t, l) => void (listeners[t] ??= []).push(l),
+    removeEventListener: (t, l) => void (listeners[t] = (listeners[t] ?? []).filter((x) => x !== l)),
   };
-  return { win, entries, back: () => win.history.back(), left: () => left };
+  return {
+    win,
+    entries,
+    tap: async () => {
+      tapped = true;
+      entries.forEach((e) => (e.skip = false));
+      fire('pointerdown');
+      await Promise.resolve(); // the sync after a tap runs as a microtask
+    },
+    back: () => {
+      let to = at - 1;
+      while (to >= 0 && (entries[to] as { skip: boolean }).skip) to--;
+      if (to < 0) { left = true; return; }
+      at = to;
+      tapped = false;
+      fire('popstate');
+    },
+    left: () => left,
+  };
 }
 
 describe('bindBackButton — the phone\'s Back is Esc inside the app; only the Gateway lets it leave', () => {
-  const setup = () => {
+  const setup = (withAsk = false) => {
     const screens = new ScreenStack<ScreenRef>(GATEWAY);
     const h = fakeHistory();
-    let modal = false;
     const esc = vi.fn(() => void screens.pop()); // what Esc does on a plain screen: back one
-    bindBackButton(screens, () => modal, () => () => {}, h.win, esc);
-    return { screens, h, esc, setModal: (m: boolean) => (modal = m) };
+    const ask = vi.fn();
+    bindBackButton(screens, h.win, { isModal: () => false, onScopes: () => () => {}, pressEsc: esc, ...(withAsk ? { onGatewayBack: ask } : {}) });
+    return { screens, h, esc, ask };
   };
 
-  it('on the Gateway nothing is added: Back leaves', () => {
+  it('on the Gateway (desktop) nothing is added: Back leaves', () => {
     const { h, esc } = setup();
-    expect(h.entries).toHaveLength(1);
     h.back();
     expect(h.left()).toBe(true);
     expect(esc).not.toHaveBeenCalled();
   });
 
-  it('from a screen, Back presses Esc and stays; from the Gateway reached that way, the next Back leaves', () => {
+  it('screens opened by taps: Back presses Esc on each, never re-adding an entry after a Back, then leaves from the Gateway', async () => {
     const { screens, h, esc } = setup();
+    await h.tap();
     screens.push({ type: 'menu', id: 'masters' });
+    await h.tap();
     screens.push({ type: 'planned', id: 'report.trialBalance' });
     h.back();
-    expect(esc).toHaveBeenCalledTimes(1);
-    expect(h.left()).toBe(false);
     expect(screens.top.screen).toEqual({ type: 'menu', id: 'masters' });
     h.back();
-    expect(esc).toHaveBeenCalledTimes(2);
     expect(screens.depth).toBe(1);
-    h.back();
-    expect(h.left()).toBe(true);
     expect(esc).toHaveBeenCalledTimes(2);
-  });
-
-  it('Esc pressed by hand back to the Gateway takes the spare entry away too, so Back there leaves at once', () => {
-    const { screens, h } = setup();
-    screens.push({ type: 'menu', id: 'masters' });
-    expect(h.entries).toHaveLength(2);
-    screens.pop();
-    expect(h.entries).toHaveLength(1);
+    expect(h.left()).toBe(false);
     h.back();
     expect(h.left()).toBe(true);
   });
 
-  it('when Esc does not leave the screen (it stepped back a field), Back keeps working', () => {
+  it('Esc pressed by hand back to the Gateway gives the entries back, so Back there leaves at once', async () => {
+    const { screens, h } = setup();
+    await h.tap();
+    screens.push({ type: 'menu', id: 'masters' });
+    screens.pop();
+    expect(h.win.history.state).toEqual({ erpBack: 0 });
+    h.back();
+    expect(h.left()).toBe(true);
+  });
+
+  it('a Back that only stepped a field back is made up for at the next tap', async () => {
     const { screens, h, esc } = setup();
+    await h.tap();
     screens.push({ type: 'menu', id: 'masters' });
     esc.mockImplementationOnce(() => {});
     h.back();
     expect(screens.depth).toBe(2);
-    expect(h.entries).toHaveLength(2); // a new spare is laid
+    await h.tap();
     h.back();
     expect(screens.depth).toBe(1);
-  });
-});
-
-describe('bindBackButton with a warning on the Gateway (phones)', () => {
-  it('the first Back only warns; a second within the time leaves; after the time, a Back warns again', () => {
-    vi.useFakeTimers();
-    try {
-      const screens = new ScreenStack<ScreenRef>(GATEWAY);
-      const h = fakeHistory();
-      const say = vi.fn();
-      const esc = vi.fn(() => void screens.pop());
-      bindBackButton(screens, () => false, () => () => {}, h.win, esc, { say, ms: 2000 });
-      h.back();
-      expect(say).toHaveBeenCalledTimes(1);
-      expect(h.left()).toBe(false);
-      vi.advanceTimersByTime(2500);
-      h.back();
-      expect(say).toHaveBeenCalledTimes(2);
-      expect(h.left()).toBe(false);
-      h.back();
-      expect(h.left()).toBe(true);
-      expect(esc).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('inside the app Back is still Esc, and coming home keeps the Gateway guarded', () => {
-    const screens = new ScreenStack<ScreenRef>(GATEWAY);
-    const h = fakeHistory();
-    const say = vi.fn();
-    const esc = vi.fn(() => void screens.pop());
-    bindBackButton(screens, () => false, () => () => {}, h.win, esc, { say, ms: 2000 });
-    screens.push({ type: 'menu', id: 'masters' });
-    h.back();
-    expect(esc).toHaveBeenCalledTimes(1);
-    expect(screens.depth).toBe(1);
-    h.back();
-    expect(say).toHaveBeenCalledTimes(1);
     expect(h.left()).toBe(false);
+  });
+
+  it('on a phone the Gateway asks first: the first Back opens "Exit?", the next leaves; a tap (Stay) guards it again', async () => {
+    const { h, ask } = setup(true);
+    await h.tap();
+    h.back();
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(h.left()).toBe(false);
+    await h.tap(); // Stay
+    h.back();
+    expect(ask).toHaveBeenCalledTimes(2);
+    h.back();
+    expect(h.left()).toBe(true);
   });
 });

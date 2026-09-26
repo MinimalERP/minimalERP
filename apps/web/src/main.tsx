@@ -53,14 +53,32 @@ function root(): HTMLElement {
   return el;
 }
 
-/** A short message at the bottom of the screen that goes by itself (the phone's "Press Back again to close"). */
-function toast(text: string, ms = 2000): void {
-  const el = document.createElement('div');
-  el.className = 'toast';
-  el.setAttribute('role', 'status');
-  el.textContent = text;
-  document.body.append(el);
-  setTimeout(() => el.remove(), ms);
+/**
+ * "Exit MinimalERP?" — after Back on the Gateway (phones). Stay closes it (that tap also lays a new Back entry). Exit asks the browser to
+ * close the app; an installed app is not always allowed to close itself, and then the next Back does it (no entry is left to stop it).
+ */
+function askToExit(): void {
+  document.querySelector('.exit-ask')?.remove();
+  const box = document.createElement('div');
+  box.className = 'exit-ask';
+  box.innerHTML = `<div class="exit-card" role="alertdialog" aria-modal="true" aria-labelledby="exit-title">
+    <p id="exit-title"><strong>Exit MinimalERP?</strong></p>
+    <p class="exit-note">Press Back again to exit.</p>
+    <div class="exit-buttons"><button type="button" class="goto-button" data-exit="stay">Stay</button><button type="button" class="goto-button exit-go" data-exit="go">Exit</button></div>
+  </div>`;
+  const close = () => box.remove();
+  box.addEventListener('click', (e) => {
+    const what = (e.target as Element).closest('[data-exit]')?.getAttribute('data-exit');
+    if (what === 'go') {
+      window.close();
+      setTimeout(() => {
+        const note = box.querySelector('.exit-note');
+        if (note) note.textContent = 'Press Back once more to exit.';
+      }, 300);
+    } else if (what === 'stay' || e.target === box) close();
+  });
+  document.body.append(box);
+  (box.querySelector('[data-exit="stay"]') as HTMLElement | null)?.focus();
 }
 
 /** Shows the application for an open (or not yet created) company. Called once. */
@@ -78,15 +96,14 @@ function mountApp(books: BooksHost, saving: SaveTracker, account?: Account, loca
   services.keyboard.start();
   bindRouter(services.screens, window);
   // Back is Esc inside the app (sent to whatever has the focus, as the key would be); only the Gateway lets it leave — on a phone only
-  // after "Press Back again to close", so a stray Back does not close the books
-  bindBackButton(
-    services.screens,
-    () => services.scopes.snapshot().modal,
-    (l) => services.scopes.subscribe(l),
-    window,
-    () => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })),
-    window.matchMedia('(pointer: coarse)').matches ? { say: () => toast('Press Back again to close'), ms: 2000 } : undefined,
-  );
+  // after "Exit MinimalERP?", so a stray Back does not close the books
+  bindBackButton(services.screens, window, {
+    isModal: () => services.scopes.snapshot().modal,
+    onScopes: (l) => services.scopes.subscribe(l),
+    pressEsc: () => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })),
+    activeNow: () => (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive ?? true,
+    ...(window.matchMedia('(pointer: coarse)').matches ? { onGatewayBack: askToExit } : {}),
+  });
 
   render(
     <ServicesContext.Provider value={services}>

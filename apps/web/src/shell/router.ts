@@ -193,7 +193,7 @@ export function hashToRef(hash: string): ScreenRef | undefined {
 /** Only what the router needs from `window`, so it can be tested without a browser. */
 export interface RouterWindow {
   readonly location: { hash: string };
-  readonly history: { replaceState(data: unknown, unused: string, url?: string | null): void };
+  readonly history: { readonly state?: unknown; replaceState(data: unknown, unused: string, url?: string | null): void };
   addEventListener(type: 'hashchange', listener: () => void): void;
   removeEventListener(type: 'hashchange', listener: () => void): void;
 }
@@ -213,7 +213,7 @@ export function bindRouter(screens: ScreenStack<ScreenRef>, win: RouterWindow): 
   };
   const toAddress = () => {
     const hash = refToHash(screens.top.screen);
-    if (win.location.hash !== hash) win.history.replaceState(null, '', hash);
+    if (win.location.hash !== hash) win.history.replaceState(win.history.state ?? null, '', hash); // keeps the back button's mark
   };
 
   if (win.location.hash) fromAddress();
@@ -232,79 +232,106 @@ export function bindRouter(screens: ScreenStack<ScreenRef>, win: RouterWindow): 
 /** Only what the back button needs from `window`. */
 export interface BackWindow {
   readonly location: { hash: string };
-  readonly history: { pushState(data: unknown, unused: string, url?: string | null): void; replaceState(data: unknown, unused: string, url?: string | null): void; back(): void };
-  addEventListener(type: 'popstate', listener: () => void): void;
-  removeEventListener(type: 'popstate', listener: () => void): void;
+  readonly history: {
+    readonly state: unknown;
+    pushState(data: unknown, unused: string, url?: string | null): void;
+    replaceState(data: unknown, unused: string, url?: string | null): void;
+    go(delta: number): void;
+  };
+  addEventListener(type: 'popstate' | 'pointerdown', listener: (e: Event) => void, capture?: boolean): void;
+  removeEventListener(type: 'popstate' | 'pointerdown', listener: (e: Event) => void, capture?: boolean): void;
+}
+
+export interface BackButtonOptions {
+  /** A dialog is open over the screen (Back closes it, as Esc does). */
+  readonly isModal: () => boolean;
+  readonly onScopes: (listener: () => void) => () => void;
+  /** Esc, sent where the focus is. */
+  readonly pressEsc: () => void;
+  /** Back on the Gateway (phones): ask before leaving. Left out, Back there leaves at once. */
+  readonly onGatewayBack?: () => void;
+  /** Whether the page has a fresh user activation right now (navigator.userActivation.isActive); tests say yes. */
+  readonly activeNow?: () => boolean;
 }
 
 /**
- * The phone's Back button (and the browser's) is Esc inside the application; only on the Gateway, with nothing open over it, does it leave.
- * The address never piles up history (the router replaces it), so Back would close the app from any screen. Instead, while there is
- * somewhere to go back to — a screen above the Gateway, or a dialog — ONE spare history entry is kept: Back uses it up, this presses Esc
- * (whatever Esc does where the focus is: a field back, close the window, "Close and leave?"), and a new spare is laid while still away.
- * With `warnLeave` (phones) the Gateway keeps a spare too, so an accidental Back there only warns.
+ * Every history entry this knows carries `{ erpBack: n }`: how many of our entries lie beneath and including it (the page's own entry is 0).
+ * An entry without it was made by an address typed or a link followed — a navigation, never a Back.
  */
-export function bindBackButton(
-  screens: ScreenStack<ScreenRef>,
-  isModal: () => boolean,
-  onScopes: (listener: () => void) => () => void,
-  win: BackWindow,
-  pressEsc: () => void,
-  /** On the Gateway, the first Back only says so ("Press Back again to close"); a second within `ms` leaves. Left out: the first leaves. */
-  warnLeave?: { readonly say: () => void; readonly ms: number },
-): () => void {
-  let spare = false; // our entry is on top of the history
-  let dropping = false; // we are taking our own spare back (home again by Esc): that Back is not the person's
-  let warned = false; // "Press Back again to close" is showing: the next Back leaves
-  let warnTimer: ReturnType<typeof setTimeout> | undefined;
-  const away = () => screens.depth > 1 || !sameScreen(screens.top.screen, GATEWAY) || isModal();
-  const wanted = () => away() || (warnLeave !== undefined && !warned);
-  const sync = () => {
-    if (dropping) return;
-    if (wanted() && !spare) {
-      win.history.pushState(null, '', refToHash(screens.top.screen));
-      spare = true;
-    } else if (!wanted() && spare) {
-      spare = false;
-      dropping = true;
-      win.history.back();
-    }
-  };
-  // the entry beneath ours may carry an older address: put the current one back before the router reads it and reopens that screen
+const depthOf = (state: unknown): number | undefined => {
+  const n = (state as { erpBack?: unknown } | null)?.erpBack;
+  return typeof n === 'number' && n >= 0 ? n : undefined;
+};
+
+/**
+ * The phone's Back button (and the browser's) is Esc inside the application; only on the Gateway, with nothing open over it, does it leave —
+ * on a phone after asking. The router never piles up history, so without this Back would close the app from any screen.
+ *
+ * One history entry is kept per level to go back through (each screen above the Gateway, a dialog, and — with `onGatewayBack` — one for the
+ * Gateway itself). Back uses one up and this presses Esc. Chrome IGNORES entries a page adds without a user's tap, and after a Back ignores
+ * new ones until the next tap (its "history manipulation intervention" — Back must never trap anyone), so entries are only ever added while
+ * the person is tapping (a touch or a click; keys belong to the keyboard layer), never straight after a Back: a Back that steps a field back (and leaves the screen open) is made up for at
+ * the next tap. Screens closed by Esc give their entries back at once.
+ */
+export function bindBackButton(screens: ScreenStack<ScreenRef>, win: BackWindow, o: BackButtonOptions): () => void {
+  let dropping = 0; // entries we are taking back ourselves (history.go): those popstates are not the person's
+  let tappedSinceBack = true;
+  const wanted = () => screens.depth - 1 + (o.isModal() ? 1 : 0) + (o.onGatewayBack ? 1 : 0);
   const keepAddress = () => {
     const hash = refToHash(screens.top.screen);
-    if (win.location.hash !== hash) win.history.replaceState(null, '', hash);
+    if (win.location.hash !== hash) win.history.replaceState(win.history.state ?? null, '', hash);
+  };
+  let at = 0; // the depth of the entry we are on
+  const stamp = () => {
+    at = 0;
+    win.history.replaceState({ erpBack: 0 }, '', win.location.hash);
+  };
+  const sync = () => {
+    if (dropping > 0) return;
+    const have = depthOf(win.history.state) ?? 0;
+    const want = wanted();
+    if (have > want) {
+      dropping = have - want;
+      win.history.go(want - have);
+    } else if (have < want && tappedSinceBack && (o.activeNow?.() ?? true)) {
+      for (let n = have + 1; n <= want; n++) win.history.pushState({ erpBack: n }, '', refToHash(screens.top.screen));
+    }
+    at = depthOf(win.history.state) ?? 0;
   };
   const onPop = () => {
-    if (dropping) {
-      dropping = false;
+    if (dropping > 0) {
+      dropping = 0; // one popstate for the whole jump
       keepAddress();
       sync();
       return;
     }
-    if (!spare) return; // Back on the Gateway: the browser leaves, as it should
-    spare = false;
-    keepAddress();
-    if (away() || !warnLeave) {
-      pressEsc();
-    } else {
-      warned = true;
-      warnLeave.say();
-      clearTimeout(warnTimer);
-      warnTimer = setTimeout(() => {
-        warned = false;
-        sync();
-      }, warnLeave.ms);
+    const depth = depthOf(win.history.state);
+    if (depth === undefined || depth >= at) {
+      // an address typed, a link followed, or Forward: the router follows the address; this only starts counting from here
+      if (depth === undefined) stamp();
+      else at = depth;
+      return;
     }
-    sync();
+    at = depth;
+    tappedSinceBack = false;
+    keepAddress();
+    if (screens.depth > 1 || !sameScreen(screens.top.screen, GATEWAY) || o.isModal()) o.pressEsc();
+    else o.onGatewayBack?.();
+  };
+  const onTap = (e: Event) => {
+    if (!e.isTrusted) return; // only the person's own touch or click counts
+    tappedSinceBack = true;
+    queueMicrotask(sync);
   };
   win.addEventListener('popstate', onPop);
+  win.addEventListener('pointerdown', onTap, true);
   const offStack = screens.subscribe(sync);
-  const offScopes = onScopes(sync);
+  const offScopes = o.onScopes(sync);
+  if (depthOf(win.history.state) === undefined) stamp();
   sync();
   return () => {
-    clearTimeout(warnTimer);
     win.removeEventListener('popstate', onPop);
+    win.removeEventListener('pointerdown', onTap, true);
     offStack();
     offScopes();
   };
