@@ -280,6 +280,28 @@ test.describe('bill-wise details', () => {
     await loadDemo(app);
   });
 
+  test('F6 on an unpaid Sales invoice opens the Receipt that settles it, filled in; once saved the bill is closed', async ({ app }) => {
+    await openDayBook(app);
+    await app.keyboard.type('SAL/26-27/0001');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText('Display Sales SAL/26-27/0001');
+
+    await app.keyboard.press('F6');
+    await expect(heading(app)).toHaveText('New Receipt Voucher');
+    await expect(app.locator('[data-vf="account"]')).toHaveValue('HDFC Bank Current A/c'); // the account the last receipt used
+    await expect(app.locator('[data-vf="l0.ledger"]')).toHaveValue('ABC Industries');
+    await expect(app.locator('[data-vf="l0.amount"]')).toHaveValue('19600.00'); // what is still pending on it
+    await expect(app.locator('[data-vf="narration"]')).toHaveValue('Received against invoice SAL/26-27/0001 dated 15-May-2026');
+    await app.keyboard.press('Control+a'); // saved, and back on the invoice it settled
+    await expect(heading(app)).toHaveText('Display Sales SAL/26-27/0001');
+    await expect(app.getByText('nothing pending')).toBeVisible();
+
+    // paid now: F6 on it is the ordinary new Receipt again
+    await app.keyboard.press('F6');
+    await expect(heading(app)).toHaveText('New Receipt Voucher');
+    await expect(app.locator('[data-vf="l0.ledger"]')).toHaveValue('');
+  });
+
   test('paying a supplier offers its open bill; accepting keeps the parts adding up', async ({ app }) => {
     await app.keyboard.press('F5');
     await app.keyboard.type('hdfc');

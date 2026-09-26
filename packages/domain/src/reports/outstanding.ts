@@ -59,6 +59,8 @@ export interface BillRow {
   /** A bill with no due date falls due the day it was raised. */
   readonly dueDate: LocalDate;
   readonly pending: Money;
+  /** What the bill was raised for; received (or paid) so far is `amount − pending`. */
+  readonly amount: Money;
   readonly daysOverdue: number;
   readonly bucket: Bucket;
 }
@@ -86,7 +88,7 @@ export function outstandingBills({ vouchers, masters, side, asOn, ledgerId }: Ou
       if (billDate === undefined) continue;
       const dueDate = b.dueDate ?? billDate;
       const days = daysOverdue(dueDate, asOn);
-      rows.push({ ledgerId: id, party, ref: b.ref, voucherId: b.voucherId, billDate, dueDate, pending: b.pending, daysOverdue: days, bucket: bucketOf(days) });
+      rows.push({ ledgerId: id, party, ref: b.ref, voucherId: b.voucherId, billDate, dueDate, pending: b.pending, amount: b.amount, daysOverdue: days, bucket: bucketOf(days) });
     }
   }
   return rows.sort((a, b) => (a.dueDate !== b.dueDate ? (a.dueDate < b.dueDate ? -1 : 1) : a.ref.localeCompare(b.ref)));

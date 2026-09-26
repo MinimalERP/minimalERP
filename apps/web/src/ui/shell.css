@@ -57,30 +57,36 @@
 .voucher-turn:hover:not(:disabled) { opacity: 1; border-color: var(--c-accent); color: var(--c-accent); }
 .voucher-turn:disabled { opacity: 0.25; cursor: default; }
 .voucher-turn.prev { left: 2px; }
-.voucher-turn.next { right: calc(17rem + 2px); }
+.voucher-turn.next { right: calc(14.5rem + 2px); }
 
 /* ---- action panel (third-level screens): the screen's own actions, down the right edge ---- */
 .actionpanel {
-  flex: none; width: 17rem; min-height: 0; overflow: auto;
+  flex: none; width: 14.5rem; min-height: 0; overflow: auto;
   display: flex; flex-direction: column; gap: var(--sp-1);
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--sp-2);
+  font-size: 13px;
   background: var(--c-surface); border-left: 1px solid var(--c-border);
 }
 /* the same button as Go To (top right): name, then its key caps */
 .action {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
   width: 100%; white-space: nowrap;
   font: inherit; text-align: left; color: var(--c-text);
   background: var(--c-surface-alt);
   border: 1px solid var(--c-border); border-radius: var(--radius);
-  padding: var(--sp-1) var(--sp-3);
+  padding: var(--sp-1) var(--sp-2);
   cursor: pointer;
 }
-.action.gap { margin-top: var(--sp-3); }
+.action.gap { margin-top: var(--sp-2); }
 .action:hover:not(:disabled) { border-color: var(--c-accent); }
 .action:disabled { color: var(--c-text-muted); background: transparent; border-color: transparent; cursor: default; opacity: .65; }
 .action-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .action-key { display: inline-flex; flex-shrink: 0; }
+/* a group folded into one dropdown when the panel is too short (see ActionPanel), and the menu it opens beside the panel */
+.action.fold { font-weight: 600; }
+.action.fold.open { background: var(--c-focus-bg); border-color: var(--c-focus); }
+.fold-menu { position: fixed; z-index: 45; width: 16rem; display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius); box-shadow: -6px 6px 22px #00000033; }
+.fold-menu-title { font-size: var(--fs-sm); color: var(--c-text-muted); text-transform: uppercase; letter-spacing: 0.04em; padding: var(--sp-1) var(--sp-2); }
 .keys-toggle { display: none; }
 @media (max-width: 900px) {
   .actionpanel { display: none; }

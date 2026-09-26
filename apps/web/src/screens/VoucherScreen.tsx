@@ -111,9 +111,11 @@ interface Props {
   readonly fromOrder?: string | undefined;
   /** create: an AI Inbox proposal it starts from (and posts under the id of). */
   readonly fromInbox?: InboxItem | undefined;
+  /** create, receipt / payment: the posted invoice / bill it settles, filled in. */
+  readonly fromBill?: string | undefined;
 }
 
-export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotation, fromInbox }: Props) {
+export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotation, fromInbox, fromBill }: Props) {
   const { books: host, keymapStore } = useServices();
   useSubscriptions(host, keymapStore);
   const books = host.current;
@@ -168,7 +170,7 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotati
   return (
     <>
       {paging}
-      <LedgerVoucherEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId} voucher={voucher} fromInbox={mode === 'create' ? fromInbox : undefined} />
+      <LedgerVoucherEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId} voucher={voucher} fromInbox={mode === 'create' ? fromInbox : undefined} fromBill={mode === 'create' ? fromBill : undefined} />
     </>
   );
 }

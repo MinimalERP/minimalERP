@@ -42,6 +42,7 @@ import {
 import type {
   ChangeFeed,
   MailSender,
+  LedgerMailOrder,
   VoucherMailOrder,
   DocumentSender,
   InboxGateway,
@@ -280,6 +281,10 @@ export class MemoryBackend
 
   /** Books kept in this browser have no mail server: emailing needs the online books. */
   async sendVoucherMail(_mail: VoucherMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>> {
+    return fail(issue(IssueCode.MailNotSetUp, 'Emailing needs the online books: sign in to send from your Gmail'));
+  }
+
+  async sendLedgerMail(_mail: LedgerMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>> {
     return fail(issue(IssueCode.MailNotSetUp, 'Emailing needs the online books: sign in to send from your Gmail'));
   }
 

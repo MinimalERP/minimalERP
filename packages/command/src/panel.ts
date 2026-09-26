@@ -11,6 +11,8 @@ export interface PanelEntry {
   readonly enabled: boolean;
   /** True on the first entry of a new group: the panel draws a gap above it. */
   readonly startsGroup: boolean;
+  /** The dropdown it folds into when the panel does not fit; absent = always shown. */
+  readonly fold?: string | undefined;
 }
 
 /**
@@ -40,6 +42,7 @@ export function panelEntries<Ctx>(
       chord: chordFor(panel.keyOf ?? c.id),
       enabled: registry.isAvailable(c.id, active.ids, active.modal),
       startsGroup: i > 0 && shown[i - 1]?.panel?.group !== panel.group,
+      ...(panel.fold ? { fold: panel.fold } : {}),
     };
   });
 }

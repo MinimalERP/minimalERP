@@ -202,7 +202,15 @@ const commands: Command<AppContext>[] = [
   { id: 'grid.filter', title: 'Filter this column', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Filter', group: 'Report', order: 41, on: ['report'] } },
   { id: 'grid.clear', title: 'Clear filters', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Clear filters', group: 'Report', order: 42, on: ['report'] } },
   { id: 'report.types', title: 'Filter by voucher type', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Voucher types', group: 'Report', order: 43, on: ['report'] } },
-  { id: 'report.print', title: 'Print', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Print', group: 'Report', order: 47, on: ['report'] } },
+  { id: 'report.print', title: 'Print', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Print', group: 'Report', order: 47, on: ['report'], fold: 'Print' } },
+  {
+    id: 'ledger.remind',
+    title: 'Payment reminder: email the customer its statement of account',
+    category: 'Reports',
+    hidden: true,
+    configurable: true,
+    panel: { label: 'Payment reminder', group: 'Report', order: 48, on: ['report'], hideWhenUnavailable: true, fold: 'Email' },
+  },
 ];
 
 const bindings: DefaultBinding[] = [

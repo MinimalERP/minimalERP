@@ -51,7 +51,7 @@ function ScreenBody({ frame }: { frame: Frame<ScreenRef> }) {
     case 'master-list':
       return <MasterListScreen frame={frame} kind={ref.kind} />;
     case 'voucher':
-      return <VoucherScreen frame={frame} mode={ref.mode} typeKey={ref.typeKey} id={ref.id} fromOrder={ref.fromOrder} fromQuotation={ref.fromQuotation} fromInbox={ref.fromInbox} />;
+      return <VoucherScreen frame={frame} mode={ref.mode} typeKey={ref.typeKey} id={ref.id} fromOrder={ref.fromOrder} fromQuotation={ref.fromQuotation} fromInbox={ref.fromInbox} fromBill={ref.fromBill} />;
     case 'report':
       return <ReportScreen frame={frame} report={ref.report} ledgerId={ref.ledgerId} itemId={ref.itemId} kind={ref.kind} groupId={ref.groupId} />;
   }

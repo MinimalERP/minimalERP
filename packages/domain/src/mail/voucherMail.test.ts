@@ -6,7 +6,7 @@ import type { Masters } from '../masters/masters';
 import { seedCompany } from '../masters/seed';
 import type { Voucher } from '../vouchers/voucher';
 import { DEFAULT_MAIL_TEMPLATES, fillTemplate, templateFor } from '../masters/mailTemplates';
-import { voucherMail } from './voucherMail';
+import { ledgerMail, ledgerMailHtml, ledgerMailProblems, voucherMail } from './voucherMail';
 
 const newId = (n: string) => deterministicUuid(`mail|${n}`);
 
@@ -82,5 +82,34 @@ describe('a voucher’s email', () => {
     );
     expect(r.ok, r.ok ? '' : JSON.stringify(r.issues)).toBe(true);
     if (r.ok) expect(r.value.masters.company.emailTemplates).toEqual({ quotation: { subject: 'Quote {number}', body: 'Hi {party}' } });
+  });
+});
+
+describe('a party’s statement by email (a payment reminder from its ledger)', () => {
+  const customerLedger = (masters: Masters) => masters.ledgers.find((l) => l.name === 'Acme Ltd')!.id;
+
+  it('goes to the party’s own addresses only, with a subject', () => {
+    const { masters } = company();
+    const id = customerLedger(masters);
+    expect(ledgerMail(id, masters)).toEqual({ name: 'Acme Ltd', to: ['sales@acme.in', 'accounts@acme.in'] });
+    expect(ledgerMailProblems(id, masters, { to: ['accounts@acme.in'], subject: 'Payment reminder' })).toEqual([]);
+    expect(ledgerMailProblems(id, masters, { to: ['someone@else.in'], subject: 'Payment reminder' }).map((p) => p.path)).toEqual(['to']);
+    expect(ledgerMailProblems(id, masters, { to: ['accounts@acme.in'], subject: ' ' }).map((p) => p.path)).toEqual(['subject']);
+  });
+
+  it('a ledger that is nobody’s (a bank, an expense) has nobody to write to', () => {
+    const { masters } = company();
+    const cash = masters.ledgers.find((l) => l.partyId === undefined)!.id;
+    expect(ledgerMail(cash, masters)).toBeUndefined();
+    expect(ledgerMailProblems(cash, masters, { to: ['accounts@acme.in'], subject: 'x' }).map((p) => p.path)).toEqual(['general']);
+  });
+
+  it('is headed Statement of Account, with whom it is for and the date', () => {
+    const { masters } = company();
+    const html = ledgerMailHtml(customerLedger(masters), masters, 'Dear Acme <Ltd>', '2026-09-26');
+    expect(html).toContain('STATEMENT OF ACCOUNT');
+    expect(html).toContain('Acme Ltd');
+    expect(html).toContain('26-09-2026');
+    expect(html).toContain('Dear Acme &lt;Ltd&gt;'); // the message is escaped
   });
 });

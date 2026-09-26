@@ -32,6 +32,7 @@ import { type OrderRow, orderRowClass, registerCounts } from '../reports/salesRe
 import { type SalesRegisterRow } from '../reports/salesRegister';
 import { type StockLedgerRow, type StockSummaryRow, summaryTotals } from '../reports/stockReports';
 import { type TbRow } from '../reports/booksReports';
+import { billCells, billColumnsFor, billSideOf, ledgerBills, partyBlock } from '../reports/ledgerReport';
 import { useCommandHandler, useFrameState, useListNavigation, useServices, useSubscriptions } from '../shell/hooks';
 import { Only } from '../shell/Only';
 import type { ReportKind, ScreenRef } from '../shell/router';
@@ -41,6 +42,8 @@ import { formatAmount, formatBalance, formatDate, formatQuantity, normalizeAmoun
 import { FieldsDialog, LedgerDialog, MultiSelectDialog } from './ReportDialogs';
 import type { InvoiceDoc, ReportDoc } from '../ui/PrintView';
 import { DocketDialog } from '../vouchers/DocketDialog';
+import { MailWindow } from '../vouchers/MailDialog';
+import { ledgerReminder } from '../vouchers/reminders';
 import { docketProblem, invoiceDocFromBooks } from '../vouchers/invoicePrint';
 import { isItemDocKind } from '../vouchers/kinds';
 
@@ -50,7 +53,7 @@ interface Period {
   readonly from: string;
   readonly to: string;
 }
-type Dialog = 'filter' | 'types' | 'period' | 'ledger' | 'docket' | undefined;
+type Dialog = 'filter' | 'types' | 'period' | 'ledger' | 'docket' | 'remind' | undefined;
 
 const minor = (text: string): bigint | undefined => {
   const n = normalizeAmount(text);
@@ -305,15 +308,68 @@ function ReportBody({
 
   /** Every row the screen shows (filtered, sorted) — not just what `DataGrid` currently has in its DOM (it windows a long
    * report for speed); the same `text`/`value` each column already reads on screen decides what prints. */
-  const buildReportDoc = (): ReportDoc => ({
-    kind: 'report',
-    title,
-    period: asOnReport ? `As on ${formatDate(period.to)}` : `${formatDate(period.from)} → ${formatDate(period.to)}`,
-    filters: chips.map((c) => c.text),
-    columns: columns.map((c) => ({ label: c.label, align: c.align })),
-    rows: rows.map((r) => columns.map((c) => (c.text ? c.text(r) : String(c.value(r) ?? '')))),
-    rowCount: `${rows.length} shown of ${baseRows.length}`,
-  });
+  const buildReportDoc = (): ReportDoc => {
+    const body = rows.map((r) => columns.map((c) => (c.text ? c.text(r) : String(c.value(r) ?? ''))));
+    const doc: ReportDoc = {
+      kind: 'report',
+      title,
+      period: asOnReport ? `As on ${formatDate(period.to)}` : `${formatDate(period.from)} → ${formatDate(period.to)}`,
+      filters: chips.map((c) => c.text),
+      columns: columns.map((c) => ({ label: c.label, align: c.align })),
+      rows: body,
+      rowCount: `${rows.length} shown of ${baseRows.length}`,
+    };
+    return report === 'ledger' && ledger && ledgerStatement ? ledgerPrint(doc, body) : doc;
+  };
+
+  /**
+   * The printed ledger is a statement to send a party: the company's heading, who the party is, the entries oldest first (unless a column was
+   * sorted) between an opening and a closing balance row, and — for a customer or supplier — the bills still open, as on today or the period's end.
+   * The screen stays as it is; only the paper carries these.
+   */
+  const ledgerPrint = (doc: ReportDoc, body: string[][]): ReportDoc => {
+    if (!ledger || !ledgerStatement) return doc;
+    const cells = (texts: Record<string, string>): string[] => columns.map((c) => texts[c.id] ?? '');
+    const entries = query.sort.length === 0 ? [...body].reverse() : body;
+    const opening = cells({ date: formatDate(period.from), particulars: 'Opening balance', balance: formatBalance(ledgerStatement.opening) });
+    const closing = cells({ particulars: 'Closing balance', debit: formatAmount(shownDebit), credit: formatAmount(shownCredit), balance: formatBalance(ledgerStatement.closing) });
+    const side = billSideOf(masters, ledger.id);
+    const asOn = localDate(period.to < today ? period.to : today);
+    const bills = side ? ledgerBills(books.vouchers, masters, ledger.id, asOn) : [];
+    const amount = bills.reduce((t, b) => t + b.amount, 0n);
+    const pending = bills.reduce((t, b) => t + b.pending, 0n);
+    const party = partyBlock(masters, ledger.id);
+    return {
+      ...doc,
+      statement: {
+        docTitle: side ? 'Statement of Account' : 'Ledger Account',
+        details: [
+          ['Period', `${formatDate(period.from)} to ${formatDate(period.to)}`],
+          ['Printed on', formatDate(today)],
+        ],
+        party: { label: side === 'payable' ? 'Supplier' : side === 'receivable' ? 'Customer' : 'Ledger', ...party },
+        summary: [
+          ['Opening balance', formatBalance(ledgerStatement.opening)],
+          ['Total debit', formatAmount(shownDebit)],
+          ['Total credit', formatAmount(shownCredit)],
+          ...(bills.length > 0 ? [['Pending bills', formatAmount(pending)] as const] : []),
+          ['Closing balance', formatBalance(ledgerStatement.closing)],
+        ],
+      },
+      rows: [opening, ...entries, closing],
+      ...(side && bills.length > 0
+        ? {
+            tables: [
+              {
+                title: `Outstanding bills — as on ${formatDate(asOn)}`,
+                columns: billColumnsFor(side),
+                rows: [...bills.map(billCells), ['Total', '', '', formatAmount(amount), formatAmount(amount - pending), formatAmount(pending), '', '']],
+              },
+            ],
+          }
+        : {}),
+    };
+  };
 
   // ---- totals of what is shown ----
   let shownDebit = 0n;
@@ -411,7 +467,7 @@ function ReportBody({
           Opening <strong>{formatQuantity(stockLedger.opening.qty, masters.unit(stockItem.unitId)?.decimals ?? 0)} {masters.unit(stockItem.unitId)?.symbol}</strong> worth <strong>{formatAmount(stockLedger.opening.value)}</strong>
         </p>
       )}
-      {report === 'vouchers' && notice && (
+      {(report === 'vouchers' || report === 'ledger') && notice && (
         <p class="notice" role="status" data-testid="list-notice">
           {notice}
         </p>
@@ -622,6 +678,23 @@ function ReportBody({
           }}
         />
       )}
+      {report === 'ledger' && ledger && billSideOf(masters, ledger.id) === 'receivable' && ledger.partyId && dialog === undefined && (
+        <Only scope={SCOPE} command="ledger.remind" run={() => (setNotice(undefined), setDialog('remind'), true)} />
+      )}
+      {dialog === 'remind' &&
+        ledger &&
+        (() => {
+          const r = ledgerReminder(ledger.id, books, buildReportDoc());
+          return r ? (
+            <MailWindow
+              {...r}
+              onDone={(sentTo) => {
+                setDialog(undefined);
+                if (sentTo) setNotice(`Payment reminder emailed to ${sentTo.join(', ')}.`);
+              }}
+            />
+          ) : null;
+        })()}
       {dialog === 'filter' && filterDialog()}
       {dialog === 'types' && (
         <MultiSelectDialog

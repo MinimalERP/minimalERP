@@ -42,6 +42,8 @@ export interface Command<Ctx = unknown> {
     readonly keyOf?: string;
     /** Leave the button out (not just grey it) while nothing supplies it — for buttons that belong to ONE screen among many of the same type ("New Sales Voucher" on the Sales list). */
     readonly hideWhenUnavailable?: boolean;
+    /** The dropdown this button folds into when the panel is too short to show every button ("Print", "Email", "Inventory", "Other"). */
+    readonly fold?: string;
   };
   /** Is it available right now? Unavailable commands are neither searched nor run. */
   when?(ctx: Ctx): boolean;

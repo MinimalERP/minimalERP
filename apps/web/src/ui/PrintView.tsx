@@ -1,6 +1,6 @@
 import type { PrintLayouts } from '@minimalerp/ports';
 import { useLayoutEffect, useRef } from 'preact/hooks';
-import type { PrintAddress, PrintParty, PrintCompany, LedgerDoc, InvoiceDoc, StockDoc, ReportDoc, DocketDoc, PrintDoc } from './printDocs';
+import type { PrintAddress, PrintParty, PrintCompany, LedgerDoc, InvoiceDoc, StockDoc, ReportDoc, DocketDoc, PrintDoc, PaymentStatus } from './printDocs';
 import { layoutFor, renderLayout } from './printTemplate';
 import { amountInWords } from './words';
 import { formatAmount, formatDate } from '../vouchers/format';
@@ -12,7 +12,7 @@ import { formatAmount, formatDate } from '../vouchers/format';
  * recomputes GST, a total or a balance — it only lays out numbers the screen has already checked.
  */
 
-export type { PrintAddress, PrintParty, PrintCompany, LedgerDoc, InvoiceDoc, StockDoc, ReportDoc, DocketDoc, PrintDoc } from './printDocs';
+export type { PrintAddress, PrintParty, PrintCompany, LedgerDoc, InvoiceDoc, StockDoc, ReportDoc, DocketDoc, PrintDoc, PaymentStatus } from './printDocs';
 
 
 const words = (s: string | undefined): string[] | undefined => (s && s.trim() !== '' ? s.split('\n') : undefined);
@@ -40,6 +40,23 @@ function Narration({ text }: { text: string }) {
   );
 }
 
+function CompanyBlock({ company }: { company: PrintCompany }) {
+  return (
+    <div class="inv-company">
+      <div class="name">{company.name}</div>
+      {company.address && <div>{company.address}</div>}
+      {company.gstin && <div>GSTIN: {company.gstin}</div>}
+      {(company.phone || company.email) && (
+        <div>
+          {company.phone}
+          {company.phone && company.email && ' · '}
+          {company.email}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CompanyHead({
   company,
   docTitle,
@@ -61,18 +78,7 @@ function CompanyHead({
 }) {
   return (
     <div class="inv-head">
-      <div class="inv-company">
-        <div class="name">{company.name}</div>
-        {company.address && <div>{company.address}</div>}
-        {company.gstin && <div>GSTIN: {company.gstin}</div>}
-        {(company.phone || company.email) && (
-          <div>
-            {company.phone}
-            {company.phone && company.email && ' · '}
-            {company.email}
-          </div>
-        )}
-      </div>
+      <CompanyBlock company={company} />
       <div class="inv-doc">
         <div class="title">{docTitle}</div>
         {copyLabel && <div class="copy-label">{copyLabel}</div>}
@@ -176,6 +182,30 @@ function LedgerBody({ doc, company, copyLabel }: { doc: LedgerDoc; company: Prin
   );
 }
 
+/** Where a bill stands, as a payment reminder's copy of the invoice shows it under the totals. */
+function PaymentStatusBox({ status }: { status: PaymentStatus }) {
+  const cells: [string, string][] = [
+    ['Invoice amount', formatAmount(status.amount)],
+    ['Received', formatAmount(status.received)],
+    ['Balance due', `₹ ${formatAmount(status.pending)}`],
+    ['Due on', formatDate(status.dueDate)],
+    ['Overdue', status.daysOverdue > 0 ? `${status.daysOverdue} days` : 'Not yet due'],
+  ];
+  return (
+    <div class="pay-status" data-testid="print-payment-status">
+      <div class="pay-status-title">Payment status — as on {formatDate(status.asOn)}</div>
+      <div class="pay-status-cells">
+        {cells.map(([k, v]) => (
+          <div key={k}>
+            <div class="label">{k}</div>
+            <div class="value">{v}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: PrintCompany; copyLabel: string | undefined }) {
   const sameAsBilling = !doc.party.shipTo;
   return (
@@ -259,6 +289,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
         </table>
       </div>
       {doc.narration && <Narration text={doc.narration} />}
+      {doc.paymentStatus && <PaymentStatusBox status={doc.paymentStatus} />}
       <BankAndSign company={company} />
     </>
   );
@@ -405,39 +436,122 @@ function DocketPageTwo({ doc, company }: { doc: DocketDoc; company: PrintCompany
   );
 }
 
-function ReportBody({ doc }: { doc: ReportDoc }) {
+function ReportTable({ columns, rows, compact }: { columns: ReportDoc['columns']; rows: ReportDoc['rows']; compact?: boolean }) {
   return (
-    <>
-      <div class="rpt-head">
-        <div class="name">{doc.title}</div>
-        <div>{doc.period}</div>
-        {doc.filters.map((f, i) => (
-          <div key={i}>{f}</div>
-        ))}
-      </div>
-      <table class="items">
-        <thead>
-          <tr>
-            {doc.columns.map((c, i) => (
-              <th key={i} class={c.align === 'right' ? 'num' : undefined}>
-                {c.label}
-              </th>
+    <table class={compact ? 'items compact' : 'items'}>
+      <thead>
+        <tr>
+          {columns.map((c, i) => (
+            <th key={i} class={c.align === 'right' ? 'num' : undefined}>
+              {c.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i}>
+            {r.map((cell, j) => (
+              <td key={j} class={columns[j]?.align === 'right' ? 'num' : undefined}>
+                {cell}
+              </td>
             ))}
           </tr>
-        </thead>
-        <tbody>
-          {doc.rows.map((r, i) => (
-            <tr key={i}>
-              {r.map((cell, j) => (
-                <td key={j} class={doc.columns[j]?.align === 'right' ? 'num' : undefined}>
-                  {cell}
-                </td>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ReportBody({ doc, company }: { doc: ReportDoc; company: PrintCompany }) {
+  const st = doc.statement;
+  const hasBank = company.bankName || company.bankAccountNo || company.bankIfsc;
+  return (
+    <>
+      {st ? (
+        <>
+          <div class="inv-head">
+            <CompanyBlock company={company} />
+            <div class="inv-doc">
+              <div class="title">{st.docTitle}</div>
+              <table>
+                <tbody>
+                  {st.details.map(([k, v]) => (
+                    <tr key={k}>
+                      <td>{k}</td>
+                      <td>{v}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="inv-parties">
+            <div>
+              <div class="label">{st.party.label}</div>
+              <div class="pname">{st.party.name}</div>
+              {st.party.lines.map((l, i) => (
+                <div key={i}>{l}</div>
               ))}
-            </tr>
+            </div>
+            <div>
+              <div class="label">Summary</div>
+              <table class="stmt-summary">
+                <tbody>
+                  {st.summary.map(([k, v]) => (
+                    <tr key={k}>
+                      <td>{k}</td>
+                      <td class="num">{v}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {doc.filters.map((f, i) => (
+            <div key={i} class="rpt-filter">
+              {f}
+            </div>
           ))}
-        </tbody>
-      </table>
-      <p class="inv-narration">{doc.rowCount}</p>
+        </>
+      ) : (
+        <div class="rpt-head">
+          <div class="name">{doc.title}</div>
+          <div>{doc.period}</div>
+          {doc.filters.map((f, i) => (
+            <div key={i}>{f}</div>
+          ))}
+        </div>
+      )}
+      <ReportTable columns={doc.columns} rows={doc.rows} compact={!!st} />
+      {!st && <p class="inv-narration">{doc.rowCount}</p>}
+      {doc.tables?.map((t, i) => (
+        <div key={i} class="rpt-more">
+          <div class="rpt-more-title">{t.title}</div>
+          <ReportTable columns={t.columns} rows={t.rows} compact={!!st} />
+        </div>
+      ))}
+      {st && (
+        <>
+          {hasBank && (
+            <div class="inv-foot">
+              <div class="bank">
+                <div class="label">Bank details</div>
+                {company.bankName && <div>{company.bankName}</div>}
+                {company.bankAccountNo && <div>A/c No. {company.bankAccountNo}</div>}
+                {company.bankIfsc && <div>IFSC {company.bankIfsc}</div>}
+                {company.bankBranch && <div>{company.bankBranch}</div>}
+              </div>
+            </div>
+          )}
+          <div class="inv-sign">
+            <div>
+              <div class="for-company">For {company.name}</div>
+              <div class="sign-line">Authorised Signatory</div>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }
@@ -486,15 +600,18 @@ export function PrintView({ docs, company, copies, layouts }: { docs: readonly P
           : copies.map((label, i) => {
               const html = own(doc, label);
               return (
-                <div key={`${d}-${label}-${i}`} class={doc.kind === 'report' ? 'paper print-copy' : 'paper print-copy bordered'}>
+                <div key={`${d}-${label}-${i}`} class={doc.kind === 'report' && !doc.statement ? 'paper print-copy' : 'paper print-copy bordered'}>
                   {html !== undefined ? (
-                    <OwnLayout html={html} />
+                    <>
+                      <OwnLayout html={html} />
+                      {doc.kind === 'invoice' && doc.paymentStatus && <PaymentStatusBox status={doc.paymentStatus} />}
+                    </>
                   ) : (
                     <>
                       {doc.kind === 'ledger' && <LedgerBody doc={doc} company={company} copyLabel={label} />}
                       {doc.kind === 'invoice' && <InvoiceBody doc={doc} company={company} copyLabel={label} />}
                       {doc.kind === 'stock' && <StockBody doc={doc} company={company} copyLabel={label} />}
-                      {doc.kind === 'report' && <ReportBody doc={doc} />}
+                      {doc.kind === 'report' && <ReportBody doc={doc} company={company} />}
                     </>
                   )}
                 </div>

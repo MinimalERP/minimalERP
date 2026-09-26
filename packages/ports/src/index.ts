@@ -140,8 +140,14 @@ export interface VoucherMailOrder {
   readonly attachments?: readonly { readonly name: string; readonly base64: string }[] | undefined;
 }
 
+/** A party's statement (a payment reminder from its ledger): like a voucher's mail, but of a party ledger rather than one voucher. */
+export interface LedgerMailOrder extends Omit<VoucherMailOrder, 'voucherId'> {
+  readonly ledgerId: string;
+}
+
 export interface MailSender {
   sendVoucherMail(mail: VoucherMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>>;
+  sendLedgerMail(mail: LedgerMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>>;
 }
 
 /** A voucher this company sent to another of the owner's companies (ADR-0025), and what became of it there. */

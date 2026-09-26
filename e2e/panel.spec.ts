@@ -280,3 +280,58 @@ test.describe('Stock Journal on every side panel', () => {
     await expect(app.locator('[data-vf="party"]')).toHaveValue('Sharma Traders'); // the invoice underneath, as it was left
   });
 });
+
+test.describe('the action panel never scrolls: groups fold into dropdowns when it is too short', () => {
+  test.beforeEach(async ({ app }) => {
+    await loadDemo(app);
+  });
+
+  const openInvoice = async (page: Page) => {
+    await goTo(page, 'day book');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('SAL/26-27/0001');
+    await page.keyboard.press('Enter');
+    await expect(heading(page)).toHaveText('Display Sales SAL/26-27/0001');
+  };
+  const fits = (page: Page) => panel(page).evaluate((el) => el.scrollHeight <= el.clientHeight + 1);
+
+  test('a tall window shows every button, as always; a short one folds the least used groups first, only as many as it takes', async ({ app }) => {
+    await app.setViewportSize({ width: 1440, height: 1000 });
+    await openInvoice(app);
+    await expect(panel(app).locator('[data-fold]')).toHaveCount(0);
+    await expect(action(app, 'voucher.switch.payment')).toBeVisible();
+
+    await app.setViewportSize({ width: 1440, height: 720 });
+    await expect(panel(app).locator('[data-fold="Other"]')).toBeVisible();
+    await expect(action(app, 'voucher.switch.payment')).toHaveCount(0); // folded away
+    await expect(action(app, 'voucher.print')).toBeVisible(); // Print still has room
+    expect(await fits(app)).toBe(true);
+
+    await app.setViewportSize({ width: 1440, height: 520 });
+    await expect(panel(app).locator('[data-fold="Inventory"]')).toBeVisible(); // next in line
+    expect(await fits(app)).toBe(true);
+
+    await app.setViewportSize({ width: 1440, height: 1000 });
+    await expect(panel(app).locator('[data-fold]')).toHaveCount(0); // room again: unfolded
+  });
+
+  test('a folded button runs from its dropdown; its key still works without opening it; Esc closes the dropdown, not the voucher', async ({ app }) => {
+    await app.setViewportSize({ width: 1440, height: 640 });
+    await openInvoice(app);
+    await panel(app).locator('[data-fold="Other"]').click();
+    const menu = app.getByTestId('fold-menu');
+    await expect(menu).toContainText('Contra');
+    await app.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(heading(app)).toHaveText('Display Sales SAL/26-27/0001'); // still here
+
+    await panel(app).locator('[data-fold="Other"]').click();
+    await menu.locator('[data-command="voucher.switch.journal"]').click();
+    await expect(heading(app)).toHaveText('New Journal Voucher');
+    await app.keyboard.press('Escape');
+    await expect(heading(app)).toHaveText('Display Sales SAL/26-27/0001');
+
+    await app.keyboard.press('F7'); // the key of a folded button
+    await expect(heading(app)).toHaveText('New Journal Voucher');
+  });
+});

@@ -40,6 +40,7 @@ import {
   toMinor,
 } from '../model';
 import type { CreatedMaster } from '../../screens/MasterFormScreen';
+import { settleFormFor } from '../settleBill';
 import {
   tryCommitVoucherDate,
   useVoucherDraftPersistence,
@@ -102,17 +103,25 @@ export interface LedgerEntryProps {
   readonly typeId: string;
   readonly voucher: Voucher | undefined;
   readonly fromInbox?: InboxItem | undefined;
+  /** The posted invoice / bill this new Receipt / Payment settles (F6 / F5 on it). */
+  readonly fromBill?: string | undefined;
 }
 
-export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromInbox }: LedgerEntryProps) {
+export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromInbox, fromBill }: LedgerEntryProps) {
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books);
   const masters = books.masters;
   const readOnly = mode === 'display';
+  const bill = fromBill ? books.voucher(fromBill) : undefined;
+  const settling = bill ? settleFormFor(bill, books.vouchers, masters, typeId, defaultDate(masters)) : undefined;
   const startForm = (): VoucherForm =>
-    voucher ? formFromVoucher(voucher, masters) : fromInbox ? entryFormFromProposal(fromInbox, masters, typeId) : blankForm(crypto.randomUUID(), typeId, defaultDate(masters));
-  /** A proposal is its own starting point: it neither loads nor leaves a half-entered draft (that belongs to the ordinary New voucher). */
-  const drafts = mode === 'create' && !fromInbox;
+    voucher
+      ? formFromVoucher(voucher, masters)
+      : fromInbox
+        ? entryFormFromProposal(fromInbox, masters, typeId)
+        : (settling ?? blankForm(crypto.randomUUID(), typeId, defaultDate(masters)));
+  /** A proposal, or a bill being settled, is its own starting point: it neither loads nor leaves a half-entered draft (that belongs to the ordinary New voucher). */
+  const drafts = mode === 'create' && !fromInbox && !settling;
 
   const [form, setFormState] = useFrameState<VoucherForm>(frame, 'form', startForm());
   const [focusKey, setFocusKey] = useFrameState<string>(

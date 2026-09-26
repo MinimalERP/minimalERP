@@ -45,6 +45,8 @@ export type ScreenRef =
       readonly fromOrder?: string;
       /** A new voucher made from an AI Inbox proposal (ADR-0023): it posts under the proposal's id. Not part of the address. */
       readonly fromInbox?: InboxItem;
+      /** A new Receipt / Payment that settles this posted invoice / bill (F6 / F5 on it), filled in. Not part of the address. */
+      readonly fromBill?: string;
     }
   /** The AI Inbox: proposals made from documents sent from Gmail, waiting to be accepted or rejected. */
   | { readonly type: 'inbox' }

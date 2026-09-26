@@ -56,6 +56,17 @@
 
 .print-root .rpt-head { border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 10px; font-size: 12px; }
 .print-root .rpt-head .name { font-size: 17px; font-weight: bold; margin-bottom: 4px; }
+.print-root .stmt-summary { border-collapse: collapse; width: 100%; }
+.print-root .stmt-summary td { padding: 1px 0; }
+.print-root .stmt-summary td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.print-root .stmt-summary tr:last-child td { font-weight: bold; }
+.print-root .rpt-filter { font-size: 11px; margin-bottom: 4px; }
+/* a statement's tables on the voucher page's width: dates, numbers and amounts stay on one line, only the particulars wrap */
+.print-root table.items.compact { font-size: 11px; }
+.print-root table.items.compact td, .print-root table.items.compact th { padding: 3px 5px; white-space: nowrap; }
+.print-root table.items.compact td:nth-child(2) { white-space: normal; }
+.print-root .rpt-more { margin-top: 14px; }
+.print-root .rpt-more-title { font-weight: bold; font-size: 13px; margin-bottom: 4px; }
 
 .print-root table.items { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px; }
 .print-root table.items thead { display: table-header-group; } /* repeats the column headings on every printed page the table spans */
@@ -103,3 +114,26 @@
 
 /* on screen (dev only — the root is display:none there via the rule above, but keep it sane if ever toggled visible) */
 .print-root { color: #000; }
+
+/* a payment reminder's copy of an invoice: where the bill stands, boxed under the totals */
+.print-root .pay-status { border: 2px solid #000; margin: 4px 0 12px; font-size: 12px; break-inside: avoid; page-break-inside: avoid; }
+.print-root .pay-status-title { background: #000; color: #fff; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 8px; }
+.print-root .pay-status-cells { display: flex; }
+.print-root .pay-status-cells > div { flex: 1; padding: 5px 8px; border-right: 1px solid #000; }
+.print-root .pay-status-cells > div:last-child { border-right: 0; }
+.print-root .pay-status .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.print-root .pay-status .value { font-weight: bold; font-variant-numeric: tabular-nums; }
+
+/* a PDF made in the page (a payment reminder's attachment): the printed page, drawn off screen at the voucher page's width */
+.pdf-render { position: fixed; left: -10000px; top: 0; }
+.pdf-render #print-root { display: block !important; }
+.pdf-render .paper { box-shadow: none; width: 185.8mm; padding: 0; }
+.pdf-render .print-copy.bordered { box-sizing: border-box; min-height: 280.7mm; border: 1.5px solid #000; padding: 4mm; }
+.pdf-render .print-copy.bordered .inv-parties { margin-left: -4mm; margin-right: -4mm; border-left: 0; border-right: 0; }
+.pdf-render .print-copy.bordered table.items { width: calc(100% + 8mm); margin-left: -4mm; margin-right: -4mm; }
+.pdf-render .print-copy.bordered table.items tr > :first-child { border-left: 0; }
+.pdf-render .print-copy.bordered table.items tr > :last-child { border-right: 0; }
+/* the picture of a collapsed table draws each cell's border on its own (two lines where they meet): one line per edge instead */
+.pdf-render table.items { border-collapse: separate; border-spacing: 0; border-top: 1px solid #000; }
+.pdf-render table.items th, .pdf-render table.items td { border-width: 0 1px 1px 0; }
+.pdf-render .print-copy:not(.bordered) table.items { border-left: 1px solid #000; }

@@ -1,4 +1,5 @@
 import { type Issue, IssueCode, issue } from '../errors';
+import type { LedgerId } from '../ids';
 import type { Masters } from '../masters/masters';
 import { emailsOf } from '../masters/rules';
 import { formatMoney } from '../money';
@@ -70,6 +71,12 @@ export function voucherMailProblems(voucher: Voucher, masters: Masters, req: Vou
   if (req.to.length === 0) problems.push(issue(IssueCode.MailInvalid, allowed.size === 0 ? 'The party has no email address: add one to the party first' : 'Choose at least one address', 'to'));
   const stranger = req.to.find((e) => !allowed.has(e.trim().toLowerCase()));
   if (stranger !== undefined) problems.push(issue(IssueCode.MailInvalid, `${stranger} is not an address of this voucher’s party`, 'to'));
+  return [...problems, ...requestProblems(req)];
+}
+
+/** The subject and the files: what any mail must have right, whoever it goes to. */
+function requestProblems(req: VoucherMailRequest): Issue[] {
+  const problems: Issue[] = [];
   if (req.subject.trim() === '') problems.push(issue(IssueCode.MailInvalid, 'Enter a subject', 'subject'));
   const files = req.attachments ?? [];
   if (files.length > MAX_MAIL_FILES) problems.push(issue(IssueCode.MailInvalid, `Attach at most ${MAX_MAIL_FILES} files`, 'attachment'));
@@ -77,6 +84,28 @@ export function voucherMailProblems(voucher: Voucher, masters: Masters, req: Vou
   if (odd) problems.push(issue(IssueCode.MailInvalid, `${odd.name}: attach PDF, picture, Excel, Word, CSV or ZIP files`, 'attachment'));
   if (files.reduce((t, f) => t + mailFileSize(f.base64), 0) > MAX_MAIL_TOTAL_BYTES) problems.push(issue(IssueCode.MailInvalid, 'The files come to more than 18 MB together', 'attachment'));
   return problems;
+}
+
+/** The party a ledger is kept for and its addresses — undefined for a ledger that is no party's (it has nobody to write to). */
+export function ledgerMail(ledgerId: LedgerId, masters: Masters): { name: string; to: string[] } | undefined {
+  const ledger = masters.ledger(ledgerId);
+  const party = ledger?.partyId ? masters.party(ledger.partyId) : undefined;
+  return party ? { name: party.name, to: emailsOf(party.email) } : undefined;
+}
+
+/**
+ * What stops a party's statement (a payment reminder from its ledger) from going: the same rules as a voucher's mail — only that party's own
+ * addresses, a subject, sensible files. Checked in the window and again on the server.
+ */
+export function ledgerMailProblems(ledgerId: LedgerId, masters: Masters, req: VoucherMailRequest): Issue[] {
+  const mail = ledgerMail(ledgerId, masters);
+  if (!mail) return [issue(IssueCode.MailInvalid, 'Only a customer’s or supplier’s ledger can be emailed', 'general')];
+  const problems: Issue[] = [];
+  const allowed = new Set(mail.to.map((e) => e.toLowerCase()));
+  if (req.to.length === 0) problems.push(issue(IssueCode.MailInvalid, allowed.size === 0 ? 'The party has no email address: add one to the party first' : 'Choose at least one address', 'to'));
+  const stranger = req.to.find((e) => !allowed.has(e.trim().toLowerCase()));
+  if (stranger !== undefined) problems.push(issue(IssueCode.MailInvalid, `${stranger} is not an address of this party`, 'to'));
+  return [...problems, ...requestProblems(req)];
 }
 
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -89,6 +118,29 @@ const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;'
 export function voucherMailHtml(voucher: Voucher, masters: Masters, message: string): string {
   const mail = voucherMail(voucher, masters);
   const v = mailValues(voucher, masters);
+  const priced = mail && mail.kind !== 'salesOrder' && mail.kind !== 'purchaseOrder' && mail.kind !== 'quotation';
+  return mailFrame(masters, mail?.docName ?? 'Document', [
+    ['Number', v.number, true],
+    ['Date', v.date, false],
+    [mail?.kind === 'sales' || mail?.kind === 'salesOrder' ? 'Your PO' : 'Reference', v.reference, false],
+    ...(priced ? ([['Amount', `₹ ${v.amount}`, true], ['Due', v.due, false]] as const) : []),
+  ], message);
+}
+
+/** A party's statement as the mail shows it: the same look as a voucher's, the box naming the statement and whom it is for. Built on the server. */
+export function ledgerMailHtml(ledgerId: LedgerId, masters: Masters, message: string, asOn: string): string {
+  const mail = ledgerMail(ledgerId, masters);
+  return mailFrame(masters, 'Statement of Account', [
+    ['Party', mail?.name ?? '', true],
+    ['As on', shownDate(asOn), false],
+  ], message);
+}
+
+/**
+ * The mail's own typewriter look (the monospace the print uses), with the company's name and a summary of the document set off in colour, then
+ * the message as the person wrote it, and the company's contact at the foot. Inline styles only: mail programs ignore style sheets.
+ */
+function mailFrame(masters: Masters, docName: string, rows: readonly (readonly [string, string, boolean])[], message: string): string {
   const c = masters.company;
   const font = "Consolas, 'Cascadia Mono', 'Courier New', monospace";
   const accent = '#0b5cad';
@@ -97,7 +149,6 @@ export function voucherMailHtml(voucher: Voucher, masters: Masters, message: str
       ? ''
       : `<tr><td style="padding:4px 16px 4px 0;color:#5f6b7a;white-space:nowrap">${esc(label)}</td>` +
         `<td style="padding:4px 0;color:${strong ? accent : '#1f2933'};font-weight:${strong ? '700' : '400'}">${esc(value)}</td></tr>`;
-  const priced = mail && mail.kind !== 'salesOrder' && mail.kind !== 'purchaseOrder' && mail.kind !== 'quotation';
   const contact = [c.phone, c.email].filter(Boolean).join('  ·  ');
   return (
     `<div style="font-family:${font};font-size:14px;line-height:1.55;color:#1f2933;background:#f4f6f9;padding:24px">` +
@@ -106,13 +157,9 @@ export function voucherMailHtml(voucher: Voucher, masters: Masters, message: str
     (c.gstin ? `<div style="color:#5f6b7a;font-size:12px">GSTIN ${esc(c.gstin)}</div>` : '') +
     `</div>` +
     `<div style="margin:0 24px;padding:12px 16px;background:#f0f5fb;border-left:3px solid ${accent}">` +
-    `<div style="font-size:12px;letter-spacing:0.08em;color:${accent};font-weight:700;margin-bottom:6px">${esc((mail?.docName ?? 'Document').toUpperCase())}</div>` +
+    `<div style="font-size:12px;letter-spacing:0.08em;color:${accent};font-weight:700;margin-bottom:6px">${esc(docName.toUpperCase())}</div>` +
     `<table role="presentation" style="border-collapse:collapse;font-family:${font};font-size:14px">` +
-    row('Number', v.number, true) +
-    row('Date', v.date) +
-    row(mail?.kind === 'sales' || mail?.kind === 'salesOrder' ? 'Your PO' : 'Reference', v.reference) +
-    (priced ? row('Amount', `₹ ${v.amount}`, true) : '') +
-    (priced ? row('Due', v.due) : '') +
+    rows.map(([label, value, strong]) => row(label, value, strong)).join('') +
     `</table></div>` +
     `<div style="padding:18px 24px;white-space:pre-wrap">${esc(message)}</div>` +
     `<div style="padding:12px 24px;border-top:1px dashed #c7ced8;color:#5f6b7a;font-size:12px">` +

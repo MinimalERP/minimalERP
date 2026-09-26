@@ -370,11 +370,11 @@ export class PostgresBackend
   }
 
   /** Whether the actor holds a permission in a company (false for a company that does not exist, or that they are not in). */
-  async recordMail(companyId: CompanyId, voucherId: string, to: readonly string[]): Promise<void> {
+  async recordMail(companyId: CompanyId, entityId: string, to: readonly string[], entity: 'voucher' | 'ledger' = 'voucher'): Promise<void> {
     await this.db.query(
       `insert into public.audit_log (company_id, actor, action, entity_type, entity_id, after, request_id)
-       values ($1::uuid, $2::uuid, 'voucher.mail', 'voucher', $3::uuid, $4::text::jsonb, $5)`,
-      [companyId, this.options.actorId, voucherId, JSON.stringify({ to }), this.options.requestId ?? null],
+       values ($1::uuid, $2::uuid, $3, $4, $5::uuid, $6::text::jsonb, $7)`,
+      [companyId, this.options.actorId, `${entity}.mail`, entity, entityId, JSON.stringify({ to }), this.options.requestId ?? null],
     );
   }
 

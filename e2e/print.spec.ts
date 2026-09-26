@@ -264,4 +264,30 @@ test.describe('Print', () => {
     await expect(printCopies(app)).toContainText('Day Book');
     await expect.poll(() => printedCount(app)).toBe(1);
   });
+
+  test('a party ledger prints as a Statement of Account, framed like an invoice: company heading, the party and a summary, oldest first between opening and closing, and its open bills — the screen unchanged', async ({ app }) => {
+    await goTo(app, 'abc industries');
+    await app.keyboard.press('ArrowDown'); // its Ledger report
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText('Ledger: ABC Industries');
+    await expect(app.getByTestId('ledger-company')).toHaveCount(0); // the screen stays minimal
+
+    await app.keyboard.press('Control+p');
+    const page = printCopies(app).first();
+    await expect(page).toHaveClass(/bordered/); // framed like a voucher, not a plain report page
+    await expect(page.locator('.inv-company')).toContainText('Demo Manufacturing Pvt Ltd');
+    await expect(page.locator('.inv-doc')).toContainText('Statement of Account');
+    await expect(page.locator('.inv-parties')).toContainText('ABC Industries');
+    await expect(page).toContainText('accounts@abcindustries.in');
+    const rows = page.locator('table.items').first().locator('tbody tr');
+    await expect(rows).toHaveCount(5); // opening, three entries, closing
+    await expect(rows.first()).toContainText('Opening balance');
+    await expect(rows.nth(1)).toContainText('OB/0003'); // oldest first
+    await expect(rows.last()).toContainText('Closing balance');
+    await expect(rows.last()).toContainText('79,600.00 Dr');
+    const bills = page.locator('.rpt-more table.items tbody tr');
+    await expect(bills).toHaveCount(3); // INV-001, SAL/26-27/0001, total
+    await expect(bills.first()).toContainText('Part paid');
+    await expect(bills.last()).toContainText('79,600.00');
+  });
 });

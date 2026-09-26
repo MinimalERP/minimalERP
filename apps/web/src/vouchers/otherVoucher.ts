@@ -5,13 +5,15 @@ import { useCommandHandler, useServices } from '../shell/hooks';
  * answer their keys and panel buttons: they open a NEW voucher of that type. A window with nothing entered is replaced rather than left behind.
  * `kinds` must be the same list on every render (each one is a hook).
  */
-export function useOtherVoucherHandlers(scope: string, kinds: readonly string[], isBlank: () => boolean): void {
+export function useOtherVoucherHandlers(scope: string, kinds: readonly string[], isBlank: () => boolean, billFor?: (kind: string) => string | undefined): void {
   const { app } = useServices();
   for (const kind of kinds) {
     // biome-ignore lint/correctness/useHookAtTopLevel: the list is a module constant, so the number of hooks never changes
     useCommandHandler(scope, `voucher.switch.${kind}`, () => {
       if (isBlank()) app.back();
-      app.navigate({ type: 'voucher', mode: 'create', typeKey: kind });
+      // a Receipt from a Sales invoice (a Payment from a Purchase bill) that is still unpaid settles it, filled in
+      const fromBill = billFor?.(kind);
+      app.navigate({ type: 'voucher', mode: 'create', typeKey: kind, ...(fromBill ? { fromBill } : {}) });
       return true;
     });
   }

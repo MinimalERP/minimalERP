@@ -20,7 +20,7 @@ import {
   stockMovementFromWire,
   voucherFromWire,
 } from '@minimalerp/domain';
-import type { AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, PrintLayoutStore, PrintLayouts, SentDocument, MailSender, VoucherMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
+import type { AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, PrintLayoutStore, PrintLayouts, SentDocument, MailSender, VoucherMailOrder, LedgerMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
 
 /** What arrives with a change's own answer: the parts of the books the browser is about to reload. */
@@ -258,6 +258,12 @@ export class SupabaseBooksBackend
   /** Emails a voucher to its party through the company's Gmail (the server checks the addresses are that party's). */
   async sendVoucherMail(mail: VoucherMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>> {
     const r = await this.call({ action: 'send-mail', ...mail });
+    return r.ok ? ok(r.value as { sentTo: string[] }) : r;
+  }
+
+  /** Emails a party its statement (a payment reminder) through the company's Gmail (the server checks the addresses are that party's). */
+  async sendLedgerMail(mail: LedgerMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>> {
+    const r = await this.call({ action: 'send-ledger-mail', ...mail });
     return r.ok ? ok(r.value as { sentTo: string[] }) : r;
   }
 

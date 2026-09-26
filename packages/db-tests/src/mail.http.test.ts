@@ -131,6 +131,43 @@ describe('emailing a voucher to its party', () => {
   });
 });
 
+describe('emailing a party its statement (a payment reminder from its ledger)', () => {
+  const acmeLedger = async () => (await w.backend.load(w.companyId)).ledgers.find((l) => l.name === 'Acme Ltd')!.id;
+  const askLedger = async (handler: ReturnType<typeof createPostingHandler>, userId: string, body: Record<string, unknown>) => {
+    const res = await handler(
+      new Request('http://localhost/functions/v1/post-voucher', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${userId}` },
+        body: JSON.stringify({ action: 'send-ledger-mail', companyId: w.companyId, subject: 'Payment reminder', body: 'Dear Acme,\nThese bills are pending.', ...body }),
+      }),
+    );
+    return (await res.json()) as { ok: boolean; value?: { sentTo: string[] }; issues?: { code: string; message: string }[] };
+  };
+  const statement = { name: 'Statement of Account - Acme Ltd.pdf', base64: Buffer.from('%PDF-1.4 statement').toString('base64') };
+
+  it('goes to the party’s own addresses through the Gmail script, headed Statement of Account, with the PDF — and is audited', async () => {
+    const ledgerId = await acmeLedger();
+    const sent: OutgoingMail[] = [];
+    const r = await askLedger(handlerWith(async (m) => (sent.push(m), { ok: true })), w.ownerId, { ledgerId, to: ['accounts@acme.in'], attachments: [statement] });
+    expect(r).toEqual({ ok: true, value: { sentTo: ['accounts@acme.in'] } });
+    expect(sent[0]).toMatchObject({ to: ['accounts@acme.in'], subject: 'Payment reminder', attachments: [statement] });
+    expect(sent[0]!.html).toContain('STATEMENT OF ACCOUNT');
+    const audit = await db.pool.query(`select after from public.audit_log where entity_id = $1 and action = 'ledger.mail'`, [ledgerId]);
+    expect(audit.rows.map((x) => x['after'])).toEqual([{ to: ['accounts@acme.in'] }]);
+  });
+
+  it('refuses another party’s address, a ledger that is nobody’s, and someone outside the company — and sends nothing', async () => {
+    const sent: OutgoingMail[] = [];
+    const send = handlerWith(async (m) => (sent.push(m), { ok: true }));
+    const stranger = await askLedger(send, w.ownerId, { ledgerId: await acmeLedger(), to: ['buyer@other.in'] });
+    expect(stranger.issues?.[0]?.message).toContain('buyer@other.in');
+    const cash = (await w.backend.load(w.companyId)).ledgers.find((l) => l.partyId === undefined)!.id;
+    expect((await askLedger(send, w.ownerId, { ledgerId: cash, to: ['sales@acme.in'] })).issues?.map((i) => i.code)).toEqual(['MAIL_INVALID']);
+    expect((await askLedger(send, outsider, { ledgerId: await acmeLedger(), to: ['sales@acme.in'] })).issues?.map((i) => i.code)).toEqual(['PERMISSION_DENIED']);
+    expect(sent).toEqual([]);
+  });
+});
+
 describe('each company’s own Gmail script', () => {
   const settings = (userId: string, body: Record<string, unknown>) =>
     handlerWith()(

@@ -108,7 +108,7 @@ const stockJournalCommand: Command<AppContext> = {
   description: 'Move stock between godowns or convert it — no accounting effect',
   run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: 'stockJournal' }),
   // on every side panel, apart from the voucher types: stock can be adjusted from wherever the person is
-  panel: { label: 'Stock Journal', group: 'Stock', order: 19, on: ['voucher', 'report', 'master', 'master-list'] },
+  panel: { label: 'Stock Journal', group: 'Stock', order: 19, on: ['voucher', 'report', 'master', 'master-list'], fold: 'Inventory' },
 };
 
 const switchCommands: Command<AppContext>[] = [...ENTRY_KINDS, ...SALES_KINDS].map((kind, i) => {
@@ -119,7 +119,7 @@ const switchCommands: Command<AppContext>[] = [...ENTRY_KINDS, ...SALES_KINDS].m
     category: 'Data entry',
     hidden: true,
     configurable: true,
-    panel: { label: title, group: 'Voucher type', order: 20 + i, on: ['voucher'] },
+    panel: { label: title, group: 'Voucher type', order: 20 + i, on: ['voucher'], fold: 'Other' },
   } satisfies Command<AppContext>;
 });
 
@@ -169,17 +169,18 @@ const commands: Command<AppContext>[] = [
   contextual('voucher.partyDetails', 'Party details (billing and shipping)', { label: 'Party details', group: 'Actions', order: 13, on: ['voucher'] }),
   contextual('voucher.acceptAndNew', 'Save and start a new one', { label: 'Save & new', group: 'Actions', order: 11.5, on: ['voucher'] }),
   contextual('voucher.againstOrder', 'Deliver or receive against an order', { label: 'Against order', group: 'Actions', order: 12, on: ['voucher'] }),
-  contextual('order.invoice', 'Create an invoice for the pending items of this order', { label: 'Invoice pending', group: 'Actions', order: 15, on: ['voucher'] }),
+  contextual('order.invoice', 'Create an invoice for the pending items of this order', { label: 'Invoice pending', group: 'Actions', order: 15, on: ['voucher'], fold: 'Inventory' }),
   contextual('quotation.order', 'Create a sales order from this quotation', { label: 'Sales order', group: 'Actions', order: 15.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.removeLine', 'Remove this line', { label: 'Remove line', group: 'Actions', order: 14, on: ['voucher'] }),
   contextual('voucher.oneTimeLine', 'One-time line: write it instead of choosing a stock item', { label: 'One-time line', group: 'Actions', order: 14.5, on: ['voucher'], hideWhenUnavailable: true }),
-  contextual('voucher.print', 'Print', { label: 'Print', group: 'Actions', order: 16, on: ['voucher'] }),
-  contextual('voucher.docket', 'Dispatch docket: print the invoices and their items for the transporter', { label: 'Dispatch docket', group: 'Actions', order: 16.2, on: ['voucher', 'report'], hideWhenUnavailable: true }),
+  contextual('voucher.print', 'Print', { label: 'Print', group: 'Actions', order: 16, on: ['voucher'], fold: 'Print' }),
+  contextual('voucher.docket', 'Dispatch docket: print the invoices and their items for the transporter', { label: 'Dispatch docket', group: 'Actions', order: 16.2, on: ['voucher', 'report'], hideWhenUnavailable: true, fold: 'Print' }),
   contextual('list.pick', 'Select or unselect this voucher (to print several at once)', { label: 'Select', group: 'Actions', order: 6, on: ['report'], hideWhenUnavailable: true }),
-  contextual('voucher.email', 'Email this to the party (from your Gmail)', { label: 'Email', group: 'Actions', order: 16.5, on: ['voucher'], hideWhenUnavailable: true }),
-  contextual('voucher.sendErp', 'Send via ERP to your company with this party’s GSTIN (lands in its inbox)', { label: 'Send via ERP', group: 'Actions', order: 16.6, on: ['voucher'], hideWhenUnavailable: true }),
+  contextual('voucher.email', 'Email this to the party (from your Gmail)', { label: 'Email', group: 'Actions', order: 16.5, on: ['voucher'], hideWhenUnavailable: true, fold: 'Email' }),
+  contextual('voucher.remind', 'Payment reminder: email the customer this invoice with its payment status', { label: 'Payment reminder', group: 'Actions', order: 16.55, on: ['voucher'], hideWhenUnavailable: true, fold: 'Email' }),
+  contextual('voucher.sendErp', 'Send via ERP to your company with this party’s GSTIN (lands in its inbox)', { label: 'Send via ERP', group: 'Actions', order: 16.6, on: ['voucher'], hideWhenUnavailable: true, fold: 'Email' }),
   contextual('voucher.cancel', 'Cancel this voucher', { label: 'Cancel voucher', group: 'Change', order: 31, on: ['voucher'] }),
-  contextual('order.close', 'Close this order', { label: 'Close order', group: 'Change', order: 32, on: ['voucher'] }),
+  contextual('order.close', 'Close this order', { label: 'Close order', group: 'Change', order: 32, on: ['voucher'], fold: 'Inventory' }),
   // What Go To results run for a voucher.
   {
     id: 'voucher.open',

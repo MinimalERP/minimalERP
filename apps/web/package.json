@@ -18,6 +18,8 @@
     "@minimalerp/ports": "workspace:*",
     "@preact/signals": "^2.11.2",
     "@supabase/supabase-js": "^2.116.0",
+    "html2canvas-pro": "^2.4.5",
+    "jspdf": "^4.2.1",
     "preact": "^10.29.8"
   },
   "devDependencies": {

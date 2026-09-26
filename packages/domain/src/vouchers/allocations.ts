@@ -150,6 +150,8 @@ export interface OpenBill {
   readonly dueDate: LocalDate | undefined;
   /** What is still to be settled, always positive. */
   readonly pending: Money;
+  /** What the bill was raised for (every "new" allocation on it), always positive: received / paid so far is `amount − pending`. */
+  readonly amount: Money;
   /** The side the bill was raised on: a debit bill is owed TO us (receivable), a credit bill is owed BY us (payable). */
   readonly side: 'debit' | 'credit';
   readonly voucherId: VoucherId;
@@ -160,7 +162,7 @@ export interface OpenBill {
  * allocation on the opposite side settles part of it. Cancelled vouchers count for nothing.
  */
 export function openBills(vouchers: readonly Voucher[], masters: Masters, ledgerId: LedgerId, ignoreVoucher?: VoucherId): OpenBill[] {
-  const bills = new Map<string, { ref: string; dueDate: LocalDate | undefined; side: 'debit' | 'credit'; net: bigint; voucherId: VoucherId }>();
+  const bills = new Map<string, { ref: string; dueDate: LocalDate | undefined; side: 'debit' | 'credit'; net: bigint; raised: bigint; voucherId: VoucherId }>();
   const pass = (kinds: readonly string[]) => {
     for (const v of vouchers) {
       if (v.status !== 'posted' || v.id === ignoreVoucher) continue;
@@ -172,8 +174,10 @@ export function openBills(vouchers: readonly Voucher[], masters: Masters, ledger
           const delta = line.side === 'debit' ? a.amount : -a.amount;
           const bill = bills.get(ref);
           if (a.kind === 'new') {
-            if (bill) bill.net += delta;
-            else bills.set(ref, { ref, dueDate: a.dueDate, side: line.side, net: delta, voucherId: v.id });
+            if (bill) {
+              bill.net += delta;
+              bill.raised += delta;
+            } else bills.set(ref, { ref, dueDate: a.dueDate, side: line.side, net: delta, raised: delta, voucherId: v.id });
           } else if (bill) {
             bill.net += delta;
           }
@@ -184,9 +188,9 @@ export function openBills(vouchers: readonly Voucher[], masters: Masters, ledger
   pass(['new']); // raise every bill first, so a settlement dated before its bill (back-dating) still finds it
   pass(['against']);
   return [...bills.values()]
-    .map((b) => ({ ...b, pending: money(b.side === 'debit' ? b.net : -b.net) }))
+    .map((b) => ({ ...b, pending: money(b.side === 'debit' ? b.net : -b.net), amount: money(b.side === 'debit' ? b.raised : -b.raised) }))
     .filter((b) => b.pending > 0n)
-    .map((b) => ({ ref: b.ref, ledgerId, dueDate: b.dueDate, pending: b.pending, side: b.side, voucherId: b.voucherId }));
+    .map((b) => ({ ref: b.ref, ledgerId, dueDate: b.dueDate, pending: b.pending, amount: b.amount, side: b.side, voucherId: b.voucherId }));
 }
 
 /**

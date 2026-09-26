@@ -29,6 +29,7 @@ import type {
   PrintLayouts,
   SentDocument,
   MailSender,
+  LedgerMailOrder,
   VoucherMailOrder,
   DocumentSender,
   InboxGateway,
@@ -240,6 +241,11 @@ export class Books {
   /** Emails a posted voucher to its party (online books only); nothing is stored but the audit line. */
   sendVoucherMail(mail: Omit<VoucherMailOrder, 'companyId'>): Promise<Result<{ readonly sentTo: readonly string[] }>> {
     return this.backend.sendVoucherMail({ ...mail, companyId: this.companyId });
+  }
+
+  /** A party's statement (a payment reminder from its ledger), from the company's Gmail. */
+  sendLedgerMail(mail: Omit<LedgerMailOrder, 'companyId'>): Promise<Result<{ readonly sentTo: readonly string[] }>> {
+    return this.backend.sendLedgerMail({ ...mail, companyId: this.companyId });
   }
 
   /** Whether vouchers can be sent to the owner's other companies from here (online books; ADR-0025). */

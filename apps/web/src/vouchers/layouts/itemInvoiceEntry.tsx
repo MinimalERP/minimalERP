@@ -46,12 +46,14 @@ import {
 import { useOtherVoucherHandlers } from '../otherVoucher';
 import { PartyDetailsDialog } from '../../screens/PartyDetailsDialog';
 import { FieldsDialog } from '../../screens/ReportDialogs';
-import { MailDialog } from '../MailDialog';
+import { MailDialog, MailWindow } from '../MailDialog';
+import { billReminder } from '../reminders';
 import { SendViaErp } from '../SendViaErp';
 import { DocketDialog } from '../DocketDialog';
 import type { CreatedMaster } from '../../screens/MasterFormScreen';
 import type { InvoiceDoc } from '../../ui/PrintView';
 import { invoiceDocOf } from '../invoicePrint';
+import { pendingBillOf } from '../settleBill';
 import {
   tryCommitVoucherDate,
   useVoucherDraftPersistence,
@@ -175,6 +177,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const [partyOpen, setPartyOpen] = useState(false);
   /** The email window (Alt+Shift+E on a saved document). */
   const [mailOpen, setMailOpen] = useState(false);
+  const [reminding, setReminding] = useState(false);
   /** The dispatch docket's details window (Alt+D on a saved sales invoice). */
   const [docketOpen, setDocketOpen] = useState(false);
   /** The line whose one-time form (Alt+T) is open. */
@@ -193,7 +196,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const fields = fieldsOf(form, kind, gstOn);
   const picker = usePickerState(focusKey);
   // a dialog (party details) has the focus while it is open; the field gets it back when it closes
-  const { current, go, nextKey, prevKey, isFocus } = useFieldFocus({ fields, focusKey, setFocusKey, rootRef, idle, wake, paused: partyOpen || mailOpen || docketOpen, deps: [mode, form.lines.length], onGo: picker.reset });
+  const { current, go, nextKey, prevKey, isFocus } = useFieldFocus({ fields, focusKey, setFocusKey, rootRef, idle, wake, paused: partyOpen || mailOpen || reminding || docketOpen, deps: [mode, form.lines.length], onGo: picker.reset });
 
   const fresh = (): SalesForm => (frame.state.get('form') as SalesForm | undefined) ?? form;
   const update = (fn: (f: SalesForm) => SalesForm) => setFormState(fn(fresh()));
@@ -683,7 +686,13 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   useCommandHandler(SCOPE, 'voucher.switch.salesOrder', () => switchOrOpen('salesOrder'));
   useCommandHandler(SCOPE, 'voucher.switch.purchase', () => switchOrOpen('purchase'));
   useCommandHandler(SCOPE, 'voucher.switch.purchaseOrder', () => switchOrOpen('purchaseOrder'));
-  useOtherVoucherHandlers(SCOPE, ENTRY_KINDS, () => mode === 'create' && isBlankSales(fresh()));
+  // F6 on a Sales invoice (F5 on a Purchase bill) still to be paid: the Receipt (Payment) that settles it, filled in
+  const settles = kind === 'sales' ? 'receipt' : kind === 'purchase' ? 'payment' : undefined;
+  // a Sales invoice still unpaid: “Payment reminder” on the panel emails the customer a reminder with the invoice and its payment status
+  const reminder = useMemo(() => (mode === 'display' && voucher ? billReminder(voucher, books) : undefined), [mode, voucher, books.vouchers]);
+  useOtherVoucherHandlers(SCOPE, ENTRY_KINDS, () => mode === 'create' && isBlankSales(fresh()), (target) =>
+    mode === 'display' && voucher && target === settles && pendingBillOf(voucher, books.vouchers, masters) ? voucher.id : undefined,
+  );
 
   const dirty = mode !== 'display' && (mode === 'create' ? !isBlankSales(form) : JSON.stringify(form) !== JSON.stringify(salesFormFromVoucher(voucher as Voucher, masters, books.orders)));
 
@@ -1034,6 +1043,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       {mode !== 'create' && voucher?.status === 'posted' && p.order && orderState?.status === 'open' && <Only scope={SCOPE} command="order.invoice" run={invoicePending} />}
       {mode !== 'create' && voucher?.status === 'posted' && p.quote && !convertedTo && <Only scope={SCOPE} command="quotation.order" run={salesOrderFromQuote} />}
       {mode !== 'create' && voucher?.status === 'posted' && isMailKind(kind) && !mailOpen && <Only scope={SCOPE} command="voucher.email" run={() => (setMailOpen(true), true)} />}
+      {mode === 'display' && reminder && !reminding && <Only scope={SCOPE} command="voucher.remind" run={() => (setReminding(true), true)} />}
       {mode !== 'create' && <SendViaErp books={books} voucher={voucher} scope={SCOPE} onDone={setBanner} />}
       {mode !== 'create' && voucher?.status === 'posted' && kind === 'sales' && !docketOpen && <Only scope={SCOPE} command="voucher.docket" run={() => (setDocketOpen(true), true)} />}
       {docketOpen && voucher && (
@@ -1043,6 +1053,15 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           onDone={(doc) => {
             setDocketOpen(false);
             if (doc) print.printReport(doc);
+          }}
+        />
+      )}
+      {reminding && voucher && reminder && (
+        <MailWindow
+          {...reminder}
+          onDone={(sentTo) => {
+            setReminding(false);
+            if (sentTo) setBanner({ text: `Payment reminder for ${voucher.number} emailed to ${sentTo.join(', ')}.`, tone: 'ok' });
           }}
         />
       )}

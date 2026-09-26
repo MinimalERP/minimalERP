@@ -24,6 +24,8 @@ import {
   voucherToWire,
   voucherMailHtml,
   voucherMailProblems,
+  ledgerMailHtml,
+  ledgerMailProblems,
 } from '@minimalerp/domain';
 import type { InboxGateway, JournalRepository, MasterGateway, MastersRepository, PostOutcome, PostingGateway, StockRepository, VoucherRepository } from '@minimalerp/ports';
 import { z } from 'zod';
@@ -119,6 +121,16 @@ const body = z.discriminatedUnion('action', [
     body: z.string().max(8000),
     attachments: z.array(z.object({ name: z.string().min(1).max(200), base64: z.string().max(26_000_000) })).max(10).optional(),
   }),
+  // a party's statement (a payment reminder from its ledger): the same limits as a voucher's mail
+  z.object({
+    action: z.literal('send-ledger-mail'),
+    companyId,
+    ledgerId: z.string().min(1),
+    to: z.array(z.string().max(200)).max(20),
+    subject: z.string().max(200),
+    body: z.string().max(8000),
+    attachments: z.array(z.object({ name: z.string().min(1).max(200), base64: z.string().max(26_000_000) })).max(10).optional(),
+  }),
   z.object({ action: z.literal('inbox'), companyId }),
   // the daily report: for the company given, or the caller's only one (the add-on's sign-in); `asOn` defaults to today in India
   z.object({ action: z.literal('digest'), companyId: companyId.optional(), asOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }),
@@ -161,8 +173,8 @@ export interface BooksServer extends PostingGateway, MasterGateway, MastersRepos
   /** The company's own print layouts and pictures (ADR-0025): read by anyone who sees its vouchers, replaced by whoever may change its masters. */
   printLayout(companyId: string): Promise<Result<PrintLayouts>>;
   setPrintLayout(companyId: string, layouts: PrintLayouts): Promise<Result<PrintLayouts>>;
-  /** The audit line for a voucher emailed to its party: to whom — never the message or the file. */
-  recordMail(companyId: CompanyId, voucherId: string, to: readonly string[]): Promise<void>;
+  /** The audit line for a voucher (or a party's ledger) emailed to its party: to whom — never the message or the file. */
+  recordMail(companyId: CompanyId, entityId: string, to: readonly string[], entity?: 'voucher' | 'ledger'): Promise<void>;
 }
 
 /** A company's own print layouts (HTML by document, see domain print/template.ts) and pictures (logo, signature as data URLs). */
@@ -406,6 +418,32 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
           }, script);
           if (!sent.ok) return json(200, fail(issue(IssueCode.MailFailed, `Gmail did not send it: ${sent.message}`)));
           await gateway.recordMail(id, voucher.id, to);
+          return json(200, { ok: true, value: { sentTo: to } });
+        }
+        case 'send-ledger-mail': {
+          const denied = await refuse(gateway, cmd.companyId, 'voucher.view');
+          if (denied) return json(200, denied);
+          const id = cmd.companyId as CompanyId;
+          const masters = await gateway.load(id);
+          const ledgerId = cmd.ledgerId as never;
+          const to = cmd.to.map((e) => e.trim());
+          const problems = ledgerMailProblems(ledgerId, masters, { to, subject: cmd.subject, attachments: cmd.attachments });
+          if (problems.length > 0) return json(200, { ok: false, issues: problems });
+          const script = deps.sendMail ? await gateway.mailScriptOf(id) : undefined;
+          if (!deps.sendMail || !script) {
+            return json(200, fail(issue(IssueCode.MailNotSetUp, `${masters.company.name} has no Gmail set up yet: the owner sets it in Utilities › Company Gmail`)));
+          }
+          const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10); // India
+          const sent = await deps.sendMail({
+            to,
+            subject: cmd.subject.trim(),
+            text: cmd.body,
+            html: ledgerMailHtml(ledgerId, masters, cmd.body, today),
+            fromName: masters.company.name,
+            ...(cmd.attachments?.length ? { attachments: cmd.attachments } : {}),
+          }, script);
+          if (!sent.ok) return json(200, fail(issue(IssueCode.MailFailed, `Gmail did not send it: ${sent.message}`)));
+          await gateway.recordMail(id, cmd.ledgerId, to, 'ledger');
           return json(200, { ok: true, value: { sentTo: to } });
         }
         // seriesStatus checks master.view itself (the same answer to "not permitted" and "no such series" either refuses).

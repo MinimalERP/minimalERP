@@ -1,5 +1,5 @@
-import { type Voucher, MAX_MAIL_FILES, MAX_MAIL_TOTAL_BYTES, isMailFileName, voucherMail, voucherMailProblems } from '@minimalerp/domain';
-import { useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { type Issue, type Result, type Voucher, MAX_MAIL_FILES, MAX_MAIL_TOTAL_BYTES, isMailFileName, mailFileSize, voucherMail, voucherMailProblems } from '@minimalerp/domain';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { Hint } from '../shell/Hint';
 import { useCommandHandler, useScope } from '../shell/hooks';
@@ -30,18 +30,73 @@ const sizeText = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1
  * Ctrl+A sends, Esc leaves. Nothing is kept but the audit line.
  */
 export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: Voucher; onDone: (sentTo: readonly string[] | undefined) => void }) {
-  useScope(SCOPE, 'overlay', true);
   const start = voucherMail(voucher, books.masters);
-  const addresses = start?.to ?? [];
+  return (
+    <MailWindow
+      title={`Email ${start?.docName ?? 'voucher'} ${voucher.number}`}
+      addresses={start?.to ?? []}
+      subject={start?.subject ?? ''}
+      body={start?.body ?? ''}
+      bodyHint="Sent in the voucher’s own typewriter style, with the document’s number, date and amount above it."
+      fileHint="The voucher’s PDF (printed, signed with your DSC if you like) and any supporting documents — several at once."
+      problems={(req) => voucherMailProblems(voucher, books.masters, req)}
+      send={(req) => books.sendVoucherMail({ voucherId: voucher.id, ...req })}
+      onDone={onDone}
+    />
+  );
+}
+
+export interface MailRequest {
+  readonly to: readonly string[];
+  readonly subject: string;
+  readonly body: string;
+  readonly attachments?: readonly { readonly name: string; readonly base64: string }[];
+}
+
+export interface MailWindowProps {
+  readonly title: string;
+  /** The party's own addresses: all ticked, nothing else offered. */
+  readonly addresses: readonly string[];
+  readonly subject: string;
+  readonly body: string;
+  readonly bodyHint: string;
+  readonly fileHint: string;
+  /** A file made for this mail (a payment reminder's PDF): attached as soon as it is ready, removable like any other. */
+  readonly makeFile?: (() => Promise<{ readonly name: string; readonly base64: string }>) | undefined;
+  readonly problems: (req: MailRequest) => Issue[];
+  readonly send: (req: MailRequest) => Promise<Result<{ readonly sentTo: readonly string[] }>>;
+  readonly onDone: (sentTo: readonly string[] | undefined) => void;
+}
+
+/** The mail window every mail from the books goes through: a voucher's (Email) and a payment reminder's. */
+export function MailWindow({ title, addresses, subject: startSubject, body: startBody, bodyHint, fileHint, makeFile, problems: problemsOf, send: sendIt, onDone }: MailWindowProps) {
+  useScope(SCOPE, 'overlay', true);
   const [picked, setPicked] = useState<readonly string[]>(addresses);
-  const [subject, setSubject] = useState(start?.subject ?? '');
-  const [body, setBody] = useState(start?.body ?? '');
+  const [subject, setSubject] = useState(startSubject);
+  const [body, setBody] = useState(startBody);
   const [attached, setAttached] = useState<readonly Attached[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [warnNoFile, setWarnNoFile] = useState(false);
   const [sending, setSending] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const file = useRef<HTMLInputElement>(null);
+  const [making, setMaking] = useState(makeFile !== undefined);
+
+  useEffect(() => {
+    if (!makeFile) return;
+    let live = true;
+    makeFile().then(
+      (f) => {
+        if (live) setAttached((a) => [...a.filter((x) => x.name !== f.name), { ...f, size: mailFileSize(f.base64) }]);
+      },
+      () => {
+        if (live) setErrors((e) => ({ ...e, attachment: 'The PDF could not be made: attach it yourself (Print, save as PDF).' }));
+      },
+    ).finally(() => live && setMaking(false));
+    return () => {
+      live = false;
+    };
+  }, []);
 
   useLayoutEffect(() => {
     root.current?.querySelector<HTMLElement>('[data-mf]')?.focus();
@@ -72,9 +127,9 @@ export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: 
   };
 
   const send = async (): Promise<void> => {
-    if (sending) return;
+    if (sending || making) return;
     const attachments = attached.map((a) => ({ name: a.name, base64: a.base64 }));
-    const problems = voucherMailProblems(voucher, books.masters, { to: picked, subject, attachments });
+    const problems = problemsOf({ to: picked, subject, body, attachments });
     if (problems.length > 0) {
       setErrors(Object.fromEntries(problems.map((p) => [p.path ?? 'general', p.message])));
       return;
@@ -85,7 +140,7 @@ export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: 
     }
     setSending(true);
     try {
-      const r = await books.sendVoucherMail({ voucherId: voucher.id, to: picked, subject: subject.trim(), body, ...(attachments.length > 0 ? { attachments } : {}) });
+      const r = await sendIt({ to: picked, subject: subject.trim(), body, ...(attachments.length > 0 ? { attachments } : {}) });
       if (r.ok) onDone(r.value.sentTo);
       else setErrors({ general: r.issues.map((i) => i.message).join(' ') });
     } catch {
@@ -109,10 +164,8 @@ export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: 
 
   return (
     <div class="overlay-backdrop" data-testid="mail-dialog-backdrop">
-      <div class="palette dialog mail-dialog" role="dialog" aria-modal="true" aria-label={`Email ${voucher.number}`} data-testid="mail-dialog" ref={root}>
-        <h2 class="dialog-title">
-          Email {start?.docName ?? 'voucher'} {voucher.number}
-        </h2>
+      <div class="palette dialog mail-dialog" role="dialog" aria-modal="true" aria-label={title} data-testid="mail-dialog" ref={root}>
+        <h2 class="dialog-title">{title}</h2>
         <div class="dialog-body">
           <div class="field-row">
             <span class="field-label">To</span>
@@ -165,7 +218,7 @@ export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: 
             </label>
             <div class="field-control">
               <textarea id="mail-body" data-mf class="field-input mail-body" rows={8} value={body} onInput={(e) => setBody((e.target as HTMLTextAreaElement).value)} />
-              <span class="field-hint">Sent in the voucher’s own typewriter style, with the document’s number, date and amount above it.</span>
+              <span class="field-hint">{bodyHint}</span>
             </div>
           </div>
           <div class="field-row">
@@ -193,7 +246,12 @@ export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: 
               <button type="button" class="button" data-mf onClick={() => file.current?.click()}>
                 {attached.length > 0 ? 'Add more files…' : 'Choose files…'}
               </button>{' '}
-              {attached.length === 0 && <span class="field-hint">The voucher’s PDF (printed, signed with your DSC if you like) and any supporting documents — several at once.</span>}
+              {making && (
+                <span class="field-hint" data-testid="mail-making">
+                  Making the PDF…
+                </span>
+              )}
+              {attached.length === 0 && !making && <span class="field-hint">{fileHint}</span>}
               {err('attachment')}
             </div>
           </div>
@@ -211,7 +269,7 @@ export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: 
             <button type="button" class="button" onClick={() => onDone(undefined)} disabled={sending}>
               Cancel
             </button>
-            <button type="button" class="button primary" data-mf data-testid="mail-send" onClick={() => void send()} disabled={sending || addresses.length === 0}>
+            <button type="button" class="button primary" data-mf data-testid="mail-send" onClick={() => void send()} disabled={sending || making || addresses.length === 0}>
               {sending ? 'Sending…' : 'Send'}
             </button>
           </div>

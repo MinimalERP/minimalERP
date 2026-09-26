@@ -73,6 +73,18 @@ export interface InvoiceDoc {
   readonly roundOff?: bigint | undefined;
   readonly grandTotal: bigint;
   readonly narration?: string | undefined;
+  /** Only on the copy a payment reminder attaches: where the bill stands today. The ordinary print never carries it. */
+  readonly paymentStatus?: PaymentStatus | undefined;
+}
+
+export interface PaymentStatus {
+  readonly asOn: string;
+  /** What the bill was raised for, what has come in against it, and the rest. */
+  readonly amount: bigint;
+  readonly received: bigint;
+  readonly pending: bigint;
+  readonly dueDate: string;
+  readonly daysOverdue: number;
 }
 
 /** A Stock Journal or opening stock: an internal movement, not a customer document — no GST, bank details or signature. */
@@ -94,6 +106,24 @@ export interface ReportDoc {
   readonly columns: readonly { readonly label: string; readonly align?: 'left' | 'right' | undefined }[];
   readonly rows: readonly (readonly string[])[];
   readonly rowCount: string;
+  /**
+   * A statement to send someone (a ledger): printed like a voucher — framed, the company's heading on the left, the document's title and dates on
+   * the right, the party and a summary in a box — instead of a plain report page.
+   */
+  readonly statement?: StatementHead | undefined;
+  /** More tables after the main one (a party ledger's outstanding bills). */
+  readonly tables?: readonly { readonly title: string; readonly columns: ReportDoc['columns']; readonly rows: readonly (readonly string[])[] }[] | undefined;
+}
+
+export interface StatementHead {
+  /** "Statement of Account" (a party) or "Ledger Account". */
+  readonly docTitle: string;
+  /** Right of the heading, under the title: "Period" …, "As on" … */
+  readonly details: readonly (readonly [string, string])[];
+  /** Whom it is of: the name, then address, GSTIN, phone / email lines. */
+  readonly party: { readonly label: string; readonly name: string; readonly lines: readonly string[] };
+  /** Beside the party: opening, debits, credits, closing, what is pending. */
+  readonly summary: readonly (readonly [string, string])[];
 }
 
 /**
