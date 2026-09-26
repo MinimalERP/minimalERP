@@ -43,6 +43,38 @@ const CODE_PUNCTUATION: Record<string, string> = {
 
 const F_KEY = /^F([1-9]|1\d|2[0-4])$/;
 
+/**
+ * The key event that `chordFromEvent` reads back as this chord — how a TAP on a drawn shortcut presses it (a phone has no Alt key). Undefined
+ * for a key this cannot spell.
+ */
+export function keyEventInitOf(chord: Chord): KeyboardEventInit | undefined {
+  const { modifiers, key } = parseChord(chord);
+  const named = Object.keys(NAMED_KEYS).find((k) => NAMED_KEYS[k] === key);
+  const punct = Object.keys(CODE_PUNCTUATION).find((c) => CODE_PUNCTUATION[c] === key);
+  const [eventKey, code] = /^[A-Z]$/.test(key)
+    ? [key.toLowerCase(), `Key${key}`]
+    : /^\d$/.test(key)
+      ? [key, `Digit${key}`]
+      : F_KEY.test(key)
+        ? [key, key]
+        : named !== undefined
+          ? [named, named === ' ' ? 'Space' : named]
+          : punct !== undefined
+            ? [key, punct]
+            : [undefined, undefined];
+  if (eventKey === undefined) return undefined;
+  return {
+    key: eventKey,
+    code,
+    ctrlKey: modifiers.includes('Ctrl'),
+    altKey: modifiers.includes('Alt'),
+    shiftKey: modifiers.includes('Shift'),
+    metaKey: modifiers.includes('Meta'),
+    bubbles: true,
+    cancelable: true,
+  };
+}
+
 function keyNameOf(e: KeyEventLike): string | undefined {
   if (LONE_MODIFIER_KEYS.has(e.key)) return undefined;
   if (F_KEY.test(e.key)) return e.key;

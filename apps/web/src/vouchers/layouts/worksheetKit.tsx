@@ -195,7 +195,7 @@ export function PickerList<T extends { readonly id: string; readonly name: strin
   /** false: no "Alt+C creates" (a list of existing things only). */
   readonly canCreate?: boolean;
 }) {
-  const { keymapStore } = useServices();
+  const { keymapStore, registry, scopes } = useServices();
   if (!props.show) return null;
   if (props.hits.length > 0) {
     return (
@@ -224,7 +224,21 @@ export function PickerList<T extends { readonly id: string; readonly name: strin
   if (props.canCreate === false || typed === '' || typed === props.storedName) return null;
   return (
     <div class="picker picker-empty" data-testid="picker">
-      No match — <Kbd chord={keymapStore.keymap.chordsFor('master.createInline')[0] ?? 'Alt+C'} /> creates “{typed}”
+      No match —{' '}
+      {/* a tap does what the key does; mouse-down is cancelled so the field keeps the focus (and the picker stays open) */}
+      <button
+        type="button"
+        class="picker-create"
+        tabIndex={-1}
+        onMouseDown={(e) => e.preventDefault()}
+        onPointerDown={(e) => e.preventDefault()}
+        onClick={() => {
+          const active = scopes.snapshot();
+          registry.dispatch('master.createInline', { scopes: active.ids, modal: active.modal });
+        }}
+      >
+        <Kbd chord={keymapStore.keymap.chordsFor('master.createInline')[0] ?? 'Alt+C'} /> creates “{typed}”
+      </button>
       {props.hint}
     </div>
   );

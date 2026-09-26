@@ -633,7 +633,10 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
                     No match{chord('master.createInline') && f.target && f.target !== 'financialYear' ? (
                       <>
                         {' — '}
-                        <Kbd chord={chord('master.createInline') as string} /> creates “{(labels[f.key] ?? '').trim()}”
+                        {/* a tap does what the key does, without taking the focus from the field */}
+                        <button type="button" class="picker-create" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onPointerDown={(e) => e.preventDefault()} onClick={() => void createInline()}>
+                          <Kbd chord={chord('master.createInline') as string} /> creates “{(labels[f.key] ?? '').trim()}”
+                        </button>
                       </>
                     ) : null}
                   </div>

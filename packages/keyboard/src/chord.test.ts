@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Chord, type KeyEventLike, chordFromEvent, isBarePrintable, isRepeatable, normalizeChord, parseChord } from './chord';
+import { type Chord, type KeyEventLike, chordFromEvent, isBarePrintable, isRepeatable, keyEventInitOf, normalizeChord, parseChord } from './chord';
 
 const ev = (init: Partial<KeyEventLike> & { key: string; code: string }): KeyEventLike => ({
   ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...init,
@@ -88,5 +88,15 @@ describe('parseChord / isBarePrintable / isRepeatable', () => {
   it('only unmodified navigation keys repeat when held', () => {
     for (const c of ['Up', 'Down', 'PageDown', 'Tab', 'Shift+Tab', 'Backspace']) expect(isRepeatable(c as Chord), c).toBe(true);
     for (const c of ['Alt+G', 'F5', 'Enter', 'Esc', 'Ctrl+Up', 'F8']) expect(isRepeatable(c as Chord), c).toBe(false);
+  });
+});
+
+describe('keyEventInitOf — a tap on a drawn shortcut presses it', () => {
+  it('spells every kind of chord so that chordFromEvent reads the same chord back', () => {
+    for (const c of ['Alt+C', 'Ctrl+A', 'Esc', 'Enter', 'F8', 'Shift+Tab', 'Alt+2', 'Ctrl+Alt+Up', 'Alt+/', 'Space']) {
+      const init = keyEventInitOf(c as Chord);
+      expect(init).toBeDefined();
+      expect(chordFromEvent(init as KeyEventLike)).toBe(c);
+    }
   });
 });

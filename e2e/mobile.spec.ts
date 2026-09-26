@@ -104,3 +104,48 @@ test('a desktop never shows the floating keys', async ({ app }) => {
   await expect(heading(app)).toHaveText('New Sales Voucher');
   await expect(app.getByTestId('keyboard-keys')).toHaveCount(0);
 });
+
+test.describe('a touch screen reaches what the keys do (no Alt key on a phone)', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  async function unknownItem(page: Page): Promise<void> {
+    await page.goto('/');
+    await expect(page.locator('.shell')).toBeVisible();
+    await loadDemo(page);
+    await page.keyboard.press('F8');
+    await expect(heading(page)).toHaveText('New Sales Voucher');
+    await page.keyboard.type('sharma');
+    await page.keyboard.press('Enter');
+    await page.locator('[data-vf="l0.item"]').click();
+    await page.keyboard.type('Blower Plate 370');
+    await expect(page.getByTestId('picker')).toContainText('creates “Blower Plate 370”');
+  }
+
+  test('"No match — Alt+C creates …" is tapped: the item is created from the typed name, and the field keeps the focus until then', async ({ page }) => {
+    await unknownItem(page);
+    await page.getByTestId('picker').getByRole('button', { name: /creates/ }).tap();
+    await expect(heading(page)).toHaveText('Create Stock Item');
+    await expect(page.locator('[data-field="name"]')).toHaveValue('Blower Plate 370');
+  });
+
+  test('Keys opens the panel without taking the focus from the field, so its Create acts on it', async ({ page }) => {
+    await unknownItem(page);
+    await page.getByRole('button', { name: 'Keys' }).tap();
+    await expect(page.locator('[data-vf="l0.item"]')).toBeFocused();
+    const create = page.getByTestId('action-panel').locator('[data-command="master.createInline"]');
+    await expect(create).toBeEnabled();
+    await create.tap();
+    await expect(heading(page)).toHaveText('Create Stock Item');
+  });
+
+  test('a key drawn in a hint is pressed by a tap on it: "Alt+C new ledger" on the Ledgers list', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.shell')).toBeVisible();
+    await loadDemo(page);
+    await goTo(page, 'ledgers');
+    await page.keyboard.press('Enter');
+    await expect(heading(page)).toHaveText('Ledgers');
+    await page.locator('.lede .kbd-tap').last().tap();
+    await expect(heading(page)).toHaveText('Create Ledger');
+  });
+});

@@ -592,3 +592,25 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 .print-layouts .layout-html { font-family: var(--font-figures); font-size: var(--fs-sm); width: 100%; min-height: 18em; white-space: pre; }
 .print-layouts .layout-image { max-height: 48px; max-width: 160px; display: block; margin-bottom: var(--sp-2); background: #fff; }
 .print-layouts .layout-preview { margin-top: var(--sp-3); overflow-x: auto; }
+
+/* ---- touch (phones, tablets) ----
+ * A drawn key is a button: a tap presses it (Kbd). The "No match — Alt+C creates …" line is one too. On a touch screen everything a finger
+ * aims at gets at least ~40px.
+ */
+.kbd-tap { cursor: pointer; }
+.picker-create { font: inherit; color: var(--c-accent); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.picker-create .kbd-group { margin-right: var(--sp-2); }
+
+@media (pointer: coarse) {
+  .kbd-tap { padding: 6px 2px; margin: -6px 0; }
+  .kbd-tap .kbd { padding: 2px 8px; }
+  .picker-create { display: inline-flex; align-items: center; min-height: 40px; padding: 0 var(--sp-3); margin: var(--sp-2) 0; border: 1px solid var(--c-accent); border-radius: var(--radius); text-decoration: none; }
+  .goto-button, .action, .hint-btn, .company-switch, .chip-x { min-height: 40px; }
+  .action { padding: var(--sp-2) var(--sp-4); }
+  .actionpanel.open { width: min(20rem, 85vw); gap: var(--sp-2); }
+  .list-row, .picker .list-row { min-height: 44px; align-items: center; }
+  .picker { max-height: 45vh; }
+  .field-input, .cell { min-height: 36px; }
+  .statusbar { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .hint-btn { flex-shrink: 0; }
+}

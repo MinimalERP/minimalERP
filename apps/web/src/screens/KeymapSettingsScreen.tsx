@@ -129,7 +129,7 @@ export function KeymapSettingsScreen({ frame }: { frame: Frame<ScreenRef> }) {
                 {capturing === c.id ? (
                   <span class="badge">press a key…</span>
                 ) : chords.length > 0 ? (
-                  chords.map((chord) => <Kbd key={chord} chord={chord} />)
+                  chords.map((chord) => <Kbd key={chord} chord={chord} tap={false} />)
                 ) : (
                   <span class="unassigned">no shortcut</span>
                 )}

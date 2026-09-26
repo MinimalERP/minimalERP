@@ -147,7 +147,16 @@ export function TopBar() {
         </>
       )}
       {PANEL_SCREENS.includes(screens.top.screen.type) && (
-        <button type="button" class="goto-button keys-toggle" onClick={() => ui.toggleKeys()} aria-pressed={ui.keysOpen} aria-label="Keys">
+        <button
+          type="button"
+          class="goto-button keys-toggle"
+          // the field being edited keeps the focus: the panel's actions (Create, Accept…) act on it, as its keys would
+          onMouseDown={(e) => e.preventDefault()}
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => ui.toggleKeys()}
+          aria-pressed={ui.keysOpen}
+          aria-label="Keys"
+        >
           <span>Keys</span>
         </button>
       )}
