@@ -60,6 +60,7 @@ import type {
   VoucherRepository,
 } from '@minimalerp/ports';
 import { issueFromDbError } from './errors';
+import type { ExchangeSending, SentDocument } from './http';
 import { buildMasters, ledgersFromJson, masterRecordToRow, mastersToSeed, mastersVersion } from './masters';
 import type { Queryable } from './queryable';
 
@@ -635,6 +636,65 @@ export class PostgresBackend
     const r = await this.db.query('select public.company_mail_script($1::uuid) as r', [companyId]);
     const v = r.rows[0]?.['r'] as { url?: unknown; secret?: unknown } | null | undefined;
     return v && typeof v.url === 'string' && typeof v.secret === 'string' ? { url: v.url, secret: v.secret } : undefined;
+  }
+
+  /** The companies `fromCompanyId` may send to that have this GSTIN: those sharing an owner with it (ADR-0025). */
+  async exchangeTargets(fromCompanyId: string, gstin: string): Promise<readonly { readonly id: string; readonly name: string }[]> {
+    if (!isUuid(fromCompanyId)) return [];
+    const r = await this.db.query('select public.exchange_targets($1::uuid, $2) as r', [fromCompanyId, gstin]);
+    const rows = (r.rows[0]?.['r'] as { id?: unknown; name?: unknown }[] | null | undefined) ?? [];
+    return rows.map((x) => ({ id: text(x.id), name: text(x.name) }));
+  }
+
+  /** Puts the proposal in the receiving company's inbox and records the sending, in one transaction. */
+  async exchangeSend(s: ExchangeSending): Promise<Result<{ readonly id: string }>> {
+    if (!isUuid(s.fromCompanyId)) return fail(companyMismatch(s.fromCompanyId));
+    const proposal = proposalSchema.safeParse(s.proposal);
+    if (!proposal.success) return fail(issue(IssueCode.SchemaInvalid, 'The proposal is not in the expected shape', 'proposal'));
+    const r = await this.rpc('select public.exchange_send($1::uuid, $2, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8::uuid, $9, $10::text::jsonb, $11, $12) as r', [
+      this.options.actorId,
+      this.options.requestId ?? null,
+      s.id,
+      s.fromCompanyId,
+      s.voucherId,
+      s.fromKind,
+      s.fromNumber,
+      s.toCompanyId,
+      s.toKind,
+      JSON.stringify(proposal.data),
+      s.subject,
+      s.fromName,
+    ]);
+    return r.ok ? ok({ id: s.id }) : r;
+  }
+
+  /** What the company sent to its other companies, newest first, with what became of each. */
+  async exchangeSent(companyId: string): Promise<Result<readonly SentDocument[]>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    try {
+      const r = await this.db.query('select public.exchange_sent($1::uuid, $2::uuid) as r', [this.options.actorId, companyId]);
+      const rows = (r.rows[0]?.['r'] as Record<string, unknown>[] | null | undefined) ?? [];
+      const opt = (v: unknown) => (typeof v === 'string' ? v : undefined);
+      return ok(
+        rows.map((x) => ({
+          id: text(x['id']),
+          voucherId: text(x['voucherId']),
+          kind: text(x['kind']),
+          number: text(x['number']),
+          toCompany: text(x['toCompany']),
+          toKind: text(x['toKind']),
+          status: text(x['status']) as SentDocument['status'],
+          reason: opt(x['reason']),
+          toNumber: opt(x['toNumber']),
+          sentAt: text(x['sentAt']),
+          decidedAt: opt(x['decidedAt']),
+        })),
+      );
+    } catch (e) {
+      const known = issueFromDbError(e);
+      if (known) return fail(known);
+      throw e;
+    }
   }
 
   private async mailCall(sql: string, values: readonly unknown[]): Promise<Result<{ readonly url: string; readonly updatedAt: string } | null>> {

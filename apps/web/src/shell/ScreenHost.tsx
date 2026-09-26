@@ -1,5 +1,6 @@
 import type { Frame } from '@minimalerp/command';
 import { CompanyCreateScreen, CompanyResetScreen, CompanyGmailScreen, CompanySwitchScreen, CompanyUserScreen } from '../screens/CompanyScreens';
+import { ExchangeSentScreen } from '../screens/ExchangeSentScreen';
 import { ImportExportScreen } from '../screens/ImportExportScreen';
 import { InboxScreen } from '../screens/InboxScreen';
 import { InvoiceSettingsScreen } from '../screens/InvoiceSettingsScreen';
@@ -34,6 +35,8 @@ function ScreenBody({ frame }: { frame: Frame<ScreenRef> }) {
       return <CompanyUserScreen />;
     case 'company-gmail':
       return <CompanyGmailScreen />;
+    case 'exchange-sent':
+      return <ExchangeSentScreen />;
     case 'invoice-settings':
       return <InvoiceSettingsScreen frame={frame} />;
     case 'inbox':

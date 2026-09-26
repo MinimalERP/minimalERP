@@ -24,6 +24,8 @@ import {
 } from '@minimalerp/domain';
 import type {
   ChangeFeed,
+  CompanyExchange,
+  SentDocument,
   MailSender,
   VoucherMailOrder,
   DocumentSender,
@@ -47,7 +49,7 @@ export { newCompanyIssues } from '@minimalerp/domain';
 export type { NewCompany };
 
 /** Everything the screens need from a backend: master commands, posting, and reading masters back. Adapters provide it. */
-export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, MailSender, Partial<ChangeFeed> {}
+export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, MailSender, Partial<ChangeFeed>, Partial<CompanyExchange> {}
 
 /** A backend whose state can be saved as a log of changes and rebuilt from it (the in-browser demo backend). */
 export interface LocalBackend extends BooksBackend {
@@ -210,6 +212,23 @@ export class Books {
   /** Emails a posted voucher to its party (online books only); nothing is stored but the audit line. */
   sendVoucherMail(mail: Omit<VoucherMailOrder, 'companyId'>): Promise<Result<{ readonly sentTo: readonly string[] }>> {
     return this.backend.sendVoucherMail({ ...mail, companyId: this.companyId });
+  }
+
+  /** Whether vouchers can be sent to the owner's other companies from here (online books; ADR-0025). */
+  get canSendToCompanies(): boolean {
+    return typeof this.backend.sendToCompany === 'function';
+  }
+
+  /** Send via ERP: into the inbox of the owner's company with the voucher's party's GSTIN. */
+  sendToCompany(voucherId: string): Promise<Result<{ readonly toCompany: string; readonly toKind: string }>> {
+    if (!this.backend.sendToCompany) return Promise.resolve(fail(issue(IssueCode.UnsupportedOperation, 'Sending to your other companies needs the online books')));
+    return this.backend.sendToCompany(this.companyId, voucherId as VoucherId);
+  }
+
+  /** What this company sent to the owner's other companies, newest first, and what became of each. */
+  sentToCompanies(): Promise<Result<readonly SentDocument[]>> {
+    if (!this.backend.sentToCompanies) return Promise.resolve(ok([]));
+    return this.backend.sentToCompanies(this.companyId);
   }
 
   /**

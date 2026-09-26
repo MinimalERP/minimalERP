@@ -142,8 +142,20 @@ const inboxCommand: Command<AppContext> = {
   run: (app) => app.navigate({ type: 'inbox' }),
 };
 
+// What this company sent to the owner's other companies through the ERP (ADR-0025), and whether each was accepted there.
+const sentCommand: Command<AppContext> = {
+  id: 'exchange.sent',
+  title: 'Sent to Companies',
+  category: 'Voucher',
+  keywords: ['sent', 'send via erp', 'exchange', 'intercompany', 'other company', 'group', 'accepted', 'rejected', 'status'],
+  description: 'Vouchers sent to your other companies via the ERP: sent, accepted or rejected',
+  when: (app) => app.books.current?.canSendToCompanies === true,
+  run: (app) => app.navigate({ type: 'exchange-sent' }),
+};
+
 const commands: Command<AppContext>[] = [
   inboxCommand,
+  sentCommand,
   contextual('inbox.reject', 'Reject this proposal', { label: 'Reject', group: 'Change', order: 31, on: ['inbox'] }),
   contextual('inbox.upload', 'Upload a document (PDF or photo) to be read', { label: 'Upload document', group: 'Actions', order: 5, on: ['inbox'] }),
   ...newCommands,
@@ -165,6 +177,7 @@ const commands: Command<AppContext>[] = [
   contextual('voucher.docket', 'Dispatch docket: print the invoices and their items for the transporter', { label: 'Dispatch docket', group: 'Actions', order: 16.2, on: ['voucher', 'report'], hideWhenUnavailable: true }),
   contextual('list.pick', 'Select or unselect this voucher (to print several at once)', { label: 'Select', group: 'Actions', order: 6, on: ['report'], hideWhenUnavailable: true }),
   contextual('voucher.email', 'Email this to the party (from your Gmail)', { label: 'Email', group: 'Actions', order: 16.5, on: ['voucher'], hideWhenUnavailable: true }),
+  contextual('voucher.sendErp', 'Send via ERP to your company with this party’s GSTIN (lands in its inbox)', { label: 'Send via ERP', group: 'Actions', order: 16.6, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.cancel', 'Cancel this voucher', { label: 'Cancel voucher', group: 'Change', order: 31, on: ['voucher'] }),
   contextual('order.close', 'Close this order', { label: 'Close order', group: 'Change', order: 32, on: ['voucher'] }),
   // What Go To results run for a voucher.
@@ -193,6 +206,7 @@ const bindings: DefaultBinding[] = [
   { commandId: 'order.invoice', chord: 'Alt+I', scope: 'screen:voucher' },
   { commandId: 'quotation.order', chord: 'Alt+Shift+O', scope: 'screen:voucher' },
   { commandId: 'voucher.email', chord: 'Alt+Shift+E', scope: 'screen:voucher' },
+  { commandId: 'voucher.sendErp', chord: 'Alt+Shift+S', scope: 'screen:voucher' },
   { commandId: 'voucher.new.stockJournal', chord: 'F10' },
   { commandId: 'voucher.acceptAndNew', chord: 'Alt+N', scope: 'screen:voucher' },
   // On a voucher list, the keys that make a voucher of that type make it FROM the list (so the list gets the result back).
@@ -226,6 +240,7 @@ const menu: MenuEntry[] = [
   ...LIST_KINDS.map((kind) => ({ section: 'transactions', commandId: `voucher.list.${kind}`, order: GROUPS[kind].order, group: GROUPS[kind].group })),
   // last, so the voucher lists keep their places (and their arrow-key positions)
   { section: 'transactions', commandId: 'inbox.open', order: 40, group: 'AI Inbox' },
+  { section: 'transactions', commandId: 'exchange.sent', order: 41, group: 'AI Inbox' },
 ];
 
 export const vouchersModule: ModuleManifest<AppContext> = {

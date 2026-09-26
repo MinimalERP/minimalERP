@@ -144,6 +144,30 @@ export interface MailSender {
   sendVoucherMail(mail: VoucherMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>>;
 }
 
+/** A voucher this company sent to another of the owner's companies (ADR-0025), and what became of it there. */
+export interface SentDocument {
+  readonly id: string;
+  readonly voucherId: string;
+  /** Our voucher's base kind and number. */
+  readonly kind: string;
+  readonly number: string;
+  readonly toCompany: string;
+  /** What it is to them (their inbox kind): salesOrder, purchase, receipt. */
+  readonly toKind: string;
+  readonly status: 'sent' | 'accepted' | 'rejected';
+  readonly reason?: string | undefined;
+  /** The number it got there, once accepted. */
+  readonly toNumber?: string | undefined;
+  readonly sentAt: string;
+  readonly decidedAt?: string | undefined;
+}
+
+/** "Send via ERP": between the owner's companies, online books only (ADR-0025). */
+export interface CompanyExchange {
+  sendToCompany(companyId: CompanyId, voucherId: VoucherId): Promise<Result<{ readonly toCompany: string; readonly toKind: string }>>;
+  sentToCompanies(companyId: CompanyId): Promise<Result<readonly SentDocument[]>>;
+}
+
 /** One voucher as it stands after a change, with its journal lines and stock movements (none once cancelled). */
 export interface VoucherChange {
   readonly voucher: Voucher;

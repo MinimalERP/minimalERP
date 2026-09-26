@@ -20,7 +20,7 @@ import {
   stockMovementFromWire,
   voucherFromWire,
 } from '@minimalerp/domain';
-import type { AlterRequest, CancelRequest, ChangeFeed, MailSender, VoucherMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
+import type { AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, SentDocument, MailSender, VoucherMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
 
 /** What arrives with a change's own answer: the parts of the books the browser is about to reload. */
@@ -81,7 +81,7 @@ export interface CompanySummary {
  */
 export class SupabaseBooksBackend
   extends SupabasePostingGateway
-  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, ChangeFeed, MailSender
+  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, ChangeFeed, MailSender, CompanyExchange
 {
   private readonly kinds = defaultVoucherKinds();
   /** The masters of the last `load`, for turning stored vouchers back into what the screens hold (see `readable`). */
@@ -230,6 +230,18 @@ export class SupabaseBooksBackend
   async setCompanyMail(companyId: CompanyId, url: string, secret: string): Promise<Result<CompanyMail | null>> {
     const r = await this.call({ action: 'company-mail-set', companyId, url, secret });
     return r.ok ? ok((r.value as { script: CompanyMail | null }).script) : r;
+  }
+
+  /** Send via ERP (ADR-0025): the server finds the owner's company with the party's GSTIN and puts it in that company's inbox. */
+  async sendToCompany(companyId: CompanyId, voucherId: VoucherId): Promise<Result<{ readonly toCompany: string; readonly toKind: string }>> {
+    const r = await this.call({ action: 'exchange-send', companyId, voucherId });
+    return r.ok ? ok(r.value as { toCompany: string; toKind: string }) : r;
+  }
+
+  /** What this company sent to the owner's other companies, and what became of each. */
+  async sentToCompanies(companyId: CompanyId): Promise<Result<readonly SentDocument[]>> {
+    const r = await this.call({ action: 'exchange-sent', companyId });
+    return r.ok ? ok((r.value as { sent: SentDocument[] }).sent) : r;
   }
 
   /** Emails a voucher to its party through the company's Gmail (the server checks the addresses are that party's). */

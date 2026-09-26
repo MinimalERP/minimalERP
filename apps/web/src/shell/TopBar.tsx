@@ -28,6 +28,8 @@ export function useScreenTitle() {
         return 'Company User';
       case 'company-gmail':
         return 'Company Gmail';
+      case 'exchange-sent':
+        return 'Sent to Companies';
       case 'invoice-settings':
         return 'Invoice / PDF Settings';
       case 'inbox':

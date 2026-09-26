@@ -17,6 +17,8 @@ import {
   newCompanyIssues,
   normalizeName,
   orderLinkToWire,
+  outgoingOf,
+  proposeFromExtraction,
   seedCompany,
   stockMovementToWire,
   voucherToWire,
@@ -48,6 +50,8 @@ import { z } from 'zod';
  *         { action: 'company-user-set', companyId, email }   link the account with that email to the company ('' removes it)
  *         { action: 'company-mail', companyId }          the company's own Gmail script: { script: { url, updatedAt } | null } (owner only)
  *         { action: 'company-mail-set', companyId, url, secret }   set it ('' url removes it; '' secret keeps the one set before)
+ *         { action: 'exchange-send', companyId, voucherId }   Send via ERP: into the inbox of the group company with the party's GSTIN
+ *         { action: 'exchange-sent', companyId }         what this company sent, and what became of each: { sent: [...] }
  *   200   { ok: true,  value: { voucher, journal?, replayed? } }   money as decimal strings
  *   200   { ok: false, issues: [{ code, message, path? }] }        a business-rule refusal
  *   400 malformed request · 401 not signed in · 405 wrong method · 500 unexpected failure
@@ -121,6 +125,8 @@ const body = z.discriminatedUnion('action', [
   z.object({ action: z.literal('company-user-set'), companyId, email: z.string().max(200) }),
   z.object({ action: z.literal('company-mail'), companyId }),
   z.object({ action: z.literal('company-mail-set'), companyId, url: z.string().max(300), secret: z.string().max(200) }),
+  z.object({ action: z.literal('exchange-send'), companyId, voucherId: z.string().min(1) }),
+  z.object({ action: z.literal('exchange-sent'), companyId }),
 ]);
 
 /**
@@ -139,8 +145,40 @@ export interface BooksServer extends PostingGateway, MasterGateway, MastersRepos
   companyMail(companyId: string): Promise<Result<CompanyMailScript | null>>;
   setCompanyMail(companyId: string, url: string, secret: string): Promise<Result<CompanyMailScript | null>>;
   mailScriptOf(companyId: string): Promise<MailScript | undefined>;
+  /** Sending between the owner's companies (ADR-0025): who may receive, the sending, and what became of each. */
+  exchangeTargets(fromCompanyId: string, gstin: string): Promise<readonly { readonly id: string; readonly name: string }[]>;
+  exchangeSend(s: ExchangeSending): Promise<Result<{ readonly id: string }>>;
+  exchangeSent(companyId: string): Promise<Result<readonly SentDocument[]>>;
   /** The audit line for a voucher emailed to its party: to whom — never the message or the file. */
   recordMail(companyId: CompanyId, voucherId: string, to: readonly string[]): Promise<void>;
+}
+
+/** One voucher sent to another company: what goes into its inbox, and the record of it. */
+export interface ExchangeSending {
+  readonly id: string;
+  readonly fromCompanyId: string;
+  readonly voucherId: string;
+  readonly fromKind: string;
+  readonly fromNumber: string;
+  readonly toCompanyId: string;
+  readonly toKind: string;
+  readonly proposal: unknown;
+  readonly subject: string;
+  readonly fromName: string;
+}
+/** What the sender sees of a voucher it sent: to whom, as what, and what became of it. */
+export interface SentDocument {
+  readonly id: string;
+  readonly voucherId: string;
+  readonly kind: string;
+  readonly number: string;
+  readonly toCompany: string;
+  readonly toKind: string;
+  readonly status: 'sent' | 'accepted' | 'rejected';
+  readonly reason?: string | undefined;
+  readonly toNumber?: string | undefined;
+  readonly sentAt: string;
+  readonly decidedAt?: string | undefined;
 }
 
 /** A company's own Gmail script as its owner sees it: the address, never the secret. */
@@ -364,6 +402,52 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
           return asResponse(await gateway.companyMember(cmd.companyId), (user) => ({ user }));
         case 'company-user-set':
           return asResponse(await gateway.setCompanyMember(cmd.companyId, cmd.email), (user) => ({ user }));
+        case 'exchange-send': {
+          const denied = await refuse(gateway, cmd.companyId, 'voucher.view');
+          if (denied) return json(200, denied);
+          const from = cmd.companyId as CompanyId;
+          const [voucher, masters] = await Promise.all([gateway.get(from, cmd.voucherId as never), gateway.load(from)]);
+          if (!voucher) return json(200, fail(issue(IssueCode.VoucherNotFound, 'That voucher does not exist')));
+          const out = outgoingOf(voucher, masters);
+          if (!out.ok) return json(200, out);
+          const { party, toKind, extraction } = out.value;
+          // The company it goes to is the one with the party's GSTIN among this company's owner's companies: never guessed, never outside.
+          const targets = await gateway.exchangeTargets(from, party.gstin);
+          const to = targets[0];
+          if (!to || targets.length > 1) {
+            const why = to
+              ? `Several of your companies have the GSTIN ${party.gstin}: give each its own GSTIN`
+              : `None of your companies has the GSTIN of ${party.name} (${party.gstin}): the ERP sends only to your own companies, found by their GSTIN`;
+            return json(200, fail(issue(IssueCode.ExchangeNotPossible, why)));
+          }
+          // Matched against THEIR books, here on the server: the sender never sees them, and nothing is created there.
+          const theirs = to.id as CompanyId;
+          const [theirMasters, theirVouchers] = await Promise.all([gateway.load(theirs), gateway.list(theirs)]);
+          const proposal = proposeFromExtraction(toKind, extraction, {
+            masters: theirMasters,
+            vouchers: theirVouchers,
+            orders: orderBookOf(theirVouchers, theirMasters),
+            today: localDate(new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10)),
+          });
+          const type = masters.voucherType(voucher.voucherTypeId);
+          return asResponse(
+            await gateway.exchangeSend({
+              id: crypto.randomUUID(),
+              fromCompanyId: from,
+              voucherId: voucher.id,
+              fromKind: type?.baseKind ?? '',
+              fromNumber: voucher.number,
+              toCompanyId: to.id,
+              toKind,
+              proposal,
+              subject: `${type?.name ?? ''} ${voucher.number}`.trim(),
+              fromName: masters.company.name,
+            }),
+            (sent) => ({ id: sent.id, toCompany: to.name, toKind }),
+          );
+        }
+        case 'exchange-sent':
+          return asResponse(await gateway.exchangeSent(cmd.companyId), (sent) => ({ sent }));
         case 'company-mail':
           return asResponse(await gateway.companyMail(cmd.companyId), (script) => ({ script }));
         case 'company-mail-set':

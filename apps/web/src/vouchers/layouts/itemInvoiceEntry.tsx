@@ -47,6 +47,7 @@ import { useOtherVoucherHandlers } from '../otherVoucher';
 import { PartyDetailsDialog } from '../../screens/PartyDetailsDialog';
 import { FieldsDialog } from '../../screens/ReportDialogs';
 import { MailDialog } from '../MailDialog';
+import { SendViaErp } from '../SendViaErp';
 import { DocketDialog } from '../DocketDialog';
 import type { CreatedMaster } from '../../screens/MasterFormScreen';
 import type { InvoiceDoc } from '../../ui/PrintView';
@@ -1033,6 +1034,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       {mode !== 'create' && voucher?.status === 'posted' && p.order && orderState?.status === 'open' && <Only scope={SCOPE} command="order.invoice" run={invoicePending} />}
       {mode !== 'create' && voucher?.status === 'posted' && p.quote && !convertedTo && <Only scope={SCOPE} command="quotation.order" run={salesOrderFromQuote} />}
       {mode !== 'create' && voucher?.status === 'posted' && isMailKind(kind) && !mailOpen && <Only scope={SCOPE} command="voucher.email" run={() => (setMailOpen(true), true)} />}
+      {mode !== 'create' && <SendViaErp books={books} voucher={voucher} scope={SCOPE} onDone={setBanner} />}
       {mode !== 'create' && voucher?.status === 'posted' && kind === 'sales' && !docketOpen && <Only scope={SCOPE} command="voucher.docket" run={() => (setDocketOpen(true), true)} />}
       {docketOpen && voucher && (
         <DocketDialog

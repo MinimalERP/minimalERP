@@ -100,6 +100,8 @@ export const IssueCode = {
   MailNotSetUp: 'MAIL_NOT_SET_UP',
   /** The mail was handed to Gmail and Gmail (or the script) refused it. */
   MailFailed: 'MAIL_FAILED',
+  /** A voucher cannot be sent to another company through the ERP (ADR-0025): not a kind that travels, no party GSTIN, no company with it. */
+  ExchangeNotPossible: 'EXCHANGE_NOT_POSSIBLE',
 } as const;
 
 export type IssueCodeValue = (typeof IssueCode)[keyof typeof IssueCode];

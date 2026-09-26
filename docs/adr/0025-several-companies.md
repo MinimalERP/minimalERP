@@ -47,3 +47,21 @@ in `company-create` and the browser always opening the first company. This repla
 3. **The Gmail add-on and the daily report never guess the company.** A sign-in with several companies must name one (`COMPANY_ID`),
    or `intake` and `digest` refuse. The README recommends one add-on sign-in and one script copy per business.
 4. Gemini stays one key for the project: it keeps nothing, and each document is read for the company it was sent to.
+
+## Step 3b: Send via ERP between the owner's companies
+1. **One button, one rule for where it goes.** *Send via ERP* (Alt+Shift+S, panel "Send via ERP") on a posted Purchase Order, Sales Invoice
+   or Payment sends it to the company whose GSTIN is the voucher's party's GSTIN — among the companies that share an owner with this one,
+   and only those (`exchange_targets`). No picker and no guessing: no such company, or two with one GSTIN, is a refusal that says so.
+2. **The owner keeps each company's parties by hand.** Each company has the others as parties, with their GSTINs, like any customer or
+   supplier. The ERP never creates a party, item or ledger in another company's books.
+3. **What travels is a reading, matched on arrival** (`outgoingOf` in `packages/domain/src/intake/exchange.ts`). Our voucher becomes an
+   `Extraction` — our company's name and GSTIN as the party, items by code, name and HSN, quantities, rates, numbers — and the receiver's
+   inbox proposal is made from it by `proposeFromExtraction` against the RECEIVER's masters, on the server: the same cautious matching the
+   AI Inbox uses. Our PO → their Sales Order (our PO number is their customer PO); our Sales Invoice → their Purchase (our number is their
+   supplier's invoice number); our Payment → their Receipt (against the invoices it settles, by their numbers). The sender never sees the
+   receiver's masters.
+4. **Status.** `exchange_documents` records each sending, keyed by the inbox item's id. Accepting (posting it, under that id) marks it
+   `accepted` with the number it got there, in the same transaction (the existing accept trigger); rejecting marks it `rejected` with the
+   reason. A voucher is sent once unless it was rejected. *Transactions › Sent to Companies* lists them. Both companies can read the row
+   (row-level security), nothing more of each other.
+5. **Who may send**: whoever may post that kind of voucher in the sending company.
