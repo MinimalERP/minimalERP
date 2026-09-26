@@ -483,18 +483,25 @@ export class PostgresBackend
 
   // ---- internals ----
 
-  /** voucher type id → base kind (a voucher type never changes its base kind, so this is asked of the database once per type). */
-  private readonly baseKinds = new Map<string, string>();
+  /**
+   * voucher type id → base kind (a voucher type never changes its base kind, so this is asked of the database once per type). The question
+   * itself is kept, not only its answer: `list` reads every voucher at once, and caching answers alone asked once per VOUCHER — hundreds of
+   * round trips to a database that may be an ocean away (the intake function runs near Gmail's servers).
+   */
+  private readonly baseKinds = new Map<string, Promise<string | undefined>>();
 
-  private async baseKindOf(voucherTypeId: string): Promise<string | undefined> {
+  private baseKindOf(voucherTypeId: string): Promise<string | undefined> {
     const known = this.baseKinds.get(voucherTypeId);
     if (known !== undefined) return known;
-    if (!isUuid(voucherTypeId)) return undefined;
-    const r = await this.db.query('select base_kind from public.voucher_types where id = $1::uuid', [voucherTypeId]);
-    const base = r.rows[0]?.['base_kind'];
-    if (typeof base !== 'string') return undefined;
-    this.baseKinds.set(voucherTypeId, base);
-    return base;
+    if (!isUuid(voucherTypeId)) return Promise.resolve(undefined);
+    const asked = this.db.query('select base_kind from public.voucher_types where id = $1::uuid', [voucherTypeId]).then((r) => {
+      const base = r.rows[0]?.['base_kind'];
+      if (typeof base !== 'string') this.baseKinds.delete(voucherTypeId); // not (yet) a type: ask again next time
+      return typeof base === 'string' ? base : undefined;
+    });
+    this.baseKinds.set(voucherTypeId, asked);
+    asked.catch(() => this.baseKinds.delete(voucherTypeId));
+    return asked;
   }
 
   /**

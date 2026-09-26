@@ -138,7 +138,11 @@ export function createIntakeHandler(deps: IntakeHandlerDeps): (request: Request)
         const rule = cmd.kind === 'receipt' ? readRemittanceAdvice : cmd.kind === 'salesOrder' ? readPurchaseOrder : undefined;
         const ruled =
           rule && 'base64' in cmdDocument && cmdDocument.mimeType === 'application/pdf' && deps.pdfText
-            ? await deps.pdfText(cmdDocument.base64).then(rule, () => undefined)
+            ? await deps.pdfText(cmdDocument.base64).then(rule, (error: unknown) => {
+                // not fatal (the reader takes over), but say so: a rule that silently never runs looks like Gemini being slow
+                deps.onError?.(new Error(`The PDF's text could not be taken out for the fixed rules: ${String(error)}`), requestId);
+                return undefined;
+              })
             : undefined;
         const read =
           'extraction' in cmdDocument
