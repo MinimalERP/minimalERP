@@ -3,6 +3,7 @@
 // in the company and does the work in one statement (migration 20261009000100_dash.sql). Reading needs no function: RLS (dash.view).
 //
 // Request:  POST { companyId, op, payload }   with the person's sign-in as Authorization: Bearer <token>
+//           POST { op: 'project.…', payload }  the owner's own projects (no company): public.dash_project_apply
 // Answer:   { ok: true, value: <the row as it now is> }  or  { ok: false, issues: [{ code, message }] }
 //
 // Environment: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (provided by Supabase).
@@ -37,14 +38,19 @@ Deno.serve(async (request: Request) => {
   } catch {
     return problem(400, 'BAD_REQUEST', 'The request is not JSON');
   }
-  if (!body.companyId || !body.op) return problem(400, 'BAD_REQUEST', 'companyId and op are needed');
+  if (!body.op) return problem(400, 'BAD_REQUEST', 'op is needed');
+  // Projects are the owner's own, across all their companies (migration 20261014000100_dash_projects.sql): no company is named.
+  const isProject = body.op.startsWith('project.');
+  if (!isProject && !body.companyId) return problem(400, 'BAD_REQUEST', 'companyId and op are needed');
 
-  const { data, error } = await admin.rpc('dash_apply', {
-    p_actor: who.user.id,
-    p_company: body.companyId,
-    p_op: body.op,
-    p_payload: body.payload ?? {},
-  });
+  const { data, error } = isProject
+    ? await admin.rpc('dash_project_apply', { p_actor: who.user.id, p_op: body.op, p_payload: body.payload ?? {} })
+    : await admin.rpc('dash_apply', {
+        p_actor: who.user.id,
+        p_company: body.companyId,
+        p_op: body.op,
+        p_payload: body.payload ?? {},
+      });
   if (error) {
     // private.raise_issue: the code is the message, the sentence is the detail
     if (error.code === 'P0001') return json(200, { ok: false, issues: [{ code: error.message, message: error.details ?? error.message }] });

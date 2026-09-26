@@ -26,6 +26,7 @@ describe('migrations', () => {
       'dash_events',
       'dash_jobs',
       'dash_parts',
+      'dash_projects',
       'exchange_documents',
       'financial_years',
       'gst_rates',
