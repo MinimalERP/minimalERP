@@ -23,10 +23,6 @@ describe('migrations', () => {
       'company_mail_scripts',
       'company_members',
       'company_print_layouts',
-      'dash_events',
-      'dash_jobs',
-      'dash_parts',
-      'dash_projects',
       'exchange_documents',
       'financial_years',
       'gst_rates',
@@ -68,8 +64,8 @@ describe('migrations', () => {
     // The AI Inbox (ADR-0023) lets owner and accountant send documents (inbox.submit): owner 40, accountant 39; and adds the `automation`
     // role of the Gmail add-on: it submits and reads (master, voucher, report) and posts nothing: 4.
     // Quotation adds three permissions for owner and accountant and clerk post: owner 43, accountant 42, clerk 12.
-    // minimalDASH adds dash.view + dash.edit for owner, accountant, clerk and automation, and dash.view for viewer.
+    // (minimalDASH added dash.view / dash.edit and was removed again: 20261015000100.)
     // ADR-0025's member holds everything the owner does except company.admin.
-    expect(byRole).toEqual({ accountant: 44, automation: 6, clerk: 14, member: 44, owner: 45, viewer: 4 });
+    expect(byRole).toEqual({ accountant: 42, automation: 4, clerk: 12, member: 42, owner: 43, viewer: 3 });
   });
 });
