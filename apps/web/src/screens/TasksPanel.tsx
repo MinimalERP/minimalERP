@@ -5,8 +5,9 @@ import { defaultDate } from '../vouchers/entryHelpers';
 import { formatAmount, formatDate, parseDateInput } from '../vouchers/format';
 
 const SCOPE = 'overlay:task-dialog';
-/** Due this week lists at most this many lines (the most urgent first). */
-const DUE_SHOWN = 10;
+/** Each list of what is due shows at most this many rows (the most urgent first). */
+const DUE_SHOWN = 5;
+const short = (d: string) => formatDate(d).replace(/-20(\d\d)$/, '');
 
 const STATUS_WORDS: Readonly<Record<string, string>> = { open: 'Open', done: 'Done', new: 'New', working: 'Working', quoted: 'Quoted', won: 'Won', lost: 'Lost' };
 
@@ -30,13 +31,7 @@ export function TasksPanel() {
   }, [books?.companyId]);
 
   const due = useMemo(
-    () =>
-      books
-        ? dueThisWeek(
-            { vouchers: books.vouchers, lines: books.lines, masters: books.masters, orders: books.orders, asOn: defaultDate(books.masters) as LocalDate },
-            { money: formatAmount, date: (d) => formatDate(d).replace(/-20(\d\d)$/, '') },
-          )
-        : [],
+    () => (books ? dueThisWeek({ vouchers: books.vouchers, lines: books.lines, masters: books.masters, orders: books.orders, asOn: defaultDate(books.masters) as LocalDate }) : undefined),
     [books, books?.vouchers],
   );
   if (!books) return null;
@@ -66,25 +61,45 @@ export function TasksPanel() {
         </button>
       </div>
 
-      <h3>Due this week</h3>
-      {due.length === 0 ? (
-        <p class="tasks-empty">Nothing due this week.</p>
-      ) : (
-        <ul class="tasks-list" data-testid="due-list">
-          {due.slice(0, DUE_SHOWN).map((d, i) => (
-            <li key={i} class={d.late ? 'late' : ''}>
-              {d.number ? (
-                <button type="button" class="link" onClick={() => openOrder(d.number)}>
-                  {d.late ? '! ' : ''}
-                  {d.text}
-                </button>
-              ) : (
-                <>{d.text}</>
-              )}
-            </li>
+      <h3>This week</h3>
+      {due && due.deliver.length + due.collect.length + due.pay.length === 0 && <p class="tasks-empty">Nothing to deliver, collect or pay this week.</p>}
+      {due && due.deliver.length > 0 && (
+        <DueTable title="Deliver" count={due.deliver.length} testid="due-deliver" head={['Due', 'Customer', 'Item', 'Qty', '']}>
+          {due.deliver.slice(0, DUE_SHOWN).map((d, i) => (
+            <tr key={i} class="clickable" title={`${d.number}${d.custPo ? ` · PO ${d.custPo}` : ''} — open the order`} onClick={() => openOrder(d.number)}>
+              <td>{short(d.dueDate)}</td>
+              <td>{d.party}</td>
+              <td>{d.item}</td>
+              <td class="num">{d.qty}</td>
+              <td class="num">{d.daysLate > 0 && <span class="late-tag">{d.daysLate}d late</span>}</td>
+            </tr>
           ))}
-          {due.length > DUE_SHOWN && <li class="tasks-meta">and {due.length - DUE_SHOWN} more — the daily report and the order register list them all</li>}
-        </ul>
+        </DueTable>
+      )}
+      {due && due.collect.length > 0 && (
+        <DueTable title="Collect" count={due.collect.length} testid="due-collect" head={['Customer', 'Overdue', '']}>
+          {due.collect.slice(0, DUE_SHOWN).map((c, i) => (
+            <tr key={i}>
+              <td>{c.party}</td>
+              <td class="num">₹{formatAmount(c.amount)}</td>
+              <td class="num">
+                <span class="late-tag">{c.days}d</span>
+              </td>
+            </tr>
+          ))}
+        </DueTable>
+      )}
+      {due && due.pay.length > 0 && (
+        <DueTable title="Pay" count={due.pay.length} testid="due-pay" head={['Due', 'Supplier', 'Bill', 'Amount']}>
+          {due.pay.slice(0, DUE_SHOWN).map((b, i) => (
+            <tr key={i}>
+              <td>{b.late ? <span class="late-tag">{short(b.dueDate)}</span> : short(b.dueDate)}</td>
+              <td>{b.party}</td>
+              <td>{b.ref}</td>
+              <td class="num">₹{formatAmount(b.amount)}</td>
+            </tr>
+          ))}
+        </DueTable>
       )}
 
       <h3>Tasks</h3>
@@ -139,6 +154,30 @@ export function TasksPanel() {
         />
       )}
     </aside>
+  );
+}
+
+/** One of the week's lists: a heading with how many there are, a compact table of the first few, and how many more. */
+function DueTable({ title, count, head, testid, children }: { title: string; count: number; head: readonly string[]; testid: string; children: preact.ComponentChildren }) {
+  return (
+    <div class="due-block" data-testid={testid}>
+      <div class="due-title">
+        {title} <span class="tasks-meta">({count})</span>
+      </div>
+      <table class="due-table">
+        <thead>
+          <tr>
+            {head.map((h, i) => (
+              <th key={i} class={h === 'Qty' || h === 'Overdue' || h === 'Amount' ? 'num' : ''}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+      {count > DUE_SHOWN && <div class="tasks-meta">+{count - DUE_SHOWN} more</div>}
+    </div>
   );
 }
 

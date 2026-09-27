@@ -797,7 +797,7 @@ export class PostgresBackend
   /** One change to the list (checked by the database, audited). Returns the list. */
   async applyTask(companyId: string, change: TaskCommand): Promise<Result<TaskList>> {
     if (!isUuid(companyId)) return fail(companyMismatch(companyId));
-    return this.taskCall('select public.task_apply($1::uuid, $2::uuid, $3, $4::jsonb) as r', [this.options.actorId, companyId, this.options.requestId ?? null, JSON.stringify(change)]);
+    return this.taskCall('select public.task_apply($1::uuid, $2::uuid, $3, $4::text::jsonb) as r', [this.options.actorId, companyId, this.options.requestId ?? null, JSON.stringify(change)]);
   }
 
   private async taskCall(sql: string, values: readonly unknown[]): Promise<Result<TaskList>> {

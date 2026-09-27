@@ -21,7 +21,7 @@ test.describe('tasks on the Gateway', () => {
   test('a task is added, ticked done; an enquiry gets a status and a note; the menu letters still work', async ({ app }) => {
     const panel = app.getByTestId('tasks-panel');
     await expect(panel).toBeVisible();
-    await expect(panel.getByRole('heading', { name: 'Due this week' })).toBeVisible();
+    await expect(panel.getByRole('heading', { name: 'This week' })).toBeVisible();
 
     await app.getByTestId('task-new').click();
     const dialog = app.getByTestId('task-dialog');

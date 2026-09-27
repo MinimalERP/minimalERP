@@ -156,26 +156,21 @@ export function tasksToShow(list: TaskList, now: string): { readonly tasks: read
   return { tasks: shown.filter((t) => t.kind === 'task').sort(byDue), enquiries: shown.filter((t) => t.kind === 'enquiry').sort(byDue) };
 }
 
-/** One thing due this week, read from the books: an order line to deliver, money overdue from a customer, or a bill to pay. */
-export interface DueRow {
-  readonly kind: 'order' | 'receivable' | 'payable';
-  readonly text: string;
-  readonly late: boolean;
-  /** An order line: its order's number (Enter opens it). */
-  readonly number?: string | undefined;
+/**
+ * What needs attention this week, read from the books (the same reading the daily report mails), in three short lists: order lines to
+ * DELIVER (late, or due within the week), money to COLLECT (customers overdue), and bills to PAY. The Gateway lays each out as a table.
+ */
+export interface DueThisWeek {
+  readonly deliver: readonly { readonly number: string; readonly custPo: string; readonly party: string; readonly item: string; readonly qty: string; readonly dueDate: LocalDate; readonly daysLate: number }[];
+  readonly collect: readonly { readonly party: string; readonly amount: bigint; readonly days: number }[];
+  readonly pay: readonly { readonly party: string; readonly ref: string; readonly amount: bigint; readonly dueDate: LocalDate; readonly late: boolean }[];
 }
 
-/** Due this week, from the same reading the daily report mails: order lines late or due within 7 days, overdue receivables, bills to pay. */
-export function dueThisWeek(args: { vouchers: readonly Voucher[]; lines: readonly JournalLine[]; masters: Masters; orders: OrderBook; asOn: LocalDate }, format: { money: (m: bigint) => string; date: (d: string) => string }): DueRow[] {
+export function dueThisWeek(args: { vouchers: readonly Voucher[]; lines: readonly JournalLine[]; masters: Masters; orders: OrderBook; asOn: LocalDate }): DueThisWeek {
   const d = dailyDigest({ ...args, inboxWaiting: 0 });
-  return [
-    ...d.orders.lines.map((l): DueRow => ({
-      kind: 'order',
-      number: l.number,
-      late: l.overdue,
-      text: `${l.number}${l.custPo ? ` (PO ${l.custPo})` : ''} ${l.party} · ${l.item} · ${l.pending} · due ${format.date(l.dueDate)}${l.overdue ? ` (${l.daysLate} day${l.daysLate === 1 ? '' : 's'} late)` : ''}`,
-    })),
-    ...d.receivables.topOverdue.map((r): DueRow => ({ kind: 'receivable', late: true, text: `Receivable: ${r.name} ₹${format.money(r.overdue)} overdue ${r.oldestDays} days` })),
-    ...d.payablesDue.bills.map((b): DueRow => ({ kind: 'payable', late: b.dueDate < args.asOn, text: `Pay: ${b.party} bill ${b.ref} ₹${format.money(b.pending)} due ${format.date(b.dueDate)}` })),
-  ];
+  return {
+    deliver: d.orders.lines.map((l) => ({ number: l.number, custPo: l.custPo, party: l.party, item: l.item, qty: l.pending, dueDate: l.dueDate, daysLate: l.overdue ? l.daysLate : 0 })),
+    collect: d.receivables.topOverdue.map((r) => ({ party: r.name, amount: r.overdue, days: r.oldestDays })),
+    pay: d.payablesDue.bills.map((b) => ({ party: b.party, ref: b.ref, amount: b.pending, dueDate: b.dueDate, late: b.dueDate < args.asOn })),
+  };
 }
