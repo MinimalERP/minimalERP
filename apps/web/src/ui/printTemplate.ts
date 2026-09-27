@@ -12,7 +12,7 @@ import { amountInWords } from './words';
 
 /** The documents a company may lay out itself, and the voucher kinds each can be narrowed to. */
 export const LAYOUT_SHAPES = {
-  invoice: { name: 'Invoices and orders', kinds: { sales: 'Sales Invoice', salesOrder: 'Sales Order', quotation: 'Quotation', purchase: 'Purchase Invoice', purchaseOrder: 'Purchase Order' } },
+  invoice: { name: 'Invoices and orders', kinds: { sales: 'Sales Invoice', salesOrder: 'Sales Order', quotation: 'Quotation', purchase: 'Purchase Invoice', purchaseOrder: 'Purchase Order', deliveryChallan: 'Delivery Challan', returnableChallan: 'Returnable Challan' } },
   ledger: { name: 'Payment, Receipt, Contra, Journal', kinds: { payment: 'Payment', receipt: 'Receipt', contra: 'Contra', journal: 'Journal' } },
 } as const;
 export type LayoutShape = keyof typeof LAYOUT_SHAPES;
@@ -58,6 +58,7 @@ export function layoutData(doc: InvoiceDoc | LedgerDoc, company: PrintCompany, c
     numberLabel: doc.numberLabel ?? 'No.',
     poNo: doc.poNo,
     ewayBillNo: doc.ewayBillNo,
+    dcNo: doc.dcNo,
     placeOfSupply: doc.placeOfSupply,
     party: {
       name: doc.party.name,
@@ -79,7 +80,7 @@ export const LAYOUT_PLACEHOLDERS: Readonly<Record<LayoutShape, readonly string[]
   invoice: [
     'company.name', 'company.address', 'company.gstin', 'company.phone', 'company.email', 'company.bankName', 'company.bankAccountNo', 'company.bankIfsc',
     'company.bankBranch', 'company.invoiceNote', '#hasTerms', '#company.terms … text … /company.terms', 'images.logo', 'images.signature', 'copyLabel', 'title',
-    'numberLabel', 'number', 'date', 'poNo', 'ewayBillNo', 'placeOfSupply', 'party.name', 'party.gstin', '#party.billTo.lines … text …',
+    'numberLabel', 'number', 'date', 'poNo', 'ewayBillNo', 'dcNo', 'placeOfSupply', 'party.name', 'party.gstin', '#party.billTo.lines … text …',
     '#party.shipTo.lines … text …', '#lines … sno desc hsn qty rate gstRate amount … /lines', 'subtotal', '#gst … cgst sgst igst … /gst', 'roundOff',
     'grandTotal', 'amountInWords', 'narration',
   ],
@@ -178,6 +179,7 @@ const HEAD = `<div class="head">
       <tr><td>Date</td><td>{{date}}</td></tr>
       {{#poNo}}<tr><td>PO No.</td><td>{{poNo}}</td></tr>{{/poNo}}
       {{#ewayBillNo}}<tr><td>E-way Bill No.</td><td>{{ewayBillNo}}</td></tr>{{/ewayBillNo}}
+      {{#dcNo}}<tr><td>DC No.</td><td>{{dcNo}}</td></tr>{{/dcNo}}
     </table>
   </div>
 </div>`;

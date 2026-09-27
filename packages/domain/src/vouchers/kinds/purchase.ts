@@ -71,6 +71,7 @@ export const purchaseKind = defineVoucherKind<PurchaseDraft>({
     const places = placesOf(draft.lines);
     draft.lines.forEach((line, i) => {
       problems.push(...lineKindProblems(line, `lines.${i}`));
+      if (line.challanRef) problems.push(issue(IssueCode.OrderRefInvalid, 'A purchase line is not billed against a delivery challan', `lines.${i}.challanRef`));
       problems.push(...lineValueProblems(line, `lines.${i}`));
     });
     if (problems.length === 0) {

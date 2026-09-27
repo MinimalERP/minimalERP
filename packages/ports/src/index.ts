@@ -268,6 +268,33 @@ export interface DocumentSender {
   sendDocument(companyId: CompanyId, s: { readonly kind: IntakeKind; readonly document: IntakeDocument; readonly name?: string | undefined }): Promise<Result<{ readonly id: string }>>;
 }
 
+/**
+ * The floating assistant (v1, read only): a question, with the conversation so far and what is on the person's screen, answered from the
+ * company's books by the `assistant` function. Nothing of the conversation is stored there.
+ */
+export interface AssistantTurn {
+  readonly role: 'user' | 'model';
+  readonly text: string;
+}
+
+/** What is open on screen: a type and an id only — the server reads the record itself. */
+export interface AssistantScreen {
+  readonly type: string;
+  readonly id?: string | undefined;
+  readonly kind?: string | undefined;
+  readonly title?: string | undefined;
+}
+
+export interface AssistantReply {
+  readonly answer: string;
+  /** The look-ups used (the "from ERP · stock, orders" tag); empty for a general answer. */
+  readonly sources: readonly string[];
+}
+
+export interface AssistantGateway {
+  askAssistant(companyId: CompanyId, messages: readonly AssistantTurn[], screen?: AssistantScreen): Promise<Result<AssistantReply>>;
+}
+
 export interface InboxGateway {
   inbox(companyId: CompanyId): Promise<Result<readonly InboxItem[]>>;
   rejectInbox(companyId: CompanyId, id: string, reason?: string): Promise<Result<void>>;

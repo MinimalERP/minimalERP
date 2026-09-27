@@ -16,7 +16,7 @@ Living status of **what ships today** vs **what the original phase plan still ow
 | Online | Invite-only Supabase books, Edge Function posting (ADR-0020) |
 | Automation | AI Inbox (Gemini + Gmail panel, ADR-0023), CSV import/export screen |
 
-**Important today:** a **sales invoice is the delivery** (stock out + billing in one voucher). A **purchase invoice is the receipt** (stock in + supplier bill). There is **no separate delivery challan or GRN voucher yet** — that is deliberate in ADR-0018 / ADR-0015 (deferred).
+**Important today:** a **sales invoice is the delivery** (stock out + billing in one voucher). A **purchase invoice is the receipt** (stock in + supplier bill). A **Delivery Challan** (`deliveryChallan`, Alt+F8, `DC/` series) sends goods out without a bill — purpose *Sale – invoice later* or *Free of cost*; stock out, no journal. A sales invoice bills challan lines without moving stock again. A **Returnable Challan** (`returnableChallan`, Transactions › Purchase, `RC/` series) sends goods to a supplier; *Mark returned* posts its return (same lines back in). There is **no GRN voucher yet** (ADR-0018, deferred).
 
 ## Remaining — original architecture phases
 
@@ -35,7 +35,9 @@ From [architecture.md](architecture.md) §10 (dependency order). Phases 0–3 an
 
 - **Purpose:** dispatch goods against a Sales Order (or ad hoc) **without** raising the customer bill yet — typical manufacturing / dispatch workflow.
 - **Posting:** stock **out** only (like architecture’s “Delivery note” row: journal **no**, stock **yes**). Links to order lines (reuse order book + `voucher_links` patterns from invoices).
-- **UI:** new voucher kind + layout (likely extend `ItemInvoiceEntry` or a slim stock+party layout); register commands `voucher.new.deliveryNote` (planned in app menu until built).
+- **Shipped (stage 1):** base kind `deliveryChallan` on the `ItemInvoiceEntry` worksheet, command `voucher.new.deliveryChallan` (Alt+F8), Transactions › Inventory › Delivery Challans, print ("Delivery Challan", "– Free of Cost"), email template. Purpose `sale` or `foc` on the voucher, one number series.
+- **Shipped (stage 2):** a Sales Invoice line may bill a challan line (`challanRef`): it moves no stock; pending = sent − invoiced, derived (`orders/challanBook.ts`, carried on the `OrderBook`). Cust PO / ref and Against order / DC pickers offer pending challans; Alt+I on a challan invoices what is pending; the list reads To invoice / Part invoiced / Invoiced / FOC; the invoice prints DC No. An FOC challan is never invoiced; an invoiced challan cannot be cancelled or cut below what was billed (domain + deferred trigger `vouchers_challan_sound`).
+- **Returnable Challan:** goods to a supplier that come back as they went; *Mark returned* posts a return (`returnOf`) of the same type bringing the same lines back — once (unique index `vouchers_one_return_per_challan`). Job work (other items back, scrap, labour bills) was deliberately left out.
 - **Not in scope of first cut:** e-invoice, e-way bill generation (architecture §13).
 
 **Goods Receipt Note (purchase)**

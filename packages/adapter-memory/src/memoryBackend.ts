@@ -12,6 +12,14 @@ import {
   type StockMovement,
   type OrderLink,
   OrderBook,
+  ChallanBook,
+  type ChallanDoc,
+  type ChallanLink,
+  type ReturnDoc,
+  type ReturnableDoc,
+  returnableOf,
+  challanDocOf,
+  challanLinksOf,
   billRefProblems,
   ensureSystemLedgers,
   extractionSchema,
@@ -315,18 +323,35 @@ export class MemoryBackend
     return all;
   }
 
-  /** The order book as it stands: the posted sales and purchase orders and every delivery / receipt made against them (a cancelled invoice has none). */
+  /**
+   * The order book as it stands: the posted sales and purchase orders and every delivery / receipt made against them (a cancelled invoice has
+   * none) — and the posted delivery challans with what the sales invoices bill against them.
+   */
   private orderBook(): OrderBook {
     const docs = [];
+    const challans: ChallanDoc[] = [];
+    const billed: ChallanLink[] = [];
+    const returnables: ReturnableDoc[] = [];
+    const returns: ReturnDoc[] = [];
     for (const v of this.vouchers.values()) {
       const base = this.masters.voucherType(v.voucherTypeId)?.baseKind;
-      if (v.status !== 'posted' || (base !== 'salesOrder' && base !== 'purchaseOrder')) continue;
+      if (v.status !== 'posted') continue;
+      if (base === 'deliveryChallan') {
+        const c = challanDocOf(v);
+        if (c) challans.push(c);
+      } else if (base === 'sales') billed.push(...challanLinksOf(v));
+      else if (base === 'returnableChallan') {
+        const r = returnableOf(v);
+        if (r.challan) returnables.push(r.challan);
+        if (r.back) returns.push(r.back);
+      }
+      if (base !== 'salesOrder' && base !== 'purchaseOrder') continue;
       const doc = orderDocOf(v, base === 'salesOrder' ? 'sales' : 'purchase');
       if (doc) docs.push(doc);
     }
     const links: OrderLink[] = [];
     for (const l of this.linksByVoucher.values()) links.push(...l);
-    return new OrderBook(docs, links);
+    return new OrderBook(docs, links, new ChallanBook(challans, billed, returnables, returns));
   }
 
   private setLinks(voucherId: VoucherId, links: readonly OrderLink[]): void {

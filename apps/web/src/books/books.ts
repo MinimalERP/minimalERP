@@ -32,6 +32,10 @@ import type {
   LedgerMailOrder,
   VoucherMailOrder,
   DocumentSender,
+  AssistantGateway,
+  AssistantReply,
+  AssistantScreen,
+  AssistantTurn,
   InboxGateway,
   InboxItem,
   IntakeDocument,
@@ -52,7 +56,7 @@ export { newCompanyIssues } from '@minimalerp/domain';
 export type { NewCompany };
 
 /** Everything the screens need from a backend: master commands, posting, and reading masters back. Adapters provide it. */
-export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, MailSender, Partial<ChangeFeed>, Partial<CompanyExchange>, Partial<PrintLayoutStore> {}
+export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, MailSender, Partial<ChangeFeed>, Partial<CompanyExchange>, Partial<PrintLayoutStore>, Partial<AssistantGateway> {}
 
 /** A backend whose state can be saved as a log of changes and rebuilt from it (the in-browser demo backend). */
 export interface LocalBackend extends BooksBackend {
@@ -368,6 +372,12 @@ export class Books {
 
   /** Upload: sends a file (or, for a bulk CSV import, an already-built `Extraction`) to become a proposal — it
    *  appears in the inbox a little later (immediately for an `extraction`, which needs no reading). */
+  /** The floating assistant — only with the online books (local books have no server to answer). */
+  askAssistant(messages: readonly AssistantTurn[], screen?: AssistantScreen): Promise<Result<AssistantReply>> {
+    if (!this.backend.askAssistant) return Promise.resolve(fail(issue(IssueCode.UnsupportedOperation, 'The assistant needs the online books: sign in to the company online')));
+    return this.backend.askAssistant(this.companyId, messages, screen);
+  }
+
   sendDocument(kind: IntakeKind, document: IntakeDocument, name?: string): Promise<Result<{ readonly id: string }>> {
     return this.backend.sendDocument(this.companyId, { kind, document, name });
   }

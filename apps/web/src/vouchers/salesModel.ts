@@ -9,6 +9,7 @@ import {
   type StockBook,
   type Voucher,
   type VoucherKindRegistry,
+  type ChallanPurpose,
   ZERO,
   type GstHeader,
   billRefProblems,
@@ -54,8 +55,11 @@ export interface SalesLineForm {
   /** Invoice: the order line this delivery fills (empty = over the counter). */
   orderId: string;
   orderLineId: string;
-  /** What the order field shows: the order's number. */
+  /** What the order field shows: the order's number (or the challan's). */
   orderLabel: string;
+  /** Sales invoice: the delivery-challan line this bills (the goods left on the challan, so the line moves no stock). */
+  challanId?: string | undefined;
+  challanLineId?: string | undefined;
   /** Invoice of a company that charges GST: the rate this line is charged at (a percentage) and the item's HSN as it is now. */
   gstRate?: string;
   hsn?: string;
@@ -92,6 +96,10 @@ export interface SalesForm {
   closed: boolean;
   /** Sales order: the quotation it was made from (kept across alterations). */
   quotationId?: string;
+  /** Delivery challan: why the goods go out — 'sale' (invoiced later) or 'foc' (free of cost, never invoiced). */
+  purpose?: ChallanPurpose;
+  /** Returnable challan: this is the return of that challan. */
+  returnOf?: string;
   lines: SalesLineForm[];
 }
 
@@ -144,6 +152,7 @@ export const blankSalesForm = (
   dueText: formatDate(date),
   dueTouched: false,
   closed: false,
+  purpose: 'sale',
   lines: [blankSalesLine(lineKey, extra.warehouse, date)],
 });
 
@@ -299,22 +308,23 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
         ...((l.hsn ?? '').trim() !== '' ? { hsn: (l.hsn ?? '').trim() } : {}),
       };
     }
+    const taxed = {
+      ...((l.gstRate ?? '').trim() !== '' ? { gstRate: (l.gstRate ?? '').trim() } : {}),
+      ...((l.hsn ?? '').trim() !== '' ? { hsn: (l.hsn ?? '').trim() } : {}),
+    };
+    if (docProfile(kind).challan) return { id: l.key, ...common, warehouseId: l.warehouseId, ...taxed };
     return docProfile(kind).order
       ? { id: l.key, ...common, dueDate: l.due }
       : docProfile(kind).quote
-        ? {
-            id: l.key,
+        ? { id: l.key, ...common, ...taxed }
+        : l.challanId
+          ? { ...common, challanRef: { challanId: l.challanId, lineId: l.challanLineId ?? '' }, ...taxed }
+          : {
             ...common,
-            ...((l.gstRate ?? '').trim() !== '' ? { gstRate: (l.gstRate ?? '').trim() } : {}),
-            ...((l.hsn ?? '').trim() !== '' ? { hsn: (l.hsn ?? '').trim() } : {}),
-          }
-        : {
-          ...common,
-          warehouseId: l.warehouseId,
-          ...(l.orderId !== '' && l.orderLineId !== '' ? { orderRef: { orderId: l.orderId, lineId: l.orderLineId } } : {}),
-          ...((l.gstRate ?? '').trim() !== '' ? { gstRate: (l.gstRate ?? '').trim() } : {}),
-          ...((l.hsn ?? '').trim() !== '' ? { hsn: (l.hsn ?? '').trim() } : {}),
-        };
+            warehouseId: l.warehouseId,
+            ...(l.orderId !== '' && l.orderLineId !== '' ? { orderRef: { orderId: l.orderId, lineId: l.orderLineId } } : {}),
+            ...taxed,
+          };
   });
   const base = {
     id: form.id,
@@ -328,9 +338,13 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
   };
   const p = docProfile(kind);
   // the GST the invoice states: derived with the same function the engine re-checks it with (nothing when GST is off or no line has a rate)
-  const gst = masters && (p.invoice || p.quote) ? deriveGstHeader(masters, p.side, { partyId: form.partyId, partyDetails: form.partyDetails, lines: lines as unknown as { qty: string; rate: string; gstRate?: string }[] }) : undefined;
+  const gst = masters && (p.invoice || p.quote || p.challan) ? deriveGstHeader(masters, p.side, { partyId: form.partyId, partyDetails: form.partyDetails, lines: lines as unknown as { qty: string; rate: string; gstRate?: string }[] }) : undefined;
   return {
-    draft: p.quote
+    draft: p.returnable
+      ? { ...base, ...(form.returnOf ? { returnOf: form.returnOf } : {}), ...(gst ? { gst } : {}) }
+      : p.challan
+      ? { ...base, purpose: form.purpose ?? 'sale', ...(gst ? { gst } : {}) }
+      : p.quote
       ? { ...base, ...(gst ? { gst } : {}), lines }
       : p.order
       ? { ...base, ...(form.closed ? { closed: true } : {}), ...(form.quotationId ? { quotationId: form.quotationId } : {}) }
@@ -347,6 +361,7 @@ export type SalesFieldKey =
   | 'date'
   | 'party'
   | 'ref'
+  | 'purpose'
   | 'eway'
   | 'sledger'
   | 'billno'
@@ -383,6 +398,7 @@ const LEAF: Readonly<Record<string, 'item' | 'wh' | 'ldue' | 'ord' | 'qty' | 'ra
   warehouseId: 'wh',
   dueDate: 'ldue',
   orderRef: 'ord',
+  challanRef: 'ord',
   qty: 'qty',
   rate: 'rate',
   gstRate: 'gst',
@@ -392,6 +408,7 @@ const HEADER: Readonly<Record<string, SalesFieldKey>> = {
   partyId: 'party',
   partyDetails: 'party',
   reference: 'ref',
+  purpose: 'purpose',
   ewayBillNo: 'eway',
   salesLedgerId: 'sledger',
   purchaseLedgerId: 'sledger',
@@ -435,7 +452,7 @@ function localIssues(form: SalesForm, kind: ItemDocKind, kept: readonly number[]
       if (l.itemLabel.trim() === '') out.push({ field: `line.${i}.item`, message: 'Write what this line is' });
     } else {
       if (l.itemId === '') out.push({ field: `line.${i}.item`, message: p.invoice ? 'Choose a stock item — or press Alt+T to write it as a one-time line' : 'Choose a stock item' });
-      if (p.invoice && l.warehouseId === '') out.push({ field: `line.${i}.wh`, message: 'Choose a godown' });
+      if (p.moves && !l.challanId && l.warehouseId === '') out.push({ field: `line.${i}.wh`, message: 'Choose a godown' });
     }
     if (p.order && l.due === '') out.push({ field: `line.${i}.ldue`, message: 'Enter the due date' });
     if (l.qty.trim() === '') out.push({ field: `line.${i}.qty`, message: 'Enter a quantity' });
@@ -526,7 +543,9 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     dueDate?: string;
     closed?: boolean;
     quotationId?: string;
-    lines?: { id?: string; itemId?: string; description?: string; unit?: string; warehouseId?: string; qty: string; rate: string; dueDate?: string; gstRate?: string; hsn?: string; orderRef?: { orderId: string; lineId: string } }[];
+    purpose?: ChallanPurpose;
+    returnOf?: string;
+    lines?: { id?: string; itemId?: string; description?: string; unit?: string; warehouseId?: string; qty: string; rate: string; dueDate?: string; gstRate?: string; hsn?: string; orderRef?: { orderId: string; lineId: string }; challanRef?: { challanId: string; lineId: string } }[];
   };
   const item = (id: string | undefined) => (id === undefined ? '' : (masters.stockItem(id as never)?.name ?? ''));
   const godown = (id: string | undefined) => (id === undefined ? '' : (masters.warehouse(id as never)?.name ?? ''));
@@ -543,7 +562,8 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     dueText: l.dueDate ? formatDate(l.dueDate) : '',
     orderId: l.orderRef?.orderId ?? '',
     orderLineId: l.orderRef?.lineId ?? '',
-    orderLabel: l.orderRef ? (orders.order(l.orderRef.orderId as never)?.number ?? '') : '',
+    orderLabel: l.orderRef ? (orders.order(l.orderRef.orderId as never)?.number ?? '') : l.challanRef ? (orders.challans.challan(l.challanRef.challanId as never)?.number ?? '') : '',
+    ...(l.challanRef ? { challanId: l.challanRef.challanId, challanLineId: l.challanRef.lineId } : {}),
     gstRate: l.gstRate ?? '',
     hsn: l.hsn ?? '',
   }));
@@ -565,6 +585,8 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     dueTouched: true,
     closed: c.closed === true,
     ...(c.quotationId ? { quotationId: c.quotationId } : {}),
+    ...(c.purpose ? { purpose: c.purpose } : {}),
+    ...(c.returnOf ? { returnOf: c.returnOf } : {}),
     lines: lines.length > 0 ? lines : [blankSalesLine('l1')],
   };
 }
@@ -609,7 +631,7 @@ export function switchSales(
       ...(filled ? { note: 'The lines’ due dates were cleared: an invoice has godowns instead, and its own due date for the bill.' } : {}),
     };
   }
-  const hadRefs = form.lines.some((l) => l.orderId !== '');
+  const hadRefs = form.lines.some((l) => l.orderId !== '' || !!l.challanId);
   // an order is of stock items: a one-time (written) line cannot come along
   const written = form.lines.filter((l) => l.oneTime && !isEmptyLine(l)).length;
   const kept = form.lines.filter((l) => !l.oneTime);
@@ -621,7 +643,7 @@ export function switchSales(
     form: {
       ...next,
       closed: false,
-      lines: (kept.length > 0 ? kept : [blankSalesLine(crypto.randomUUID(), undefined, form.date)]).map((l) => ({ ...l, warehouseId: '', warehouseLabel: '', orderId: '', orderLineId: '', orderLabel: '', due: form.date, dueText: formatDate(form.date) })),
+      lines: (kept.length > 0 ? kept : [blankSalesLine(crypto.randomUUID(), undefined, form.date)]).map(({ challanId: _c, challanLineId: _cl, ...l }) => ({ ...l, warehouseId: '', warehouseLabel: '', orderId: '', orderLineId: '', orderLabel: '', due: form.date, dueText: formatDate(form.date) })),
     },
     ...(notes.length > 0 ? { note: notes.join(' ') } : {}),
   };
@@ -809,6 +831,142 @@ export function orderFormFromQuotation(
 /** The posted sales order made from this quotation, if any (a cancelled order frees the quote again). */
 export function orderOfQuotation(quoteId: string, vouchers: readonly Voucher[]): Voucher | undefined {
   return vouchers.find((v) => v.status === 'posted' && (v.content as unknown as { quotationId?: string }).quotationId === quoteId);
+}
+
+// ---- a returnable challan comes back ----------------------------------------------------------------------------
+
+/**
+ * The return of a returnable challan, ready to post: the same supplier, party details and lines (items, godowns, quantities, values) coming
+ * back, dated `date` — never before the challan.
+ */
+export function returnDraftOf(challan: Voucher, args: { id: string; date: string }): Record<string, unknown> {
+  const c = challan.content as unknown as Record<string, unknown>;
+  const date = args.date < challan.date ? challan.date : args.date;
+  return {
+    id: args.id,
+    voucherTypeId: challan.voucherTypeId,
+    date,
+    partyId: c['partyId'],
+    ...(c['partyDetails'] ? { partyDetails: c['partyDetails'] } : {}),
+    ...(c['reference'] ? { reference: c['reference'] } : {}),
+    narration: `Return of ${challan.number}`,
+    returnOf: challan.id,
+    ...(c['gst'] ? { gst: c['gst'] } : {}),
+    lines: c['lines'],
+  };
+}
+
+// ---- from a delivery challan to an invoice -------------------------------------------------------------------------
+
+export interface ChallanOption {
+  readonly challanId: string;
+  readonly lineId: string;
+  readonly number: string;
+  readonly reference: string | undefined;
+  readonly date: string;
+  readonly itemId: string;
+  readonly sent: Qty;
+  readonly pending: Qty;
+  readonly rate: Rate;
+  readonly gstRate: string | undefined;
+  readonly hsn: string | undefined;
+}
+
+/**
+ * The challan lines a customer's invoice can bill: the customer's sale challans, each line with something still to invoice (for one item, if
+ * given), oldest first. `ownId` is the invoice being entered or altered: what it had billed counts as pending again.
+ */
+export function openChallanLines(orders: OrderBook, partyId: string, itemId: string | undefined, ownId: string): ChallanOption[] {
+  const book = orders.challans.withChange({ removeLinksOf: [ownId as never] });
+  const out: ChallanOption[] = [];
+  for (const state of book.all()) {
+    if (state.challan.purpose !== 'sale' || state.challan.partyId !== partyId) continue;
+    for (const l of state.lines) {
+      if (l.pending <= 0n || (itemId !== undefined && itemId !== '' && l.line.itemId !== itemId)) continue;
+      out.push({
+        challanId: state.challan.voucherId,
+        lineId: l.line.id,
+        number: state.challan.number,
+        reference: state.challan.reference,
+        date: state.challan.date,
+        itemId: l.line.itemId,
+        sent: l.sent,
+        pending: l.pending,
+        rate: l.line.rate,
+        gstRate: l.line.gstRate,
+        hsn: l.line.hsn,
+      });
+    }
+  }
+  return out;
+}
+
+/** A customer's challans with something still to invoice, one entry each (oldest first): what the Cust PO / ref field offers beside the orders. */
+export function openChallansOf(orders: OrderBook, partyId: string, ownId: string): { challanId: string; number: string; reference: string; date: string; lines: number }[] {
+  const byChallan = new Map<string, { challanId: string; number: string; reference: string; date: string; lines: number }>();
+  for (const l of openChallanLines(orders, partyId, undefined, ownId)) {
+    const seen = byChallan.get(l.challanId);
+    byChallan.set(l.challanId, seen ? { ...seen, lines: seen.lines + 1 } : { challanId: l.challanId, number: l.number, reference: l.reference ?? '', date: l.date, lines: 1 });
+  }
+  return [...byChallan.values()];
+}
+
+/** Invoice lines for challan lines: the item, what is still to invoice, the challan's rate and GST, no godown (the goods have left). */
+export function linesFromChallan(options: readonly ChallanOption[], masters: Masters, newKey: () => string): SalesLineForm[] {
+  return options.map((o) => ({
+    ...blankSalesLine(newKey()),
+    itemId: o.itemId,
+    ...gstDefaults(masters, o.itemId),
+    ...(o.gstRate !== undefined ? { gstRate: o.gstRate } : {}),
+    ...(o.hsn !== undefined ? { hsn: o.hsn } : {}),
+    itemLabel: masters.stockItem(o.itemId as never)?.name ?? '',
+    qty: trimPlaces(formatQty(o.pending, 4)),
+    rate: trimPlaces(formatRate(o.rate)),
+    orderLabel: o.number,
+    challanId: o.challanId,
+    challanLineId: o.lineId,
+  }));
+}
+
+/** Puts a challan's lines still to invoice on an invoice, after what is there (empty lines are dropped, lines already billing them kept). */
+export function withChallanLines(form: SalesForm, pending: readonly ChallanOption[], masters: Masters, newKey: () => string): { form: SalesForm; added: number } {
+  const have = new Set(form.lines.filter((l) => l.challanId).map((l) => `${l.challanId}|${l.challanLineId}`));
+  const missing = pending.filter((o) => !have.has(`${o.challanId}|${o.lineId}`));
+  if (missing.length === 0) return { form, added: 0 };
+  const kept = form.lines.filter((l) => !isEmptyLine(l));
+  return { form: { ...form, lines: [...kept, ...linesFromChallan(missing, masters, newKey)] }, added: missing.length };
+}
+
+/**
+ * A new sales invoice for what a challan still has to be billed for: its customer, PO and party details, and a line for every challan line
+ * with something pending. Undefined when there is nothing to invoice (free of cost, or invoiced in full). Never dated before the challan.
+ */
+export function invoiceFormFromChallan(
+  challan: Voucher,
+  orders: OrderBook,
+  masters: Masters,
+  args: { id: string; typeId: string; date: string; newKey: () => string; salesLedger?: { id: string; label: string } | undefined },
+): SalesForm | undefined {
+  const state = orders.challans.state(challan.id);
+  if (!state || state.challan.purpose !== 'sale') return undefined;
+  const party = masters.party(state.challan.partyId);
+  if (!party) return undefined;
+  const pending = openChallanLines(orders, party.id, undefined, args.id).filter((o) => o.challanId === challan.id);
+  if (pending.length === 0) return undefined;
+  const date = args.date < state.challan.date ? state.challan.date : args.date;
+  const blank = blankSalesForm(args.id, args.typeId, date, args.newKey(), { salesLedger: args.salesLedger });
+  const snapshot = (challan.content as unknown as { partyDetails?: PartyDetails }).partyDetails;
+  const due = dueDateFor(masters, party.id, date);
+  return {
+    ...blank,
+    partyId: party.id,
+    partyLabel: party.name,
+    reference: state.challan.reference ?? '',
+    partyDetails: snapshot ?? partyDetailsOfParty(party),
+    due,
+    dueText: formatDate(due),
+    lines: linesFromChallan(pending, masters, args.newKey),
+  };
 }
 
 /**

@@ -66,6 +66,7 @@ function CompanyHead({
   date,
   poNo,
   ewayBillNo,
+  dcNo,
 }: {
   company: PrintCompany;
   docTitle: string;
@@ -75,6 +76,7 @@ function CompanyHead({
   date: string;
   poNo?: string | undefined;
   ewayBillNo?: string | undefined;
+  dcNo?: string | undefined;
 }) {
   return (
     <div class="inv-head">
@@ -102,6 +104,12 @@ function CompanyHead({
               <tr>
                 <td>E-way Bill No.</td>
                 <td>{ewayBillNo}</td>
+              </tr>
+            )}
+            {dcNo && (
+              <tr>
+                <td>DC No.</td>
+                <td>{dcNo}</td>
               </tr>
             )}
           </tbody>
@@ -210,7 +218,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
   const sameAsBilling = !doc.party.shipTo;
   return (
     <>
-      <CompanyHead company={company} docTitle={doc.docTitle} copyLabel={copyLabel} numberLabel={doc.numberLabel} number={doc.number} date={doc.date} poNo={doc.poNo} ewayBillNo={doc.ewayBillNo} />
+      <CompanyHead company={company} docTitle={doc.docTitle} copyLabel={copyLabel} numberLabel={doc.numberLabel} number={doc.number} date={doc.date} poNo={doc.poNo} ewayBillNo={doc.ewayBillNo} dcNo={doc.dcNo} />
       <div class="inv-parties">
         <AddressBlock label="Bill To" address={{ name: doc.party.name, ...doc.party.billTo }} gstin={doc.party.gstin} />
         <AddressBlock label="Ship To" address={sameAsBilling ? { name: doc.party.name, ...doc.party.billTo } : { name: doc.party.name, ...doc.party.shipTo }} />
@@ -337,12 +345,24 @@ function Parties({ party }: { party: PrintParty }) {
   );
 }
 
-/** Dispatch docket, page one: who it goes to, the invoices it carries and how. */
+/** A docket's heading, centred like a report's: the company, then the docket, its number and date. */
+function DocketHead({ doc, company, part }: { doc: DocketDoc; company: PrintCompany; part?: string }) {
+  return (
+    <div class="rpt-head" data-testid="print-docket-head">
+      <div class="rpt-company">{company.name}</div>
+      {(company.address || company.gstin) && <div class="rpt-company-line">{[company.address, company.gstin ? `GSTIN: ${company.gstin}` : ''].filter(Boolean).join(' · ')}</div>}
+      <div class="docket-title">DISPATCH DOCKET</div>
+      {part && <div class="name">{part}</div>}
+      <div>{`Dispatch No. ${doc.number} · Date ${formatDate(doc.date)}`}</div>
+    </div>
+  );
+}
+
+/** Dispatch docket, page one: who it goes to, the invoices it carries and how — and, on a one-page docket, the items too. */
 function DocketPageOne({ doc, company }: { doc: DocketDoc; company: PrintCompany }) {
-  const total = doc.invoices.reduce((s, i) => s + i.amount, 0n);
   return (
     <>
-      <CompanyHead company={company} docTitle="DISPATCH DOCKET" copyLabel={undefined} numberLabel="Dispatch No." number={doc.number} date={doc.date} />
+      <DocketHead doc={doc} company={company} />
       <Parties party={doc.party} />
       <div class="docket-label">Invoices Included</div>
       <table class="items">
@@ -352,7 +372,6 @@ function DocketPageOne({ doc, company }: { doc: DocketDoc; company: PrintCompany
             <th>Invoice No.</th>
             <th>Date</th>
             <th>PO No.</th>
-            <th class="num">Amount</th>
           </tr>
         </thead>
         <tbody>
@@ -362,7 +381,6 @@ function DocketPageOne({ doc, company }: { doc: DocketDoc; company: PrintCompany
               <td>{inv.number}</td>
               <td>{formatDate(inv.date)}</td>
               <td>{inv.poNo}</td>
-              <td class="num">{formatAmount(inv.amount)}</td>
             </tr>
           ))}
           <tr class="total">
@@ -370,10 +388,15 @@ function DocketPageOne({ doc, company }: { doc: DocketDoc; company: PrintCompany
             <td colSpan={3}>
               Total ({doc.invoices.length} invoice{doc.invoices.length === 1 ? '' : 's'})
             </td>
-            <td class="num">₹ {formatAmount(total)}</td>
           </tr>
         </tbody>
       </table>
+      {doc.onePage && (
+        <>
+          <div class="docket-label">Items</div>
+          <DocketItems doc={doc} />
+        </>
+      )}
       <table class="docket-facts">
         <tbody>
           <tr>
@@ -404,35 +427,42 @@ function DocketPageOne({ doc, company }: { doc: DocketDoc; company: PrintCompany
 function DocketPageTwo({ doc, company }: { doc: DocketDoc; company: PrintCompany }) {
   return (
     <>
-      <CompanyHead company={company} docTitle="DISPATCH DOCKET" copyLabel="Item list" numberLabel="Dispatch No." number={doc.number} date={doc.date} />
-      <table class="items">
-        <thead>
-          <tr>
-            <th class="center sno">S.No.</th>
-            <th>Item</th>
-            <th class="center">HSN</th>
-            <th class="num">Qty</th>
-          </tr>
-        </thead>
-        <tbody>
-          {doc.items.map((it, i) => (
-            <tr key={i}>
-              <td class="center sno">{i + 1}</td>
-              <td>{it.desc}</td>
-              <td class="center">{it.hsn}</td>
-              <td class="num">{it.qty}</td>
-            </tr>
-          ))}
-          <tr class="total">
-            <td />
-            <td colSpan={2}>
-              Total ({doc.items.length} item{doc.items.length === 1 ? '' : 's'})
-            </td>
-            <td class="num">{doc.totalQty}</td>
-          </tr>
-        </tbody>
-      </table>
+      <DocketHead doc={doc} company={company} part="Item list" />
+      <DocketItems doc={doc} />
     </>
+  );
+}
+
+/** The docket's items with their total quantity. */
+function DocketItems({ doc }: { doc: DocketDoc }) {
+  return (
+    <table class="items">
+      <thead>
+        <tr>
+          <th class="center sno">S.No.</th>
+          <th>Item</th>
+          <th class="center">HSN</th>
+          <th class="num">Qty</th>
+        </tr>
+      </thead>
+      <tbody>
+        {doc.items.map((it, i) => (
+          <tr key={i}>
+            <td class="center sno">{i + 1}</td>
+            <td>{it.desc}</td>
+            <td class="center">{it.hsn}</td>
+            <td class="num">{it.qty}</td>
+          </tr>
+        ))}
+        <tr class="total">
+          <td />
+          <td colSpan={2}>
+            Total ({doc.items.length} item{doc.items.length === 1 ? '' : 's'})
+          </td>
+          <td class="num">{doc.totalQty}</td>
+        </tr>
+      </tbody>
+    </table>
   );
 }
 
@@ -577,9 +607,13 @@ export function PrintView({ docs, company, copies, layouts }: { docs: readonly P
               <div key={`${d}-docket-1`} class="paper print-copy bordered">
                 <DocketPageOne doc={doc} company={company} />
               </div>,
-              <div key={`${d}-docket-2`} class="paper print-copy bordered">
-                <DocketPageTwo doc={doc} company={company} />
-              </div>,
+              ...(doc.onePage
+                ? []
+                : [
+                    <div key={`${d}-docket-2`} class="paper print-copy bordered">
+                      <DocketPageTwo doc={doc} company={company} />
+                    </div>,
+                  ]),
             ]
           : copies.map((label, i) => {
               const html = own(doc, label);

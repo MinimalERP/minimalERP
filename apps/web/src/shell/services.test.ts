@@ -135,6 +135,7 @@ describe('the shipped configuration is internally consistent', () => {
       ['Purchase Orders', undefined],
       ['New Debit Note', 'Phase 7'],
       ['New Receipt Note', 'Phase 8'],
+      ['Returnable Challans', undefined],
     ]);
     s.app.goHome();
     expect(s.registry.run('report.purchaseOrders')).toBe(true);

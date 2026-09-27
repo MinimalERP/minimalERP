@@ -1,3 +1,5 @@
+import type { ChallanStatus } from '@minimalerp/domain';
+
 /** The base kinds the voucher screen enters, with the name the headings and the bottom bar use. */
 export const ENTRY_KINDS = ['contra', 'payment', 'receipt', 'journal'] as const;
 export type EntryKind = (typeof ENTRY_KINDS)[number];
@@ -14,8 +16,19 @@ export const isSalesKind = (s: string): s is SalesKind => (SALES_KINDS as readon
 
 /** Quotation: a sales-side document on the same worksheet; it does not switch with F8 / Shift+F8. */
 export const QUOTATION_KIND = 'quotation' as const;
-export type ItemDocKind = SalesKind | typeof QUOTATION_KIND;
-export const isItemDocKind = (s: string): s is ItemDocKind => isSalesKind(s) || s === QUOTATION_KIND;
+/** Delivery Challan: goods going out without a bill (to be invoiced later, or free of cost), on the same worksheet. */
+export const CHALLAN_KIND = 'deliveryChallan' as const;
+/** Returnable Challan: goods sent to a supplier that come back as they went ("Mark returned" brings them back). */
+export const RETURNABLE_KIND = 'returnableChallan' as const;
+export type ItemDocKind = SalesKind | typeof QUOTATION_KIND | typeof CHALLAN_KIND | typeof RETURNABLE_KIND;
+export const isItemDocKind = (s: string): s is ItemDocKind => isSalesKind(s) || s === QUOTATION_KIND || s === CHALLAN_KIND || s === RETURNABLE_KIND;
+/** How a challan's state reads on its badge and in its list. */
+export const CHALLAN_STATUS: Readonly<Record<ChallanStatus, string>> = {
+  foc: 'FOC',
+  toInvoice: 'To invoice',
+  partlyInvoiced: 'Part invoiced',
+  invoiced: 'Invoiced',
+};
 
 /** Which way a document faces: the customer's (we sell) or the supplier's (we buy). */
 export type DocSide = 'sales' | 'purchase';
@@ -31,6 +44,12 @@ export interface DocProfile {
   readonly order: boolean;
   /** A quotation: prices for the customer, no stock or accounts. */
   readonly quote: boolean;
+  /** A delivery or returnable challan: goods leave a godown, nothing is billed. */
+  readonly challan: boolean;
+  /** A returnable challan: made out to a supplier, and the goods come back. */
+  readonly returnable: boolean;
+  /** Each line names the godown its goods leave (or arrive in): an invoice or a challan. */
+  readonly moves: boolean;
   /** The party role the document needs, and what to call the party. */
   readonly role: 'customer' | 'vendor';
   readonly noun: string;
@@ -58,15 +77,25 @@ export function docProfile(kind: ItemDocKind): DocProfile {
       invoice: false,
       order: false,
       quote: true,
+      challan: false,
+      returnable: false,
+      moves: false,
       refLabel: 'Reference',
       refAria: 'Your reference for this quote',
     };
+  }
+  if (kind === CHALLAN_KIND) {
+    return { ...SALES_SIDE, invoice: false, order: false, quote: false, challan: true, returnable: false, moves: true, refLabel: 'Cust PO / ref', refAria: 'Customer PO or reference' };
+  }
+  if (kind === RETURNABLE_KIND) {
+    // the goods leave a godown (as on a sale), to a supplier
+    return { ...SALES_SIDE, role: 'vendor', noun: 'supplier', nounPlural: 'Suppliers', invoice: false, order: false, quote: false, challan: true, returnable: true, moves: true, refLabel: 'Reference', refAria: 'Reference' };
   }
   const invoice = kind === 'sales' || kind === 'purchase';
   const side = kind === 'sales' || kind === 'salesOrder' ? SALES_SIDE : PURCHASE_SIDE;
   const refLabel = side.side === 'sales' ? 'Cust PO / ref' : invoice ? 'PO / ref' : 'Supplier ref';
   const refAria = side.side === 'sales' ? 'Customer PO or reference' : invoice ? 'Purchase order or reference' : 'Supplier reference';
-  return { ...side, invoice, order: !invoice, quote: false, refLabel, refAria };
+  return { ...side, invoice, order: !invoice, quote: false, challan: false, returnable: false, moves: invoice, refLabel, refAria };
 }
 
 /** The same side's invoice and order kinds. */
@@ -74,5 +103,5 @@ export const invoiceKindOf = (side: DocSide): SalesKind => (side === 'sales' ? '
 export const orderKindOf = (side: DocSide): SalesKind => (side === 'sales' ? 'salesOrder' : 'purchaseOrder');
 
 /** Every kind a voucher window can be opened for: the four accounting kinds, the item documents, and the Stock Journal (which moves stock, not money). */
-const ALL_TITLES: Readonly<Record<string, string>> = { ...KIND_TITLES, ...SALES_TITLES, [QUOTATION_KIND]: 'Quotation', stockJournal: 'Stock Journal' };
+const ALL_TITLES: Readonly<Record<string, string>> = { ...KIND_TITLES, ...SALES_TITLES, [QUOTATION_KIND]: 'Quotation', [CHALLAN_KIND]: 'Delivery Challan', [RETURNABLE_KIND]: 'Returnable Challan', stockJournal: 'Stock Journal' };
 export const kindTitle = (key: string): string | undefined => ALL_TITLES[key];

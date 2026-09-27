@@ -4,7 +4,8 @@
  * Supabase Edge Function (Deno) and in Node (tests, scripts); the only driver requirement is `Queryable`.
  * The browser never uses this — it calls the Edge Function through adapter-supabase.
  */
-export { PostgresBackend, type PostgresBackendOptions, type VoucherRevision } from './backend';
+export { PostgresBackend, type AssistantFactRow, type PostgresBackendOptions, type VoucherRevision } from './backend';
+export { createAssistantHandler, type AssistantChat, type AssistantHandlerDeps, type AssistantServer } from './assistant';
 export { createPostingHandler, type CompanyMailScript, type MailResult, type MailScript, type OutgoingMail, type PostingHandlerDeps, type SentDocument } from './http';
 export { createIntakeHandler, type IntakeHandlerDeps, type IntakeServer } from './intake';
 export { MASTER_TABLES, buildMasters, ledgersFromJson, masterRecordToRow, mastersToSeed, mastersVersion } from './masters';

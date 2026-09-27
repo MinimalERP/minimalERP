@@ -29,15 +29,25 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
         gstRate: l.gstRate,
       };
     });
+  const foc = kind === 'deliveryChallan' && form.purpose === 'foc';
+  const returnable = kind === 'returnableChallan';
   return {
     kind: 'invoice',
     voucherKind: kind,
-    docTitle: kind === 'sales' && masters.company.chargeGst === true ? 'Tax Invoice' : type.name,
-    numberLabel: kind === 'sales' ? 'Invoice No.' : undefined,
+    docTitle:
+      kind === 'sales' && masters.company.chargeGst === true
+        ? 'Tax Invoice'
+        : foc
+          ? `${type.name} – Free of Cost`
+          : returnable && form.returnOf
+            ? `${type.name} – Goods Returned`
+            : type.name,
+    numberLabel: kind === 'sales' ? 'Invoice No.' : kind === 'deliveryChallan' || returnable ? 'Challan No.' : undefined,
     number: voucher.number,
     date: voucher.date,
     poNo: form.reference || undefined,
     ewayBillNo: kind === 'sales' ? form.ewayBillNo || undefined : undefined,
+    dcNo: [...new Set(form.lines.filter((l) => l.challanId).map((l) => l.orderLabel))].join(', ') || undefined,
     placeOfSupply: placeOfSupplyText(details?.shipTo?.stateCode ?? details?.billTo?.stateCode ?? details?.placeOfSupply),
     party: { name: details?.mailingName ?? form.partyLabel, gstin: details?.gstin, billTo: details?.billTo, shipTo: details?.shipTo },
     lines,
@@ -45,7 +55,9 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
     gst: preview.gst,
     roundOff: preview.roundOff,
     grandTotal: preview.grand,
-    narration: form.narration || undefined,
+    // a free-of-cost challan says so on its face: the value is stated, nothing is to be paid
+    // a free-of-cost challan says so on its face: the value is stated, nothing is to be paid
+    narration: [foc ? 'Free of cost – not for sale.' : '', returnable && !form.returnOf ? 'Returnable – to be returned to us after the work.' : '', form.narration].filter(Boolean).join(' ') || undefined,
   };
 }
 
@@ -84,10 +96,12 @@ export interface DocketDetails {
   readonly packages: string;
   readonly transporter: string;
   readonly lrNo: string;
+  /** Print the items on the same page as the consignment. */
+  readonly onePage?: boolean | undefined;
 }
 
 /**
- * A dispatch docket for invoices of ONE customer: page one lists the invoices (number, PO, amount) and the consignment; page two every
+ * A dispatch docket for invoices of ONE customer: page one lists the invoices (number, date, PO) and the consignment; page two (or the same page) every
  * item on them, like items added together. Undefined with a reason when the invoices are not of one customer.
  */
 export function dispatchDocketOf(vouchers: readonly Voucher[], books: Books, d: DocketDetails): DocketDoc | string {
@@ -122,11 +136,12 @@ export function dispatchDocketOf(vouchers: readonly Voucher[], books: Books, d: 
     number: d.dispatchNo,
     date: d.date,
     party: { name: details?.mailingName ?? first.partyLabel, gstin: details?.gstin, billTo: details?.billTo, shipTo: details?.shipTo },
-    invoices: read.map(({ v, r }) => ({ number: v.number, date: v.date, poNo: r.form.reference || undefined, amount: r.preview.grand })),
+    invoices: read.map(({ v, r }) => ({ number: v.number, date: v.date, poNo: r.form.reference || undefined })),
     packages: d.packages,
     transporter: d.transporter,
     lrNo: d.lrNo,
     items: [...items.values()].map((i) => ({ desc: i.desc, hsn: i.hsn, qty: `${formatQuantity(i.qty, i.decimals)} ${i.unit}`.trim() })),
     totalQty: [...perUnit.entries()].map(([unit, t]) => `${formatQuantity(t.qty, t.decimals)} ${unit}`.trim()).join(' + '),
+    ...(d.onePage ? { onePage: true } : {}),
   };
 }

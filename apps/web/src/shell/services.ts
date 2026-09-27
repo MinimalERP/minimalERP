@@ -49,6 +49,8 @@ export interface AppContext {
   openGoTo(): void;
   closeGoTo(): void;
   toggleGoTo(): void;
+  /** Opens or closes the floating assistant (Alt+Q, or its ✦ button). */
+  toggleAssistant(): void;
   resetKeymap(): void;
 }
 
@@ -106,6 +108,29 @@ export class UiState {
     this.popScope?.();
     this.popScope = undefined;
     this.open = false;
+    this.notify();
+  }
+
+  // ---- the floating assistant: an overlay like Go To, with its own modal keyboard scope while open ----
+  private assistant = false;
+  private popAssistant: (() => void) | undefined;
+
+  get assistantOpen(): boolean {
+    return this.assistant;
+  }
+
+  openAssistant(): void {
+    if (this.assistant) return;
+    this.popAssistant = this.scopes.push({ id: 'overlay:assistant', layer: 'overlay', modal: true });
+    this.assistant = true;
+    this.notify();
+  }
+
+  closeAssistant(): void {
+    if (!this.assistant) return;
+    this.popAssistant?.();
+    this.popAssistant = undefined;
+    this.assistant = false;
     this.notify();
   }
 
@@ -186,6 +211,13 @@ export function createServices(options: ServicesOptions): Services {
     toggleGoTo() {
       if (ui.gotoOpen) ui.closeGoTo();
       else ui.openGoTo();
+    },
+    toggleAssistant() {
+      if (ui.assistantOpen) ui.closeAssistant();
+      else {
+        ui.closeGoTo();
+        ui.openAssistant();
+      }
     },
     resetKeymap: () => late.keymapStore?.resetAll(),
   };

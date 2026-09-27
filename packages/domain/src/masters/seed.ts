@@ -41,6 +41,8 @@ const TYPES: readonly { base: BaseKind; name: string; prefix: string }[] = [
   { base: 'quotation', name: 'Quotation', prefix: 'QT' },
   { base: 'purchase', name: 'Purchase', prefix: 'PUR' },
   { base: 'purchaseOrder', name: 'Purchase Order', prefix: 'PO' },
+  { base: 'deliveryChallan', name: 'Delivery Challan', prefix: 'DC' },
+  { base: 'returnableChallan', name: 'Returnable Challan', prefix: 'RC' },
 ];
 
 const GST_SLABS = ['0', '5', '12', '18', '28'] as const;

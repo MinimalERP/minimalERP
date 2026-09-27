@@ -5,6 +5,7 @@ import type { PlannedLine } from '../../posting/plan';
 import { draftBaseShape, ledgerIdSchema, localDateSchema } from '../drafts';
 import { defineVoucherKind } from '../kind';
 import {
+  challanProblems,
   customerLedgerOf,
   customerProblems,
   deliveryProblems,
@@ -18,7 +19,7 @@ import {
   plannedLinksOf,
 } from './documents';
 import { grandTotalParts, gstHeaderSchema, invoiceGst, roundOffPosting, roundOffProblems, taxPostings } from './gstDoc';
-import { plannedStockOf, shortfallProblems, stockEntryProblems } from './stockJournal';
+import { itemQtyProblems, plannedStockOf, shortfallProblems, stockEntryProblems } from './stockJournal';
 
 /**
  * Sales Invoice: goods sold to a customer. One posting, three effects (ADR-0015):
@@ -26,6 +27,8 @@ import { plannedStockOf, shortfallProblems, stockEntryProblems } from './stockJo
  *              customer's line being a NEW BILL whose reference is this invoice's number and which falls due on `dueDate`;
  *   stock    — every line takes its quantity OUT of its godown, valued by the stock book (no cost-of-sales entry: periodic method);
  *   orders   — every line that names an order line fills it; more than is pending on that line is refused.
+ *   challans — a line that names a delivery-challan line bills goods that already left on the challan: it moves NO stock, and more than is
+ *              still to invoice on that challan line is refused.
  * GST (ADR-0019) is added to the same posting: the customer owes the items plus the tax, the sales ledger gets the items, and each tax head credits its Output ledger.
  */
 export const salesDraftSchema = z.object({
@@ -73,6 +76,9 @@ export const salesKind = defineVoucherKind<SalesDraft>({
     });
     if (problems.length === 0) {
       asEntries(draft.lines).forEach((e, k) => problems.push(...onInvoiceLines(stockEntryProblems(e, masters, `lines.${k}`), places)));
+      draft.lines.forEach((l, i) => {
+        if (l.challanRef && l.itemId !== undefined) problems.push(...itemQtyProblems(l.itemId, l.qty, masters, `lines.${i}`));
+      });
     }
     if (problems.length === 0 && invoiceTotal(draft.lines) <= 0n) {
       problems.push(issue(IssueCode.AmountNotPositive, 'The invoice comes to nothing: enter the rates', 'lines'));
@@ -80,6 +86,7 @@ export const salesKind = defineVoucherKind<SalesDraft>({
     if (problems.length > 0) return problems;
     return [
       ...deliveryProblems(draft, masters, orders),
+      ...challanProblems(draft, masters, orders.challans),
       ...onInvoiceLines(shortfallProblems(asEntries(draft.lines), draft.id, draft.date, masters, stock, 'lines'), placesOf(draft.lines)),
     ];
   },
@@ -96,5 +103,6 @@ export const salesKind = defineVoucherKind<SalesDraft>({
   postStock: (draft) => plannedStockOf(asEntries(draft.lines)),
   stockItems: (draft) => [...new Set(itemLinesOf(draft.lines).map((x) => x.line.itemId))],
   postLinks: (draft) => plannedLinksOf(draft.lines),
-  orderIds: (draft) => [...new Set(draft.lines.flatMap((l) => (l.orderRef ? [l.orderRef.orderId as VoucherId] : [])))],
+  // the orders it fills and the challans it bills: a backend loads both into the order book
+  orderIds: (draft) => [...new Set(draft.lines.flatMap((l) => [...(l.orderRef ? [l.orderRef.orderId as VoucherId] : []), ...(l.challanRef ? [l.challanRef.challanId as VoucherId] : [])]))],
 });

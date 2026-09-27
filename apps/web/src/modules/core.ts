@@ -27,6 +27,16 @@ const commands: Command<AppContext>[] = [
     run: (app) => app.toggleGoTo(),
   },
   {
+    id: 'assistant.toggle',
+    title: 'Assistant',
+    category: 'Navigation',
+    keywords: ['assistant', 'ask', 'chat', 'ai', 'help', 'question', 'gemini', 'bot'],
+    description: 'Ask about stock, orders, invoices and money owed — or anything else',
+    configurable: true,
+    allowInModal: true, // pressing it again closes the assistant
+    run: (app) => app.toggleAssistant(),
+  },
+  {
     id: 'app.back',
     title: 'Back',
     category: 'Navigation',
@@ -119,6 +129,7 @@ export const coreModule: ModuleManifest<AppContext> = {
   commands,
   bindings: [
     { commandId: 'goto.open', chord: 'Alt+G' },
+    { commandId: 'assistant.toggle', chord: 'Alt+Q' },
     { commandId: 'app.back', chord: 'Esc' },
 
     { commandId: 'nav.up', chord: 'Up' },

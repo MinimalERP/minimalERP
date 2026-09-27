@@ -14,6 +14,10 @@ import {
   IssueCode,
   NO_USAGE,
   OrderBook,
+  ChallanBook,
+  returnableOf,
+  challanDocOf,
+  challanLinksOf,
   StockBook,
   ZERO,
   draftToJson,
@@ -84,6 +88,14 @@ export interface PostgresBackendOptions {
 }
 
 /** A prior state of an altered or cancelled voucher, from `voucher_revisions`. */
+/** One taught fact of the assistant, numbered by age (1 = oldest). */
+export interface AssistantFactRow {
+  readonly id: string;
+  readonly number: number;
+  readonly text: string;
+  readonly createdAt: string;
+}
+
 export interface VoucherRevision {
   readonly voucher: Voucher;
   readonly journal: readonly JournalLine[];
@@ -722,6 +734,40 @@ export class PostgresBackend
     ]);
   }
 
+  // ---- the assistant's taught facts (kept in the books, not in the AI model) ----
+
+  /** The company's taught facts, oldest first, numbered from 1. */
+  async assistantFacts(companyId: string): Promise<Result<readonly AssistantFactRow[]>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    return this.factsCall('select public.assistant_facts_get($1::uuid, $2::uuid) as r', [this.options.actorId, companyId]);
+  }
+
+  /** Teaches one fact (the database checks its length, the limit of 200, and who may). Returns the facts. */
+  async addAssistantFact(companyId: string, id: string, text: string): Promise<Result<readonly AssistantFactRow[]>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    if (!isUuid(id)) return fail(issue(IssueCode.SchemaInvalid, 'Fact id must be a UUID', 'id'));
+    return this.factsCall('select public.assistant_fact_add($1::uuid, $2::uuid, $3, $4::uuid, $5) as r', [this.options.actorId, companyId, this.options.requestId ?? null, id, text]);
+  }
+
+  /** Forgets one fact. Returns the facts. */
+  async removeAssistantFact(companyId: string, id: string): Promise<Result<readonly AssistantFactRow[]>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    if (!isUuid(id)) return fail(issue(IssueCode.SchemaInvalid, 'Fact id must be a UUID', 'id'));
+    return this.factsCall('select public.assistant_fact_remove($1::uuid, $2::uuid, $3, $4::uuid) as r', [this.options.actorId, companyId, this.options.requestId ?? null, id]);
+  }
+
+  private async factsCall(sql: string, values: readonly unknown[]): Promise<Result<readonly AssistantFactRow[]>> {
+    try {
+      const r = await this.db.query(sql, values);
+      const rows = Array.isArray(r.rows[0]?.['r']) ? (r.rows[0]?.['r'] as Record<string, unknown>[]) : [];
+      return ok(rows.map((f) => ({ id: text(f['id']), number: Number(f['number']), text: text(f['text']), createdAt: text(f['createdAt']) })));
+    } catch (e) {
+      const known = issueFromDbError(e);
+      if (known) return fail(known);
+      throw e;
+    }
+  }
+
   private async layoutCall(sql: string, values: readonly unknown[]): Promise<Result<PrintLayouts>> {
     try {
       const r = await this.db.query(sql, values);
@@ -837,7 +883,44 @@ export class PostgresBackend
       const doc = orderDocOf(voucherFromRow(row), row['order_kind'] === 'purchaseOrder' ? 'purchase' : 'sales');
       return doc ? [doc] : [];
     });
-    return new OrderBook(orders, await this.orderLinks({ companyId, orderIds: ids as never }));
+    return new OrderBook(orders, await this.orderLinks({ companyId, orderIds: ids as never }), await this.challanBook(companyId, ids));
+  }
+
+  /**
+   * Those of these ids that are posted delivery challans, and every posted sales invoice line billed against them — or posted returnable
+   * challans, and the returns that name them.
+   */
+  private async challanBook(companyId: CompanyId, ids: readonly string[]): Promise<ChallanBook> {
+    const list = `{${ids.join(',')}}`;
+    const returnable = await this.db.query(
+      `select ${VOUCHER_COLUMNS} from public.vouchers
+        where company_id = $1::uuid and status = 'posted'
+          and voucher_type_id in (select id from public.voucher_types where company_id = $1::uuid and base_kind = 'returnableChallan')
+          and (id = any($2::text::uuid[]) or content ->> 'returnOf' = any($2::text[]))`,
+      [companyId, list],
+    );
+    const read = returnable.rows.map((row) => returnableOf(voucherFromRow(row)));
+    const returnables = read.flatMap((r) => (r.challan && ids.includes(r.challan.voucherId) ? [r.challan] : []));
+    const returns = read.flatMap((r) => (r.back ? [r.back] : []));
+    const docs = await this.db.query(
+      `select ${VOUCHER_COLUMNS} from public.vouchers
+        where company_id = $1::uuid and id = any($2::text::uuid[]) and status = 'posted'
+          and voucher_type_id in (select id from public.voucher_types where company_id = $1::uuid and base_kind = 'deliveryChallan')`,
+      [companyId, list],
+    );
+    if (docs.rows.length === 0) return returnables.length + returns.length === 0 ? ChallanBook.empty : new ChallanBook([], [], returnables, returns);
+    const invoices = await this.db.query(
+      `select ${VOUCHER_COLUMNS} from public.vouchers
+        where company_id = $1::uuid and status = 'posted'
+          and voucher_type_id in (select id from public.voucher_types where company_id = $1::uuid and base_kind = 'sales')
+          and exists (select 1 from jsonb_array_elements(coalesce(content -> 'lines', '[]'::jsonb)) e where e -> 'challanRef' ->> 'challanId' = any($2::text[]))`,
+      [companyId, list],
+    );
+    const challans = docs.rows.flatMap((row) => {
+      const doc = challanDocOf(voucherFromRow(row));
+      return doc ? [doc] : [];
+    });
+    return new ChallanBook(challans, invoices.rows.flatMap((row) => challanLinksOf(voucherFromRow(row))), returnables, returns);
   }
 
   /** The deliveries one invoice makes. */

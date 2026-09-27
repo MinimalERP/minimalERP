@@ -3,6 +3,7 @@ import type { PartyId, StockItemId, VoucherId } from '../ids';
 import { type Qty, type Rate, ZERO_QTY, parseQty, parseRate, qty } from '../stock/quantity';
 import type { Masters } from '../masters/masters';
 import type { Voucher } from '../vouchers/voucher';
+import { ChallanBook, type ChallanDoc, type ChallanLink, type ReturnDoc, type ReturnableDoc, challanDocOf, challanLinksOf, returnableOf } from './challanBook';
 
 /**
  * THE ORDER BOOK — what has been ordered and what has been delivered against it (ADR-0015). Like the stock book it is DERIVED at read
@@ -77,6 +78,7 @@ export interface OrderChange {
   /** Invoices whose deliveries leave the book (an invoice being altered or cancelled frees what it had filled). */
   readonly removeLinksOf?: readonly VoucherId[] | undefined;
   /** Orders whose documents leave the book. */
+  /** Orders (and delivery challans) whose documents leave the book. */
   readonly removeOrders?: readonly VoucherId[] | undefined;
   readonly addOrders?: readonly OrderDoc[] | undefined;
   readonly addLinks?: readonly OrderLink[] | undefined;
@@ -92,6 +94,8 @@ export class OrderBook {
   constructor(
     readonly orders: readonly OrderDoc[] = [],
     readonly links: readonly OrderLink[] = [],
+    /** The delivery challans and what is invoiced against them: documents filled by invoices too, kept alongside the orders. */
+    readonly challans: ChallanBook = ChallanBook.empty,
   ) {
     this.byId = new Map(orders.map((o) => [o.voucherId, o]));
     const totals = new Map<string, bigint>();
@@ -115,7 +119,7 @@ export class OrderBook {
     const goneLinks = new Set(change.removeLinksOf ?? []);
     const orders = goneOrders.size === 0 ? this.orders : this.orders.filter((o) => !goneOrders.has(o.voucherId));
     const links = goneLinks.size === 0 ? this.links : this.links.filter((l) => !goneLinks.has(l.voucherId));
-    return new OrderBook([...orders, ...(change.addOrders ?? [])], [...links, ...(change.addLinks ?? [])]);
+    return new OrderBook([...orders, ...(change.addOrders ?? [])], [...links, ...(change.addLinks ?? [])], this.challans.withChange({ removeLinksOf: change.removeLinksOf, removeChallans: change.removeOrders }));
   }
 
   order(id: VoucherId): OrderDoc | undefined {
@@ -182,7 +186,7 @@ interface OrderContent {
   partyId?: string;
   reference?: string;
   closed?: boolean;
-  lines?: { id?: string; itemId?: string; qty?: string; rate?: string; dueDate?: string; orderRef?: { orderId?: string; lineId?: string } }[];
+  lines?: { id?: string; itemId?: string; qty?: string; rate?: string; dueDate?: string; orderRef?: { orderId?: string; lineId?: string }; challanRef?: unknown }[];
 }
 
 /** A posted sales or purchase order as the book sees it (or undefined if what is stored is not one). */
@@ -212,9 +216,9 @@ export function orderDocOf(voucher: Voucher, side: OrderSide = 'sales'): OrderDo
 export function orderLinksOf(voucher: Voucher): OrderLink[] {
   const c = voucher.content as unknown as OrderContent;
   const out: OrderLink[] = [];
-  let stockLine = 0; // deliveries sit on the invoice's stock lines, numbered over its item lines (a written line has none)
+  let stockLine = 0; // deliveries sit on the invoice's stock lines, numbered over its item lines (a written line, or one billed against a challan, has none)
   (c.lines ?? []).forEach((l) => {
-    if (typeof l.itemId === 'string') stockLine++;
+    if (typeof l.itemId === 'string' && l.challanRef === undefined) stockLine++;
     const q = typeof l.qty === 'string' ? parseQty(l.qty) : undefined;
     if (!l.orderRef || typeof l.orderRef.orderId !== 'string' || typeof l.orderRef.lineId !== 'string') return;
     if (typeof l.itemId !== 'string' || q === undefined) return;
@@ -231,10 +235,17 @@ export function orderLinksOf(voucher: Voucher): OrderLink[] {
   return out;
 }
 
-/** The company's order book, read out of its vouchers: posted sales and purchase orders and the deliveries / receipts of posted invoices. */
+/**
+ * The company's order book, read out of its vouchers: posted sales and purchase orders and the deliveries / receipts of posted invoices —
+ * and, alongside, the posted delivery challans and what the sales invoices bill against them.
+ */
 export function orderBookOf(vouchers: readonly Voucher[], masters: Masters): OrderBook {
   const orders: OrderDoc[] = [];
   const links: OrderLink[] = [];
+  const challans: ChallanDoc[] = [];
+  const billed: ChallanLink[] = [];
+  const returnables: ReturnableDoc[] = [];
+  const returns: ReturnDoc[] = [];
   for (const v of vouchers) {
     if (v.status !== 'posted') continue;
     const kind = masters.voucherType(v.voucherTypeId)?.baseKind;
@@ -243,7 +254,15 @@ export function orderBookOf(vouchers: readonly Voucher[], masters: Masters): Ord
       if (doc) orders.push(doc);
     } else if (kind === 'sales' || kind === 'purchase') {
       links.push(...orderLinksOf(v));
+      if (kind === 'sales') billed.push(...challanLinksOf(v));
+    } else if (kind === 'deliveryChallan') {
+      const doc = challanDocOf(v);
+      if (doc) challans.push(doc);
+    } else if (kind === 'returnableChallan') {
+      const r = returnableOf(v);
+      if (r.challan) returnables.push(r.challan);
+      if (r.back) returns.push(r.back);
     }
   }
-  return new OrderBook(orders, links);
+  return new OrderBook(orders, links, new ChallanBook(challans, billed, returnables, returns));
 }

@@ -2,6 +2,7 @@
 // self-contained ES module, so the Deno runtime needs no workspace packages and no node_modules.
 //   pnpm build:functions   →   supabase/functions/post-voucher/handler.bundle.js
 //                              supabase/functions/intake/handler.bundle.js
+//                              supabase/functions/assistant/handler.bundle.js
 import { build } from 'esbuild';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +40,20 @@ export async function buildFunctions() {
       sourcefile: 'intake-entry.ts',
     },
     outfile: resolve(root, 'supabase/functions/intake/handler.bundle.js'),
+  });
+  // assistant = the Postgres backend + the assistant handler + Gemini's chat (the floating assistant)
+  await build({
+    ...common,
+    stdin: {
+      contents: [
+        "export { PostgresBackend, createAssistantHandler } from './packages/adapter-postgres/src/index.ts';",
+        "export { GeminiChat } from './packages/adapter-gemini/src/index.ts';",
+      ].join('\n'),
+      resolveDir: root,
+      loader: 'ts',
+      sourcefile: 'assistant-entry.ts',
+    },
+    outfile: resolve(root, 'supabase/functions/assistant/handler.bundle.js'),
   });
   return outfile;
 }

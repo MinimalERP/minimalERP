@@ -4,7 +4,7 @@
  */
 
 /** The vouchers that are sent to their party by email: the item documents, each naming its customer or supplier. */
-export const MAIL_KINDS = ['sales', 'salesOrder', 'quotation', 'purchase', 'purchaseOrder'] as const;
+export const MAIL_KINDS = ['sales', 'salesOrder', 'quotation', 'purchase', 'purchaseOrder', 'deliveryChallan', 'returnableChallan'] as const;
 export type MailKind = (typeof MAIL_KINDS)[number];
 export const isMailKind = (s: string | undefined): s is MailKind => (MAIL_KINDS as readonly string[]).includes(s ?? '');
 
@@ -24,6 +24,8 @@ export const MAIL_DOC_NAMES: Readonly<Record<MailKind, string>> = {
   quotation: 'Quotation',
   purchase: 'Purchase invoice',
   purchaseOrder: 'Purchase order',
+  deliveryChallan: 'Delivery challan',
+  returnableChallan: 'Returnable challan',
 };
 
 export const DEFAULT_MAIL_TEMPLATES: Readonly<Record<MailKind, MailTemplate>> = {
@@ -46,6 +48,14 @@ export const DEFAULT_MAIL_TEMPLATES: Readonly<Record<MailKind, MailTemplate>> = 
   purchaseOrder: {
     subject: 'Purchase order {number} from {company}',
     body: 'Dear {party},\n\nPlease find attached our purchase order {number} dated {date}. Kindly confirm and supply as per the order.\n\nRegards,\n{company}',
+  },
+  returnableChallan: {
+    subject: 'Returnable challan {number} from {company}',
+    body: 'Dear {party},\n\nPlease find attached our returnable challan {number} dated {date} for the goods sent to you. Kindly return them after the work.\n\nRegards,\n{company}',
+  },
+  deliveryChallan: {
+    subject: 'Delivery challan {number} from {company}',
+    body: 'Dear {party},\n\nPlease find attached our delivery challan {number} dated {date} for the goods sent to you.\nYour PO: {reference}\n\nRegards,\n{company}',
   },
 };
 

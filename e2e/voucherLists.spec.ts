@@ -46,15 +46,16 @@ test.describe('the grouped Transactions screen', () => {
     await expect(heading(app)).toHaveText('Transactions');
     await expect(app.getByTestId('menu-group').locator('.menu-group-title')).toHaveText(['Sales', 'Purchase', 'Inventory', 'General', 'AI Inbox', 'Import / Export']);
     const group = (name: string) => app.getByTestId('menu-group').filter({ has: app.locator('.menu-group-title', { hasText: name }) });
-    await expect(group('Sales').getByRole('option')).toHaveText([/Sales Vouchers/, /Sales Orders/, /New Credit Note/, /Quotations/, /New Delivery Note/]);
+    await expect(group('Sales').getByRole('option')).toHaveText([/Sales Vouchers/, /Sales Orders/, /New Credit Note/, /Quotations/, /Delivery Challans/]);
     await expect(group('Sales').getByRole('option').first()).toContainText('F8');
     await expect(group('Sales').getByRole('option').nth(1)).toContainText('Shift');
-    await expect(group('Purchase').getByRole('option')).toHaveText([/Purchase Vouchers/, /Purchase Orders/, /New Debit Note/, /New Receipt Note/]);
+    await expect(group('Purchase').getByRole('option')).toHaveText([/Purchase Vouchers/, /Purchase Orders/, /New Debit Note/, /New Receipt Note/, /Returnable Challans/]);
     await expect(group('Purchase').getByRole('option').first()).toContainText('F9');
     await expect(group('Purchase').getByRole('option').nth(1)).toContainText('Shift');
     await expect(group('Purchase').getByRole('option').nth(2)).toContainText('Phase 7');
     await expect(group('Purchase').getByRole('option').nth(3)).toContainText('Phase 8');
     await expect(group('Inventory').getByRole('option')).toHaveText([/Stock Journal Vouchers/]);
+    await expect(group('Sales').getByRole('option').nth(4)).toContainText('AltF8');
     await expect(group('General').getByRole('option')).toHaveText([/Contra Vouchers/, /Payment Vouchers/, /Receipt Vouchers/, /Journal Vouchers/]);
     // near the end, so the lists keep their places: the documents sent from Gmail, waiting to be accepted
     await expect(group('AI Inbox').getByRole('option')).toHaveText([/AI Inbox/]);

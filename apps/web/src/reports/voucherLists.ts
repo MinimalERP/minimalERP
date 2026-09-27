@@ -1,4 +1,5 @@
 import { type BaseKind, type ColumnSpec, type LocalDate, type Masters, type Money, type OrderBook, type Voucher, customerLedgerOf, dayBookRows, daysOverdue, lineValue, money, openBills, vendorLedgerOf } from '@minimalerp/domain';
+import { CHALLAN_STATUS } from '../vouchers/kinds';
 import type { JournalLine } from '@minimalerp/domain';
 import { formatAmount, formatDate, todayText } from '../vouchers/format';
 
@@ -47,7 +48,7 @@ export interface VoucherListInput {
 }
 
 /** The plural-ish name a list goes by: "Sales Vouchers", "Sales Orders", "Payment Vouchers". */
-export const listTitle = (typeName: string): string => (/order$/i.test(typeName) ? `${typeName}s` : `${typeName} Vouchers`);
+export const listTitle = (typeName: string): string => (/(order|challan)$/i.test(typeName) ? `${typeName}s` : `${typeName} Vouchers`);
 
 /** Oldest first (the Day Book's order); the screen turns it newest first. */
 export function voucherListRows({ vouchers, lines, masters, orders, kind, range, asOf }: VoucherListInput): VoucherListRow[] {
@@ -58,6 +59,8 @@ export function voucherListRows({ vouchers, lines, masters, orders, kind, range,
   const isInvoice = kind === 'sales' || kind === 'purchase';
   const isOrder = kind === 'salesOrder' || kind === 'purchaseOrder';
   const isQuote = kind === 'quotation';
+  const isChallan = kind === 'deliveryChallan';
+  const isReturnable = kind === 'returnableChallan';
   const owed = new Map<string, Map<string, bigint>>();
   if (isInvoice) {
     for (const v of vouchers) {
@@ -72,10 +75,10 @@ export function voucherListRows({ vouchers, lines, masters, orders, kind, range,
     .filter((r) => r.baseKind === kind)
     .map((r): VoucherListRow => {
       const v = byId.get(r.voucherId) as Voucher;
-      const c = v.content as unknown as { reference?: string; billNo?: string; partyId?: string; dueDate?: string; lines?: { qty: string; rate: string }[] };
+      const c = v.content as unknown as { reference?: string; billNo?: string; partyId?: string; dueDate?: string; purpose?: string; returnOf?: string; lines?: { qty: string; rate: string }[] };
       const cancelled = r.status === 'cancelled';
       const state = isOrder && !cancelled ? orders.state(v.id) : undefined;
-      const value = isOrder || isQuote ? money((c.lines ?? []).reduce((sum, l) => sum + lineValue(l), 0n)) : r.debit;
+      const value = isOrder || isQuote || isChallan || isReturnable ? money((c.lines ?? []).reduce((sum, l) => sum + lineValue(l), 0n)) : r.debit;
       // an invoice: what is still owed on its bill, and whether it has fallen due
       const billRef = kind === 'purchase' ? (c.billNo ?? '').trim() : v.number;
       const pending = isInvoice && !cancelled ? money(owed.get(c.partyId ?? '')?.get(billRef) ?? 0n) : money(0n);
@@ -88,6 +91,14 @@ export function voucherListRows({ vouchers, lines, masters, orders, kind, range,
             : state.lines.some((l) => l.delivered > 0n)
               ? 'Partially filled'
               : 'Open'
+          : isReturnable
+            ? c.returnOf
+              ? 'Return'
+              : orders.challans.returnOf(v.id)
+                ? 'Returned'
+                : 'Out'
+          : isChallan
+            ? CHALLAN_STATUS[orders.challans.state(v.id)?.status ?? (c.purpose === 'foc' ? 'foc' : 'toInvoice')]
           : isInvoice
             ? pending === 0n
               ? 'Paid'
@@ -161,12 +172,14 @@ export function voucherListColumns(kind: BaseKind): ColumnSpec<VoucherListRow>[]
   if (kind === 'quotation') return [date, number, particulars('Customer'), reference, amount('Quote value')];
   if (kind === 'purchaseOrder') return [date, number, particulars('Supplier'), reference, amount('Order value'), statusOf(['Open', 'Partially filled', 'Closed', 'Cancelled'])];
   if (kind === 'stockJournal') return [date, number, particulars('Items'), narration];
+  if (kind === 'returnableChallan') return [date, number, particulars('Supplier'), reference, amount('Value'), statusOf(['Out', 'Returned', 'Return', 'Cancelled'])];
+  if (kind === 'deliveryChallan') return [date, number, particulars('Customer'), reference, amount('Value'), statusOf(['To invoice', 'Part invoiced', 'Invoiced', 'FOC', 'Cancelled'])];
   return [date, number, particulars('Particulars'), narration, amount('Amount')];
 }
 
 /** The row's look: a cancelled voucher is struck out; an order that still has something to deliver is bold (as in the register). */
 export const voucherRowClass = (r: VoucherListRow): string =>
-  r.cancelled ? 'cancelled' : r.status === 'Open' || r.status === 'Partially filled' || r.status === 'Overdue' ? 'open-line' : r.status === 'Closed' || r.status === 'Paid' ? 'closed-order' : '';
+  r.cancelled ? 'cancelled' : r.status === 'Open' || r.status === 'Partially filled' || r.status === 'Overdue' || r.status === 'To invoice' || r.status === 'Part invoiced' || r.status === 'Out' ? 'open-line' : r.status === 'Closed' || r.status === 'Paid' || r.status === 'Invoiced' || r.status === 'Returned' ? 'closed-order' : '';
 
 /** What the shown rows come to, for the footer. */
 export function listTotals(rows: readonly VoucherListRow[]): { count: number; amount: Money; cancelled: number } {

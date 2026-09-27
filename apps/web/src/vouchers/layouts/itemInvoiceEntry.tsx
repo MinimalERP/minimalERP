@@ -1,5 +1,5 @@
 import type { Frame } from '@minimalerp/command';
-import { type Voucher, billStatusOf, isMailKind, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type ChallanPurpose, type Voucher, billStatusOf, isMailKind, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
 import { useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { Only } from '../../shell/Only';
@@ -12,7 +12,7 @@ import { useLeaveGuard } from '../../shell/useLeaveGuard';
 import { Kbd } from '../../ui/Kbd';
 import { defaultDate, resolveTypeId } from '../entryHelpers';
 import { addDays, formatAmount, formatDate, formatQuantity, parseDateInput } from '../format';
-import { ENTRY_KINDS, type ItemDocKind, type SalesKind, docProfile, invoiceKindOf, isSalesKind } from '../kinds';
+import { CHALLAN_STATUS, ENTRY_KINDS, type ItemDocKind, type SalesKind, docProfile, invoiceKindOf, isSalesKind } from '../kinds';
 import {
   type Option,
   type OrderOption,
@@ -27,6 +27,12 @@ import {
   godownWithStock,
   hiddenItemReason,
   invoiceFormFromOrder,
+  invoiceFormFromChallan,
+  returnDraftOf,
+  openChallanLines,
+  openChallansOf,
+  withChallanLines,
+  type ChallanOption,
   orderFormFromQuotation,
   orderOfQuotation,
   isBlankSales,
@@ -65,7 +71,7 @@ import { Cell, type CellHost, PickerList, focusKeyOf, matchOptions, useFieldFocu
 
 const SCOPE = 'screen:voucher';
 
-type Kind = 'date' | 'party' | 'ref' | 'eway' | 'sledger' | 'billno' | 'due' | 'item' | 'wh' | 'ord' | 'ldue' | 'qty' | 'rate' | 'gst' | 'narration';
+type Kind = 'date' | 'party' | 'ref' | 'purpose' | 'eway' | 'sledger' | 'billno' | 'due' | 'item' | 'wh' | 'ord' | 'ldue' | 'qty' | 'rate' | 'gst' | 'narration';
 interface Field {
   readonly key: string;
   readonly kind: Kind;
@@ -84,6 +90,7 @@ function fieldsOf(form: SalesForm, kind: ItemDocKind, gstOn = false): Field[] {
     { key: 'party', kind: 'party' },
     { key: 'ref', kind: 'ref' },
   ];
+  if (p.challan && !p.returnable) out.push({ key: 'purpose', kind: 'purpose' });
   if (p.invoice) {
     if (p.side === 'sales') out.push({ key: 'eway', kind: 'eway' });
     out.push({ key: 'sledger', kind: 'sledger' });
@@ -92,7 +99,12 @@ function fieldsOf(form: SalesForm, kind: ItemDocKind, gstOn = false): Field[] {
   }
   form.lines.forEach((l, i) => {
     out.push({ key: `l${i}.item`, kind: 'item', line: i });
-    if (p.invoice && !l.oneTime) out.push({ key: `l${i}.wh`, kind: 'wh', line: i }, { key: `l${i}.ord`, kind: 'ord', line: i });
+    if (p.invoice && !l.oneTime) {
+      // a line billed against a challan has no godown: its goods left on the challan
+      if (!l.challanId) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
+      out.push({ key: `l${i}.ord`, kind: 'ord', line: i });
+    }
+    else if (p.challan) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
     else if (p.order) out.push({ key: `l${i}.ldue`, kind: 'ldue', line: i });
     out.push({ key: `l${i}.qty`, kind: 'qty', line: i }, { key: `l${i}.rate`, kind: 'rate', line: i });
     if (gstOn) out.push({ key: `l${i}.gst`, kind: 'gst', line: i });
@@ -102,6 +114,13 @@ function fieldsOf(form: SalesForm, kind: ItemDocKind, gstOn = false): Field[] {
 }
 
 const orderId = (o: { orderId: string; lineId: string }): string => `${o.orderId}|${o.lineId}`;
+
+/** What a challan's purpose field offers. */
+const PURPOSE_OPTIONS: readonly Option[] = [
+  { id: 'sale', name: 'Sale – invoice later', sub: 'billed on a sales invoice later' },
+  { id: 'foc', name: 'Free of cost (FOC)', sub: 'not for sale: never invoiced' },
+];
+const purposeName = (purpose: ChallanPurpose | undefined): string => PURPOSE_OPTIONS.find((o) => o.id === (purpose ?? 'sale'))?.name ?? '';
 
 interface Props {
   readonly frame: Frame<ScreenRef>;
@@ -144,6 +163,10 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   };
   const fromOrderForm = (): SalesForm | undefined => {
     const order = fromOrder ? books.voucher(fromOrder) : undefined;
+    // "Invoice pending" from a delivery challan comes the same way: an invoice for what it still has to be billed for
+    if (order && masters.voucherType(order.voucherTypeId)?.baseKind === 'deliveryChallan') {
+      return invoiceFormFromChallan(order, books.orders, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID(), salesLedger: extra().salesLedger });
+    }
     return order ? invoiceFormFromOrder(order, books.orders, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID(), stock: books.stock, ...extra() }) : undefined;
   };
   const inboxForm = (): SalesForm | undefined =>
@@ -173,6 +196,9 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   };
   const [focusKey, setFocusKey] = useFrameState<string>(frame, 'focus', mode === 'create' ? (fromInbox ? firstOpen() : form.partyId !== '' ? 'l0.qty' : 'party') : 'date');
   const [dateText, setDateText] = useFrameState<string>(frame, 'dateText', formatDate(form.date));
+  /** What is typed in a challan's purpose field before one is chosen; otherwise the field shows the chosen purpose. */
+  const [purposeTyped, setPurposeTyped] = useFrameState<string | undefined>(frame, 'purposeTyped', undefined);
+  const purposeText = purposeTyped ?? purposeName(form.purpose);
   const [showErrors, setShowErrors] = useFrameState<boolean>(frame, 'showErrors', false);
   const [partyOpen, setPartyOpen] = useState(false);
   /** The email window (Alt+Shift+E on a saved document). */
@@ -190,7 +216,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const kind = (salesKindOf(masters, form.typeId) ?? 'sales') as ItemDocKind;
   const p = docProfile(kind);
   /** A company that charges GST: each invoice or quotation line has a GST %, and the tax is stated under the grid. */
-  const gstOn = (p.invoice || p.quote) && masters.company.chargeGst === true;
+  const gstOn = (p.invoice || p.quote || p.challan) && masters.company.chargeGst === true;
   const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
   const type = masters.voucherType(form.typeId as never);
   const fields = fieldsOf(form, kind, gstOn);
@@ -242,10 +268,16 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const { setFieldErrors, setError, clearError, issueAt, errorOf, general } = useFieldIssues({ issues: preview.issues, showErrors });
   /** A posted order as the order book reads it now: its status and what each line has had delivered. */
   const orderState = voucher && p.order ? books.orders.state(voucher.id as never) : undefined;
+  /** A posted challan as the challan book reads it now: what has been invoiced on it. */
+  const challanState = voucher && p.challan ? books.orders.challans.state(voucher.id as never) : undefined;
+  /** A returnable challan: the return that brought it back (or, on a return, the challan it brought back). */
+  const cameBack = voucher && p.returnable ? books.orders.challans.returnOf(voucher.id as never) : undefined;
+  const returnOfNumber = p.returnable && form.returnOf ? books.voucher(form.returnOf)?.number : undefined;
 
   // ---- pickers: customers, the sales ledger, items, godowns and the order lines an invoice line can fill ----
   const line = current.line !== undefined ? form.lines[current.line] : undefined;
-  const parties = useMemo(() => customerOptions(masters, p.side), [masters, p.side]);
+  // a returnable challan goes to a supplier: the parties are the other side's
+  const parties = useMemo(() => customerOptions(masters, p.role === 'vendor' ? 'purchase' : 'sales'), [masters, p.role]);
   const salesLedgers = useMemo(() => salesLedgerOptions(masters, p.side), [masters, p.side]);
   const items = useMemo(() => itemOptions(masters), [masters]);
   const godowns: Option[] = useMemo(() => masters.warehouses.filter((w) => w.isActive).map((w) => ({ id: w.id, name: w.name, sub: '' })), [masters]);
@@ -254,6 +286,23 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     () => (current.kind === 'ord' && form.partyId !== '' ? openOrderLines(books.orders, form.partyId, line?.itemId, form.id, p.side) : []),
     [current.kind, form.partyId, line?.itemId, form.id, books.orders, p.side],
   );
+  // a sales invoice line may also bill a delivery challan's line (the goods already left on it)
+  const challanChoices: ChallanOption[] = useMemo(
+    () => (current.kind === 'ord' && p.invoice && p.side === 'sales' && form.partyId !== '' ? openChallanLines(books.orders, form.partyId, line?.itemId, form.id) : []),
+    [current.kind, p.invoice, p.side, form.partyId, line?.itemId, form.id, books.orders],
+  );
+  const challanOptions: Option[] = challanChoices.map((c) => ({
+    id: `dc:${c.challanId}|${c.lineId}`,
+    name: c.number,
+    sub: [
+      'delivery challan',
+      c.reference,
+      line?.itemId ? undefined : masters.stockItem(c.itemId as never)?.name,
+      `${qtyText(masters, c.itemId, c.pending)} to invoice of ${qtyText(masters, c.itemId, c.sent)}`,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  }));
   const orderOptions: Option[] = orderChoices.map((o) => ({
     id: orderId(o),
     name: o.number,
@@ -269,29 +318,35 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
 
   // An invoice's PO / ref offers the party's open orders (a PO the customer sent us; on the purchase side, ours): choosing one fills the PO and, on an empty invoice, its pending lines.
   const openOrders = useMemo(() => (p.invoice && form.partyId !== '' ? openOrdersOf(books.orders, form.partyId, form.id, p.side) : []), [p.invoice, p.side, form.partyId, form.id, books.orders]);
-  const refOptions: Option[] = openOrders.map((o) => ({
+  const openChallans = useMemo(() => (p.invoice && p.side === 'sales' && form.partyId !== '' ? openChallansOf(books.orders, form.partyId, form.id) : []), [p.invoice, p.side, form.partyId, form.id, books.orders]);
+  const challanRefOptions: Option[] = openChallans.map((c) => ({
+    id: `dc:${c.challanId}`,
+    name: c.number,
+    sub: ['delivery challan', c.reference || undefined, `${c.lines} line${c.lines === 1 ? '' : 's'} to invoice`].filter(Boolean).join(' · '),
+  }));
+  const refOptions: Option[] = [...openOrders.map((o) => ({
     id: o.orderId,
     name: orderCallName(o, p.side),
     sub: [p.side === 'sales' ? (o.reference !== '' ? o.number : undefined) : o.reference !== '' ? `supplier ref ${o.reference}` : undefined, `${o.lines} line${o.lines === 1 ? '' : 's'} pending`, `due ${shownDue(o.due)}`].filter(Boolean).join(' · '),
-  }));
+  })), ...challanRefOptions];
   // a one-time line's item cell is plain text: no item list
   const writtenHere = current.kind === 'item' && current.line !== undefined && form.lines[current.line]?.oneTime === true;
   const pickerKind = writtenHere
     ? undefined
-    : ((['party', 'sledger', 'item', 'wh', 'ord'] as const).find((k) => k === current.kind) ?? (current.kind === 'ref' && refOptions.length > 0 ? ('ref' as const) : undefined));
-  const options: Option[] =
-    pickerKind === 'party' ? parties : pickerKind === 'sledger' ? salesLedgers : pickerKind === 'item' ? items : pickerKind === 'wh' ? godowns : pickerKind === 'ord' ? orderOptions : pickerKind === 'ref' ? refOptions : [];
+    : ((['party', 'sledger', 'item', 'wh', 'ord', 'purpose'] as const).find((k) => k === current.kind) ?? (current.kind === 'ref' && refOptions.length > 0 ? ('ref' as const) : undefined));
+  const options: readonly Option[] =
+    pickerKind === 'purpose' ? PURPOSE_OPTIONS : pickerKind === 'party' ? parties : pickerKind === 'sledger' ? salesLedgers : pickerKind === 'item' ? items : pickerKind === 'wh' ? godowns : pickerKind === 'ord' ? [...orderOptions, ...challanOptions] : pickerKind === 'ref' ? refOptions : [];
   const pickerOn = !readOnly && pickerKind !== undefined;
   const typedLabel =
-    pickerKind === 'party' ? form.partyLabel : pickerKind === 'sledger' ? form.salesLedgerLabel : pickerKind === 'item' ? (line?.itemLabel ?? '') : pickerKind === 'wh' ? (line?.warehouseLabel ?? '') : pickerKind === 'ord' ? (line?.orderLabel ?? '') : pickerKind === 'ref' ? form.reference : '';
+    pickerKind === 'purpose' ? purposeText : pickerKind === 'party' ? form.partyLabel : pickerKind === 'sledger' ? form.salesLedgerLabel : pickerKind === 'item' ? (line?.itemLabel ?? '') : pickerKind === 'wh' ? (line?.warehouseLabel ?? '') : pickerKind === 'ord' ? (line?.orderLabel ?? '') : pickerKind === 'ref' ? form.reference : '';
   const storedId =
-    pickerKind === 'party' ? form.partyId : pickerKind === 'sledger' ? form.salesLedgerId : pickerKind === 'item' ? (line?.itemId ?? '') : pickerKind === 'wh' ? (line?.warehouseId ?? '') : pickerKind === 'ord' ? (line && line.orderId !== '' ? orderId({ orderId: line.orderId, lineId: line.orderLineId }) : '') : pickerKind === 'ref' ? (refOptions.find((o) => o.name === form.reference)?.id ?? '') : '';
-  const storedName = pickerKind === 'ord' ? (line && line.orderId !== '' ? line.orderLabel : '') : (options.find((o) => o.id === storedId)?.name ?? '');
+    pickerKind === 'purpose' ? (form.purpose ?? 'sale') : pickerKind === 'party' ? form.partyId : pickerKind === 'sledger' ? form.salesLedgerId : pickerKind === 'item' ? (line?.itemId ?? '') : pickerKind === 'wh' ? (line?.warehouseId ?? '') : pickerKind === 'ord' ? (line && line.orderId !== '' ? orderId({ orderId: line.orderId, lineId: line.orderLineId }) : line?.challanId ? `dc:${line.challanId}|${line.challanLineId}` : '') : pickerKind === 'ref' ? (refOptions.find((o) => o.name === form.reference)?.id ?? '') : '';
+  const storedName = pickerKind === 'ord' ? (line && (line.orderId !== '' || line.challanId) ? line.orderLabel : '') : (options.find((o) => o.id === storedId)?.name ?? '');
   const pickerDismissed = picker.dismissed;
   // A list opens when something is TYPED and offers only what matches; an empty (or already chosen) field shows no list. The two order pickers are
   // the exception: what they list is the party's own open orders — the way an order is chosen at all.
   const hits: Option[] = useMemo(
-    () => (pickerOn ? matchOptions(options, typedLabel, storedName, pickerKind === 'ord' || pickerKind === 'ref') : []),
+    () => (pickerOn ? matchOptions(options, typedLabel, storedName, pickerKind === 'ord' || pickerKind === 'ref' || pickerKind === 'purpose') : []),
     [pickerOn, pickerKind, options.length, current.key, typedLabel, storedName, form.partyId, line?.itemId],
   );
   const pickIndex = Math.min(picker.pick.index, Math.max(0, hits.length - 1));
@@ -329,6 +384,15 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     return r.added;
   };
 
+  /** Adds a challan's lines still to invoice; returns how many were added. */
+  const bringChallanLines = (challanId: string): number => {
+    const f = fresh();
+    const pending = openChallanLines(books.orders, f.partyId, undefined, f.id).filter((l) => l.challanId === challanId);
+    const r = withChallanLines(f, pending, masters, () => crypto.randomUUID());
+    if (r.added > 0) setFormState(r.form);
+    return r.added;
+  };
+
   const choose = (o: Option, f: Field = current) => {
     if (f.kind === 'party') {
       const party = masters.party(o.id as never);
@@ -352,6 +416,18 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       clearError('party');
       return;
     }
+    if (f.kind === 'ref' && o.id.startsWith('dc:')) {
+      const chosen = openChallans.find((x) => `dc:${x.challanId}` === o.id);
+      if (!chosen) return;
+      // the reference is the customer's PO the challan carried; a challan without one leaves what is typed
+      update((x) => ({ ...x, reference: chosen.reference || x.reference }));
+      const added = bringChallanLines(chosen.challanId);
+      setBanner({
+        text: added > 0 ? `${added} line${added === 1 ? '' : 's'} brought in from challan ${chosen.number}: the goods have left, so these lines move no stock. Check and accept.` : `Nothing more to bring in from ${chosen.number}: its lines are already here.`,
+        tone: 'note',
+      });
+      return;
+    }
     if (f.kind === 'ref') {
       const chosen = openOrders.find((x) => x.orderId === o.id);
       if (!chosen) return;
@@ -362,6 +438,12 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         text: added > 0 ? `${added} remaining line${added === 1 ? '' : 's'} brought in from ${chosen.number}: check the quantities and accept. × removes a line.` : `Nothing more to bring in from ${chosen.number}: its pending lines are already here.`,
         tone: 'note',
       });
+      return;
+    }
+    if (f.kind === 'purpose') {
+      update((x) => ({ ...x, purpose: o.id as ChallanPurpose }));
+      setPurposeTyped(undefined);
+      clearError('purpose');
       return;
     }
     if (f.kind === 'sledger') {
@@ -375,19 +457,41 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       // an order reference is only good for the item it was for
       const stillFits = l.orderId !== '' && books.orders.order(l.orderId as never)?.lines.find((x) => x.id === l.orderLineId)?.itemId === o.id;
       // an invoice line starts in the godown that holds the goods
-      const w = p.side === 'sales' && p.invoice ? godownFor(o.id, parseQty(l.qty.trim()) ?? 1n) : undefined;
+      const w = p.side === 'sales' && p.moves ? godownFor(o.id, parseQty(l.qty.trim()) ?? 1n) : undefined;
       const here = l.warehouseId !== '' && (p.side === 'purchase' || base.qtyAt(o.id as never, l.warehouseId as never, fresh().date as never) >= (parseQty(l.qty.trim()) ?? 1n));
+      // a challan reference is only good for the item it went out as
+      const challanFits = !!l.challanId && books.orders.challans.challan(l.challanId as never)?.lines.find((x) => x.id === l.challanLineId)?.itemId === o.id;
       setLine(f.line, {
         itemId: o.id,
         itemLabel: o.name,
         ...(gstOn ? gstDefaults(masters, o.id) : {}),
         ...(l.orderId !== '' && !stillFits ? { orderId: '', orderLineId: '', orderLabel: '' } : {}),
+        ...(l.challanId && !challanFits ? { challanId: undefined, challanLineId: undefined, orderLabel: '' } : {}),
         ...(w && !here ? { warehouseId: w.id, warehouseLabel: w.label } : {}),
       });
       clearError(`line.${f.line}.item`);
     } else if (f.kind === 'wh') {
       setLine(f.line, { warehouseId: o.id, warehouseLabel: o.name });
       clearError(`line.${f.line}.wh`);
+    } else if (f.kind === 'ord' && o.id.startsWith('dc:')) {
+      const chosen = challanChoices.find((c) => `dc:${c.challanId}|${c.lineId}` === o.id);
+      if (!chosen) return;
+      const l = fresh().lines[f.line] as SalesLineForm;
+      setLine(f.line, {
+        challanId: chosen.challanId,
+        challanLineId: chosen.lineId,
+        orderId: '',
+        orderLineId: '',
+        orderLabel: chosen.number,
+        itemId: chosen.itemId,
+        itemLabel: masters.stockItem(chosen.itemId as never)?.name ?? l.itemLabel,
+        // the goods have left on the challan: no godown
+        warehouseId: '',
+        warehouseLabel: '',
+        ...(l.qty.trim() === '' ? { qty: trimPlaces(formatQty(chosen.pending, 4)) } : {}),
+        ...(l.rate.trim() === '' ? { rate: trimPlaces(formatRate(chosen.rate)) } : {}),
+      });
+      clearError(`line.${f.line}.ord`);
     } else if (f.kind === 'ord') {
       const chosen = orderChoices.find((c) => orderId(c) === o.id);
       if (!chosen) return;
@@ -397,6 +501,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         orderId: chosen.orderId,
         orderLineId: chosen.lineId,
         orderLabel: chosen.number,
+        ...(l.challanId ? { challanId: undefined, challanLineId: undefined, ...godownOf(defaultGodown(books)) } : {}),
         itemId: chosen.itemId,
         itemLabel: item?.name ?? l.itemLabel,
         // what is pending and what was agreed are the natural starting point (both can be edited)
@@ -447,13 +552,18 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       const typed = typedLabel.trim();
       const choice = hits[pickIndex];
       const clear = () => {
+        if (pickerKind === 'purpose') return setPurposeTyped(undefined);
         if (storedId === '') return;
         if (pickerKind === 'party') update((x) => ({ ...x, partyId: '', partyLabel: '', partyDetails: undefined }));
         else if (pickerKind === 'sledger') update((x) => ({ ...x, salesLedgerId: '', salesLedgerLabel: '' }));
         else if (current.line !== undefined) {
           if (pickerKind === 'item') setLine(current.line, { itemId: '', itemLabel: '' });
           else if (pickerKind === 'wh') setLine(current.line, { warehouseId: '', warehouseLabel: '' });
-          else if (pickerKind === 'ord') setLine(current.line, { orderId: '', orderLineId: '', orderLabel: '' });
+          else if (pickerKind === 'ord') {
+            // a line no longer billing a challan moves stock again: it starts in the main godown
+            const back = fresh().lines[current.line]?.challanId ? defaultGodown(books) : undefined;
+            setLine(current.line, { orderId: '', orderLineId: '', orderLabel: '', challanId: undefined, challanLineId: undefined, ...godownOf(back) });
+          }
         }
       };
       if (picker.pick.touched && choice) {
@@ -464,7 +574,10 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         clear();
         return true;
       }
-      if (typed === storedName) return true;
+      if (typed === storedName) {
+        if (pickerKind === 'purpose') setPurposeTyped(undefined);
+        return true;
+      }
       if (choice) {
         choose(choice);
         return true;
@@ -499,7 +612,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     const f = fresh();
     const previous = f.lines[afterIndex] as SalesLineForm;
     // an order line starts with the due date of the one above; an invoice line in the same godown
-    const added = blankSalesLine(crypto.randomUUID(), p.invoice ? { id: previous.warehouseId, label: previous.warehouseLabel } : undefined, p.order ? previous.due || f.date : undefined);
+    const added = blankSalesLine(crypto.randomUUID(), p.moves ? { id: previous.warehouseId, label: previous.warehouseLabel } : undefined, p.order ? previous.due || f.date : undefined);
     update((x) => ({ ...x, lines: [...x.lines.slice(0, afterIndex + 1), added, ...x.lines.slice(afterIndex + 1)] }));
     go(`l${afterIndex + 1}.item`);
   };
@@ -611,7 +724,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const removeAt = (i: number) => {
     if (readOnly) return;
     if (fresh().lines.length < 2) {
-      update((f) => ({ ...f, lines: [blankSalesLine(crypto.randomUUID(), p.invoice ? defaultGodown(books) : undefined, p.order ? f.date : undefined)] }));
+      update((f) => ({ ...f, lines: [blankSalesLine(crypto.randomUUID(), p.moves ? defaultGodown(books) : undefined, p.order ? f.date : undefined)] }));
       go('l0.item');
       return;
     }
@@ -629,7 +742,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     return true;
   };
   const createInline = (): boolean => {
-    if (readOnly || !pickerOn || pickerKind === undefined || pickerKind === 'ord' || pickerKind === 'ref') return false;
+    if (readOnly || !pickerOn || pickerKind === undefined || pickerKind === 'ord' || pickerKind === 'ref' || pickerKind === 'purpose') return false;
     const f = current;
     const masterKind = pickerKind === 'party' ? 'party' : pickerKind === 'sledger' ? 'ledger' : pickerKind === 'item' ? 'stockItem' : 'warehouse';
     void app
@@ -714,14 +827,15 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       const previous = current.kind === 'date' ? fields[1]?.key : prevKey() === 'date' ? undefined : prevKey();
       if (previous !== undefined) {
         if (pickerOn && pickerKind !== 'ref' && typedLabel.trim() !== storedName) {
-          if (pickerKind === 'party') update((x) => ({ ...x, partyLabel: storedName }));
+          if (pickerKind === 'purpose') setPurposeTyped(undefined);
+          else if (pickerKind === 'party') update((x) => ({ ...x, partyLabel: storedName }));
           else if (pickerKind === 'sledger') update((x) => ({ ...x, salesLedgerLabel: storedName }));
           else if (current.line !== undefined) {
             setLine(current.line, pickerKind === 'item' ? { itemLabel: storedName } : pickerKind === 'wh' ? { warehouseLabel: storedName } : { orderLabel: storedName });
           }
         }
         go(previous);
-        if (/(^party$|^sledger$|\.item$|\.wh$|\.ord$)/.test(previous)) picker.setClosed(previous);
+        if (/(^party$|^purpose$|^sledger$|\.item$|\.wh$|\.ord$)/.test(previous)) picker.setClosed(previous);
         return true;
       }
     }
@@ -757,7 +871,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     // ready for the next one: same type and date, a fresh customer and lines
     startNew: () => {
       const f = fresh();
-      setFormState(blankSalesForm(crypto.randomUUID(), form.typeId, f.date, crypto.randomUUID(), { warehouse: defaultGodown(books), salesLedger: { id: f.salesLedgerId, label: f.salesLedgerLabel } }));
+      // a challan keeps its purpose: challans are usually made in runs of one kind
+      setFormState({ ...blankSalesForm(crypto.randomUUID(), form.typeId, f.date, crypto.randomUUID(), { warehouse: defaultGodown(books), salesLedger: { id: f.salesLedgerId, label: f.salesLedgerLabel } }), ...(f.purpose ? { purpose: f.purpose } : {}) });
       go('party');
     },
     initialBanner: inboxBanner(fromInbox),
@@ -790,7 +905,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     if (show && pickerKind === 'ord' && hits.length === 0) {
       return (
         <div class="picker picker-empty" data-testid="picker">
-          {form.partyId === '' ? `Choose the ${p.noun} first.` : `No open order line of this ${p.noun} for this item.`}
+          {form.partyId === '' ? `Choose the ${p.noun} first.` : `No open order line${p.side === 'sales' ? ' or challan line' : ''} of this ${p.noun} for this item.`}
         </div>
       );
     }
@@ -799,11 +914,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         show={show}
         hits={hits}
         index={pickIndex}
-        label={pickerKind === 'party' ? p.nounPlural : pickerKind === 'sledger' ? `${p.ledgerLabel}s` : pickerKind === 'item' ? 'Stock items' : pickerKind === 'wh' ? 'Godowns' : pickerKind === 'ref' ? 'Open orders' : 'Open order lines'}
+        label={pickerKind === 'purpose' ? 'Purpose' : pickerKind === 'party' ? p.nounPlural : pickerKind === 'sledger' ? `${p.ledgerLabel}s` : pickerKind === 'item' ? 'Stock items' : pickerKind === 'wh' ? 'Godowns' : pickerKind === 'ref' ? (challanRefOptions.length > 0 ? 'Open orders and challans' : 'Open orders') : challanOptions.length > 0 ? 'Open order and challan lines' : 'Open order lines'}
         onChoose={(o) => choose(o)}
         typed={typedLabel}
         storedName={storedName}
-        canCreate={pickerKind !== 'ord' && pickerKind !== 'ref'}
+        canCreate={pickerKind !== 'ord' && pickerKind !== 'ref' && pickerKind !== 'purpose'}
         meta={(o) => pickerKind === 'item' && <span class="row-meta amt">{stockOf(o.id)}</span>}
         hint={
           <>
@@ -841,7 +956,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   );
 
   const lineRow = (l: SalesLineForm, i: number) => {
-    const stock = p.invoice && l.itemId !== '' ? stockOf(l.itemId) : undefined;
+    const stock = p.moves && l.itemId !== '' && !l.challanId ? stockOf(l.itemId) : undefined;
+    const billedLine = l.challanId ? books.orders.challans.withChange({ removeLinksOf: [form.id as never] }).state(l.challanId as never)?.lines.find((s) => s.line.id === l.challanLineId) : undefined;
     const amount = preview.amounts.get(i);
     const linked = l.orderId !== '' ? books.orders.state(l.orderId as never)?.lines.find((s) => s.line.id === l.orderLineId) : undefined;
     const fillLine = orderState?.lines.find((s) => s.line.id === l.key);
@@ -887,9 +1003,20 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           </>
         ) : p.invoice ? (
           <>
-            <div class="vc-godown">{pickerInput(`l${i}.wh`, `Line ${i + 1} godown`, l.warehouseLabel, (v) => setLine(i, { warehouseLabel: v }), `line.${i}.wh`)}</div>
+            {l.challanId ? (
+              <div class="vc-godown vcell-none" data-testid="challan-godown" title="The goods left on the delivery challan: this line moves no stock">
+                sent on challan
+              </div>
+            ) : (
+              <div class="vc-godown">{pickerInput(`l${i}.wh`, `Line ${i + 1} godown`, l.warehouseLabel, (v) => setLine(i, { warehouseLabel: v }), `line.${i}.wh`)}</div>
+            )}
             <div class="vc-order">
               {pickerInput(`l${i}.ord`, `Line ${i + 1} against order`, l.orderLabel, (v) => setLine(i, { orderLabel: v }), `line.${i}.ord`)}
+              {billedLine && !isFocus(`l${i}.ord`) && (
+                <div class="vbal" data-testid="challan-note">
+                  delivery challan · {formatQuantity(billedLine.pending, 0)} of {formatQuantity(billedLine.sent, 0)} to invoice
+                </div>
+              )}
               {linked && !isFocus(`l${i}.ord`) && (
                 <div class="vbal" data-testid="order-note">
                   {books.orders.order(l.orderId as never)?.reference ? `${books.orders.order(l.orderId as never)?.reference} · ` : ''}
@@ -898,6 +1025,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
               )}
             </div>
           </>
+        ) : p.challan ? (
+          <div class="vc-godown">{pickerInput(`l${i}.wh`, `Line ${i + 1} godown`, l.warehouseLabel, (v) => setLine(i, { warehouseLabel: v }), `line.${i}.wh`)}</div>
         ) : p.quote ? null : (
           <div class="vc-due">
             <Cell
@@ -976,6 +1105,16 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     );
   };
 
+  /** A returnable challan's goods have come back: its return is posted — the same lines back into the same godowns, dated today. */
+  const markReturned = (): boolean => {
+    if (!voucher) return false;
+    void save.exclusive(async () => {
+      const r = await books.post(returnDraftOf(voucher, { id: crypto.randomUUID(), date: defaultDate(masters) }));
+      setBanner(r.ok ? { text: `Marked returned: ${r.value.voucher.number} brought the goods back.`, tone: 'ok' } : { text: r.issues[0]?.message ?? 'The return could not be posted', tone: 'error' });
+    });
+    return true;
+  };
+
   const salesOrderFromQuote = (): boolean => {
     if (!voucher) return false;
     app.navigate({ type: 'voucher', mode: 'create', typeKey: 'salesOrder', fromQuotation: voucher.id });
@@ -994,7 +1133,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       {!readOnly && <Only scope={SCOPE} command="voucher.changeDate" run={changeDate} />}
       {(!readOnly || confirm !== undefined) && <Only scope={SCOPE} command="voucher.accept" run={acceptKey} />}
       {!readOnly && mode === 'create' && <Only scope={SCOPE} command="voucher.acceptAndNew" run={acceptAndNew} />}
-      {pickerOn && pickerKind !== 'ord' && pickerKind !== 'ref' && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
+      {pickerOn && pickerKind !== 'ord' && pickerKind !== 'ref' && pickerKind !== 'purpose' && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
       {!readOnly && <Only scope={SCOPE} command="voucher.partyDetails" run={openPartyDetails} />}
       {!readOnly && p.invoice && <Only scope={SCOPE} command="voucher.againstOrder" run={againstOrder} />}
       {!readOnly && p.invoice && current.kind === 'item' && oneTimeFor === undefined && <Only scope={SCOPE} command="voucher.oneTimeLine" run={openOneTime} />}
@@ -1041,6 +1180,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         <Only scope={SCOPE} command="order.close" run={() => (setConfirm('close'), true)} />
       )}
       {mode !== 'create' && voucher?.status === 'posted' && p.order && orderState?.status === 'open' && <Only scope={SCOPE} command="order.invoice" run={invoicePending} />}
+      {mode !== 'create' && voucher?.status === 'posted' && (challanState?.status === 'toInvoice' || challanState?.status === 'partlyInvoiced') && <Only scope={SCOPE} command="order.invoice" run={invoicePending} />}
+      {mode !== 'create' && voucher?.status === 'posted' && p.returnable && !form.returnOf && !cameBack && <Only scope={SCOPE} command="challan.markReturned" run={markReturned} />}
       {mode !== 'create' && voucher?.status === 'posted' && p.quote && !convertedTo && <Only scope={SCOPE} command="quotation.order" run={salesOrderFromQuote} />}
       {mode !== 'create' && voucher?.status === 'posted' && isMailKind(kind) && !mailOpen && <Only scope={SCOPE} command="voucher.email" run={() => (setMailOpen(true), true)} />}
       {mode === 'display' && reminder && !reminding && <Only scope={SCOPE} command="voucher.remind" run={() => (setReminding(true), true)} />}
@@ -1078,7 +1219,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     </>
   );
 
-  const gridClass = `${p.invoice ? 'sales-invoice' : p.quote ? 'sales-quote' : 'sales-order'}${showFill ? ' with-fill' : ''}${gstOn ? ' with-gst' : ''}`;
+  const gridClass = `${p.invoice ? 'sales-invoice' : p.challan ? 'sales-challan' : p.quote ? 'sales-quote' : 'sales-order'}${showFill ? ' with-fill' : ''}${gstOn ? ' with-gst' : ''}`;
   const details = form.partyDetails;
   const summary = [
     details?.mailingName,
@@ -1100,6 +1241,16 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           {convertedTo && !cancelled && (
             <span class="badge" data-testid="quote-status">
               Sales order {convertedTo.number}
+            </span>
+          )}
+          {p.returnable && voucher && !cancelled && (
+            <span class={form.returnOf || cameBack ? 'badge' : 'badge open'} data-testid="returnable-status">
+              {form.returnOf ? `Return of ${returnOfNumber ?? ''}` : cameBack ? `Returned · ${cameBack.number}` : 'Out'}
+            </span>
+          )}
+          {challanState && !cancelled && (
+            <span class={challanState.status === 'toInvoice' || challanState.status === 'partlyInvoiced' ? 'badge open' : 'badge'} data-testid="challan-status">
+              {CHALLAN_STATUS[challanState.status]}
             </span>
           )}
           {orderState && !cancelled && (
@@ -1197,6 +1348,16 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           )}
           {refOptions.length === 0 || readOnly ? errorOf('ref') : null}
         </div>
+        {p.challan && !p.returnable && (
+          <>
+            <label class="vlabel" for="v-purpose">
+              Purpose
+            </label>
+            <div class={isFocus('purpose') ? 'vfield active' : 'vfield'}>
+              {pickerInput('purpose', 'Purpose of the challan', purposeText, (v) => setPurposeTyped(v), 'purpose')}
+            </div>
+          </>
+        )}
         {p.side === 'sales' && p.invoice && (
           <>
             <label class="vlabel" for="v-eway">
@@ -1270,8 +1431,10 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           {p.invoice ? (
             <>
               <span class="vc-godown">{p.side === 'purchase' ? 'Receive into' : 'Godown'}</span>
-              <span class="vc-order">Against order</span>
+              <span class="vc-order">{p.side === 'sales' ? 'Against order / DC' : 'Against order'}</span>
             </>
+          ) : p.challan ? (
+            <span class="vc-godown">Godown</span>
           ) : p.quote ? null : (
             <span class="vc-due">Due date</span>
           )}
@@ -1290,6 +1453,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
               <span class="vc-godown" />
               <span class="vc-order" />
             </>
+          ) : p.challan ? (
+            <span class="vc-godown" />
           ) : p.quote ? null : (
             <span class="vc-due" />
           )}
@@ -1322,14 +1487,14 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
               {' · '}place of supply {preview.gst.placeOfSupply}
             </>
           ) : (
-            <> · no GST on this invoice</>
+            <> · no GST on this {p.challan ? 'challan' : 'invoice'}</>
           )}
           {preview.roundOff !== 0n && (
             <>
               {' · '}Round Off <strong data-testid="round-off">{preview.roundOff < 0n ? '(-) ' : ''}{formatAmount(preview.roundOff < 0n ? money(-preview.roundOff) : preview.roundOff)}</strong>
             </>
           )}
-          {' · '}Invoice total <strong data-testid="invoice-total">{formatAmount(preview.grand)}</strong>
+          {' · '}{p.challan ? 'Challan value' : 'Invoice total'} <strong data-testid="invoice-total">{formatAmount(preview.grand)}</strong>
           {settledPart && <> · {settledPart}</>}
         </p>
       )}
@@ -1342,6 +1507,9 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     </VoucherWorksheetSection>
   );
 }
+
+/** A godown as the line's two fields (nothing when there is none). */
+const godownOf = (g: { id: string; label: string } | undefined): { warehouseId?: string; warehouseLabel?: string } => (g ? { warehouseId: g.id, warehouseLabel: g.label } : {});
 
 /** The main godown: the first active one, which a new invoice line starts in. */
 function defaultGodown(books: Books): { id: string; label: string } | undefined {

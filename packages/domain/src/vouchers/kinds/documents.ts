@@ -4,6 +4,7 @@ import type { LedgerId, PartyId, StockItemId, VoucherId } from '../../ids';
 import type { Masters } from '../../masters/masters';
 import { partyLedgerId } from '../../masters/records';
 import { MAX_MONEY, type Money, ZERO, addMoney } from '../../money';
+import type { ChallanBook } from '../../orders/challanBook';
 import type { OrderBook, PlannedLink } from '../../orders/orderBook';
 import { formatQty, parseQty, parseRate, valueOf } from '../../stock/quantity';
 import { type PartyDetails, ledgerIdSchema, localDateSchema, voucherIdSchema } from '../drafts';
@@ -40,6 +41,9 @@ export type OrderLine = z.output<typeof orderLineSchema>;
 export const orderRefSchema = z.object({ orderId: voucherIdSchema, lineId: lineIdSchema });
 export type OrderRef = z.output<typeof orderRefSchema>;
 
+/** The delivery-challan line an invoice line bills: the goods already left on the challan, so the line moves no stock. */
+export const challanRefSchema = z.object({ challanId: voucherIdSchema, lineId: lineIdSchema });
+
 export const invoiceLineSchema = z.object({
   /** The stock item — or, on a one-time line, none: then `description` says what it is (a job charge, freight, a one-off part). */
   itemId: itemIdSchema.optional(),
@@ -53,6 +57,8 @@ export const invoiceLineSchema = z.object({
   rate: rateSchema,
   /** The order line this delivery fills, if it is against an order. */
   orderRef: orderRefSchema.optional(),
+  /** Sales invoice: the challan line this bills, if the goods went out on a delivery challan. */
+  challanRef: challanRefSchema.optional(),
   /** The GST rate this line is charged at (a percentage): filled from the item, and changeable on the line. Absent = not taxed. */
   gstRate: percentSchema.optional(),
   /** The item's HSN / SAC code as it was when the invoice was made, so the GST reports read it from the invoice, not from an item that may change. */
@@ -121,9 +127,12 @@ export function partyProblems(
   return problems;
 }
 
-/** The stock lines of an invoice, each with its place on the invoice (a one-time line moves no stock, so it has no entry). */
-export function itemLinesOf<L extends { itemId?: string | undefined }>(lines: readonly L[]): { line: L & { itemId: StockItemId }; at: number }[] {
-  return lines.flatMap((l, at) => (l.itemId !== undefined ? [{ line: l as L & { itemId: StockItemId }, at }] : []));
+/**
+ * The stock lines of an invoice, each with its place on the invoice. A one-time line moves no stock, and neither does a line billed against a
+ * delivery challan (the goods left on the challan), so they have no entry.
+ */
+export function itemLinesOf<L extends { itemId?: string | undefined; challanRef?: unknown }>(lines: readonly L[]): { line: L & { itemId: StockItemId }; at: number }[] {
+  return lines.flatMap((l, at) => (l.itemId !== undefined && l.challanRef === undefined ? [{ line: l as L & { itemId: StockItemId }, at }] : []));
 }
 
 /** Problems found on the stock lines alone ("lines.1") put back on their place on the invoice ("lines.3"). */
@@ -144,7 +153,8 @@ export function lineKindProblems(l: InvoiceLine, path: string): Issue[] {
   if (l.itemId === undefined && l.description === undefined) return [issue(IssueCode.SalesDocInvalid, 'Choose a stock item — or write the line and press Alt+T', `${path}.itemId`)];
   if (l.itemId !== undefined) {
     const out: Issue[] = [];
-    if (l.warehouseId === undefined) out.push(issue(IssueCode.StockLineInvalid, 'Choose the godown', `${path}.warehouseId`));
+    if (l.warehouseId === undefined && l.challanRef === undefined) out.push(issue(IssueCode.StockLineInvalid, 'Choose the godown', `${path}.warehouseId`));
+    if (l.challanRef && l.orderRef) out.push(issue(IssueCode.OrderRefInvalid, 'A line billed against a challan is not also against an order', `${path}.orderRef`));
     if (l.unit !== undefined) out.push(issue(IssueCode.SalesDocInvalid, 'A stock item line takes the unit of its item', `${path}.unit`));
     return out;
   }
@@ -152,6 +162,7 @@ export function lineKindProblems(l: InvoiceLine, path: string): Issue[] {
   const q = parseQty(l.qty) ?? 0n;
   if (q <= 0n) problems.push(issue(IssueCode.StockLineInvalid, 'Enter a quantity above zero', `${path}.qty`));
   if (l.orderRef) problems.push(issue(IssueCode.OrderRefInvalid, 'A written line cannot be against an order line', `${path}.orderRef`));
+  if (l.challanRef) problems.push(issue(IssueCode.OrderRefInvalid, 'A written line cannot be against a challan', `${path}.challanRef`));
   return problems;
 }
 
@@ -229,6 +240,51 @@ export function deliveryProblems(
           left === 0n
             ? `${order.number}: already ${w.done} in full — you are ${w.doing} ${shown(masters, l.itemId, q)}`
             : `${order.number}: ${shown(masters, l.itemId, left)} pending, you are ${w.doing} ${shown(masters, l.itemId, q)}`,
+          `lines.${i}.qty`,
+        ),
+      );
+    }
+    taken.set(key, before + q);
+  });
+  return problems;
+}
+
+/**
+ * Every invoice line that names a delivery-challan line must be one it can bill: the challan exists, is this customer's, went out for sale (a
+ * free-of-cost challan is never invoiced), is not dated after the invoice, has that line for the same item — and no more is billed than is
+ * pending, counting the invoice's own other lines on the same challan line.
+ */
+export function challanProblems(draft: { partyId: PartyId; date: string; lines: readonly InvoiceLine[] }, masters: Masters, challans: ChallanBook): Issue[] {
+  const problems: Issue[] = [];
+  const taken = new Map<string, bigint>();
+  draft.lines.forEach((l, i) => {
+    const ref = l.challanRef;
+    if (!ref || l.itemId === undefined) return;
+    const path = `lines.${i}.challanRef`;
+    const state = challans.state(ref.challanId as VoucherId);
+    if (!state) return void problems.push(issue(IssueCode.OrderRefInvalid, 'That delivery challan does not exist (or was cancelled)', path));
+    const c = state.challan;
+    if (c.purpose === 'foc') return void problems.push(issue(IssueCode.OrderRefInvalid, `${c.number} went out free of cost: it is not invoiced`, path));
+    if (c.partyId !== draft.partyId) return void problems.push(issue(IssueCode.OrderRefInvalid, `${c.number} belongs to another customer`, path));
+    if (draft.date < c.date) return void problems.push(issue(IssueCode.OrderRefInvalid, `This invoice is dated before ${c.number} (${c.date})`, path));
+    const line = state.lines.find((s) => s.line.id === ref.lineId);
+    if (!line) return void problems.push(issue(IssueCode.OrderRefInvalid, `${c.number} has no such line any more`, path));
+    if (line.line.itemId !== l.itemId) {
+      const wanted = masters.stockItem(line.line.itemId)?.name ?? 'another item';
+      return void problems.push(issue(IssueCode.OrderRefInvalid, `That line of ${c.number} is for ${wanted}`, path));
+    }
+    const key = `${ref.challanId}|${ref.lineId}`;
+    const before = taken.get(key) ?? 0n;
+    const q = parseQty(l.qty) ?? 0n;
+    const pending = line.pending - before;
+    if (q > pending) {
+      const left = pending > 0n ? pending : 0n;
+      problems.push(
+        issue(
+          IssueCode.OverDelivery,
+          left === 0n
+            ? `${c.number}: already invoiced in full — you are billing ${shown(masters, l.itemId, q)}`
+            : `${c.number}: ${shown(masters, l.itemId, left)} still to invoice, you are billing ${shown(masters, l.itemId, q)}`,
           `lines.${i}.qty`,
         ),
       );

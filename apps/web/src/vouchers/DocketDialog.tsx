@@ -7,10 +7,18 @@ import { formatDate, parseDateInput } from './format';
 import { dispatchDocketOf } from './invoicePrint';
 
 /**
- * The dispatch docket is only a print: nothing of it is stored in the books. The one thing remembered is the last Dispatch No. used, in this
- * browser, so the next one is offered already counted on (OD-2026-00125 → OD-2026-00126) — still editable.
+ * The dispatch docket is only a print: nothing of it is stored in the books. What is remembered, in this browser, is the last Dispatch No.
+ * used, so the next one is offered already counted on (OD-2026-00125 → OD-2026-00126) — still editable — and the pages last chosen.
  */
 const lastNoKey = (books: Books) => `minimalerp:dispatch-no:${books.companyId}`;
+const pagesKey = 'minimalerp:docket-pages';
+function lastPages(): string {
+  try {
+    return window.localStorage.getItem(pagesKey) === '1' ? '1' : '2';
+  } catch {
+    return '2';
+  }
+}
 function nextDispatchNo(books: Books, date: string): string {
   let last: string | null = null;
   try {
@@ -46,11 +54,13 @@ export function DocketDialog({ books, vouchers, onDone }: { books: Books; vouche
         { key: 'packages', label: 'Packages', value: '', hint: 'how many boxes / packages' },
         { key: 'transporter', label: 'Transporter', value: '' },
         { key: 'lrNo', label: 'LR No.', value: '' },
+        { key: 'pages', label: 'Pages', value: lastPages(), hint: '1 = items on the same page, 2 = items on a second page' },
       ]}
       validate={(v) => {
         const errs: Record<string, string> = {};
         if ((v['dispatchNo'] ?? '').trim() === '') errs['dispatchNo'] = 'Enter the dispatch number';
         if (!parseDateInput(v['date'] ?? '', ctx)) errs['date'] = 'That is not a date';
+        if (!['1', '2'].includes((v['pages'] ?? '').trim())) errs['pages'] = 'Type 1 or 2';
         return errs;
       }}
       onDone={(v) => {
@@ -62,9 +72,15 @@ export function DocketDialog({ books, vouchers, onDone }: { books: Books; vouche
           packages: (v['packages'] ?? '').trim(),
           transporter: (v['transporter'] ?? '').trim(),
           lrNo: (v['lrNo'] ?? '').trim(),
+          onePage: (v['pages'] ?? '').trim() === '1',
         });
         if (typeof doc === 'string') return onDone(undefined);
         rememberDispatchNo(books, dispatchNo);
+        try {
+          window.localStorage.setItem(pagesKey, (v['pages'] ?? '').trim());
+        } catch {
+          // not remembered: two pages next time
+        }
         onDone(doc);
       }}
     />

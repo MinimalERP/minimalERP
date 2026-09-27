@@ -83,6 +83,12 @@ export function prepareCancellation(
       issue(IssueCode.OrderHasDeliveries, `${existing.number} has goods delivered against it: cancel those invoices first`),
     );
   }
+  // Likewise a delivery challan that has been invoiced: the invoices bill goods that left on it.
+  if (orders.challans.linksTo(existing.id).length > 0) {
+    return fail(issue(IssueCode.OrderHasDeliveries, `${existing.number} has been invoiced: cancel those invoices first`));
+  }
+  const back = orders.challans.returnOf(existing.id);
+  if (back) return fail(issue(IssueCode.OrderHasDeliveries, `${existing.number} has come back (${back.number}): cancel the return first`));
   // Taking a voucher's stock out of the books must not leave a later day short (cancelling a receipt that later issues depend on).
   const touched = [...new Set(stock.movements.filter((m) => m.voucherId === existing.id).map((m) => m.itemId))];
   if (touched.length > 0) {

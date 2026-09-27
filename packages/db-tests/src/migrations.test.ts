@@ -17,6 +17,7 @@ describe('migrations', () => {
     expect(tables.rows.map((r) => r.table_name)).toEqual([
       'account_groups',
       'app_roles',
+      'assistant_facts',
       'audit_log',
       'bill_allocations',
       'companies',
@@ -65,7 +66,9 @@ describe('migrations', () => {
     // role of the Gmail add-on: it submits and reads (master, voucher, report) and posts nothing: 4.
     // Quotation adds three permissions for owner and accountant and clerk post: owner 43, accountant 42, clerk 12.
     // (minimalDASH added dash.view / dash.edit and was removed again: 20261015000100.)
+    // The Delivery Challan adds three for owner, accountant and member, and clerk post: owner 46, accountant 45, member 45, clerk 13.
+    // The Returnable Challan the same again: owner 49, accountant 48, member 48, clerk 14.
     // ADR-0025's member holds everything the owner does except company.admin.
-    expect(byRole).toEqual({ accountant: 42, automation: 4, clerk: 12, member: 42, owner: 43, viewer: 3 });
+    expect(byRole).toEqual({ accountant: 48, automation: 4, clerk: 14, member: 48, owner: 49, viewer: 3 });
   });
 });

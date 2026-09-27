@@ -4,6 +4,8 @@ import { journalKind } from './kinds/journal';
 import { openingKind } from './kinds/opening';
 import { purchaseKind } from './kinds/purchase';
 import { purchaseOrderKind } from './kinds/purchaseOrder';
+import { deliveryChallanKind } from './kinds/deliveryChallan';
+import { returnableChallanKind } from './kinds/returnableChallan';
 import { salesKind } from './kinds/sales';
 import { quotationKind } from './kinds/quotation';
 import { salesOrderKind } from './kinds/salesOrder';
@@ -46,5 +48,7 @@ export function defaultVoucherKinds(): VoucherKindRegistry {
     .register(quotationKind)
     .register(salesKind)
     .register(purchaseOrderKind)
-    .register(purchaseKind);
+    .register(purchaseKind)
+    .register(deliveryChallanKind)
+    .register(returnableChallanKind);
 }

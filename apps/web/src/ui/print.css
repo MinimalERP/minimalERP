@@ -110,6 +110,8 @@
 .print-root .inv-sign .sign-line { border-top: 1px solid #000; padding-top: 3px; min-width: 170px; }
 
 /* the dispatch docket */
+/* what the paper is, read from across the dispatch bay: large and boxed under the company's name */
+.print-root .rpt-head .docket-title { display: inline-block; margin: 10px 0 6px; padding: 4px 18px; border: 2px solid #000; font-size: 22px; font-weight: bold; letter-spacing: 0.12em; color: #000; }
 .print-root .docket-label { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.04em; color: #333; margin: 4px 0; }
 .print-root table.items tr.total td { font-weight: bold; }
 .print-root table.docket-facts { border-collapse: collapse; font-size: 12.5px; margin: 6px 0 12px; }

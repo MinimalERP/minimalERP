@@ -1,4 +1,5 @@
 import { ActionPanel } from './ActionPanel';
+import { AssistantHost } from './AssistantHost';
 import { GoToOverlay } from './GoToOverlay';
 import { PrintHost } from './PrintHost';
 import { SavingOverlay } from './SavingOverlay';
@@ -10,7 +11,7 @@ import { KeyboardKeys } from '../ui/KeyboardKeys';
 
 /**
  * The frame around every screen: top bar, the current screen (with its action panel on the right at the third level),
- * the status bar of the universal keys, and (when open) the Go To overlay. It declares the global keyboard scope and does nothing else keyboardy.
+ * the status bar of the universal keys, (when open) the Go To overlay, and the floating assistant. It declares the global keyboard scope and does nothing else keyboardy.
  */
 export function Shell() {
   const { ui } = useServices();
@@ -27,6 +28,7 @@ export function Shell() {
       <StatusBar />
       <KeyboardKeys />
       {ui.gotoOpen && <GoToOverlay />}
+      <AssistantHost />
       <SavingOverlay />
       <PrintHost />
     </div>

@@ -118,11 +118,11 @@ const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;'
 export function voucherMailHtml(voucher: Voucher, masters: Masters, message: string): string {
   const mail = voucherMail(voucher, masters);
   const v = mailValues(voucher, masters);
-  const priced = mail && mail.kind !== 'salesOrder' && mail.kind !== 'purchaseOrder' && mail.kind !== 'quotation';
+  const priced = mail && mail.kind !== 'salesOrder' && mail.kind !== 'purchaseOrder' && mail.kind !== 'quotation' && mail.kind !== 'deliveryChallan' && mail.kind !== 'returnableChallan';
   return mailFrame(masters, mail?.docName ?? 'Document', [
     ['Number', v.number, true],
     ['Date', v.date, false],
-    [mail?.kind === 'sales' || mail?.kind === 'salesOrder' ? 'Your PO' : 'Reference', v.reference, false],
+    [mail?.kind === 'sales' || mail?.kind === 'salesOrder' || mail?.kind === 'deliveryChallan' ? 'Your PO' : 'Reference', v.reference, false],
     ...(priced ? ([['Amount', `₹ ${v.amount}`, true], ['Due', v.due, false]] as const) : []),
   ], message);
 }

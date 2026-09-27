@@ -1,10 +1,11 @@
 import { MemoryBackend } from '@minimalerp/adapter-memory';
-import { IssueCode, deterministicUuid, formatQty } from '@minimalerp/domain';
+import { IssueCode, type Voucher, deterministicUuid, formatQty } from '@minimalerp/domain';
 import { describe, expect, it } from 'vitest';
 import { type Books, BooksHost, type LocalBackend } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { createLocalFactory, memoryStore } from '../books/local';
 import { addDays } from './format';
+import { invoiceDocFromBooks } from './invoicePrint';
 import {
   type SalesForm,
   blankSalesForm,
@@ -17,6 +18,8 @@ import {
   godownWithStock,
   hasNoLines,
   invoiceFormFromOrder,
+  invoiceFormFromChallan,
+  returnDraftOf,
   isBlankSales,
   openOrderLines,
   openOrdersOf,
@@ -363,5 +366,135 @@ describe('from quotation to sales order', () => {
     expect(draft).not.toHaveProperty('validUntil');
     expect(draft).not.toHaveProperty('dueDate');
     expect(draft.lines[0]).not.toHaveProperty('dueDate');
+  });
+});
+
+describe('the delivery challan', () => {
+  it('takes the goods out of their godown, posts nothing to the accounts, and reads back with its purpose', async () => {
+    const books = await demo();
+    const p = books.masters.party(party('ABC Industries') as never)!;
+    const store = godown(books);
+    const form: SalesForm = {
+      ...blankSalesForm(crypto.randomUUID(), typeOf(books, 'deliveryChallan'), '2026-05-10', 'l1', { warehouse: store }),
+      partyId: p.id,
+      partyLabel: p.name,
+      partyDetails: partyDetailsOfParty(p),
+      purpose: 'foc',
+      lines: [{ ...blankSalesLine('l1', store), itemId: item('Mounting Bracket'), itemLabel: 'Mounting Bracket', qty: '10', rate: '38' }],
+    };
+    const draft = formToSalesDraft(form, 'deliveryChallan', books.masters).draft as Record<string, unknown> & { lines: Record<string, unknown>[] };
+    expect(draft).toMatchObject({ purpose: 'foc' });
+    expect(draft).not.toHaveProperty('dueDate');
+    expect(draft.lines[0]).toMatchObject({ id: 'l1', warehouseId: store.id, qty: '10', rate: '38' });
+
+    const before = books.stock.qtyAt(item('Mounting Bracket') as never, store.id as never, '2026-05-10' as never);
+    expect(previewSales(form, 'deliveryChallan', books.masters, books.stock, books.orders).ok).toBe(true);
+    const posted = await books.post(draft);
+    if (!posted.ok) throw new Error(JSON.stringify(posted.issues));
+    expect(posted.value.voucher.number).toMatch(/^DC\//);
+    expect(books.stock.qtyAt(item('Mounting Bracket') as never, store.id as never, '2026-05-10' as never)).toBe(before - 100000n);
+    expect(books.lines.filter((l) => l.voucherId === posted.value.voucher.id)).toHaveLength(0);
+    expect(salesFormFromVoucher(posted.value.voucher, books.masters, books.orders).purpose).toBe('foc');
+  });
+
+  it('asks for the godown of every line', () => {
+    const form = { ...blankSalesForm('c1', 'dc', '2026-05-10', 'l1'), partyId: 'c1', lines: [{ ...blankSalesLine('l1'), itemId: 'i1', qty: '1', rate: '5' }] };
+    const r = previewSales(form, 'deliveryChallan', undefined as never, undefined as never, undefined as never);
+    expect(r.issues).toContainEqual({ field: 'line.0.wh', message: 'Choose a godown' });
+  });
+});
+
+describe('invoicing a delivery challan', () => {
+  async function withChallan(purpose: 'sale' | 'foc' = 'sale') {
+    const books = await demo();
+    const p = books.masters.party(party('ABC Industries') as never)!;
+    const store = godown(books);
+    const posted = await books.post({
+      id: crypto.randomUUID(),
+      voucherTypeId: typeOf(books, 'deliveryChallan'),
+      date: '2026-05-10',
+      partyId: p.id,
+      partyDetails: partyDetailsOfParty(p),
+      reference: 'PO-DC-1',
+      purpose,
+      lines: [{ id: 'c1', itemId: item('Mounting Bracket'), warehouseId: store.id, qty: '10', rate: '38' }],
+    });
+    if (!posted.ok) throw new Error(JSON.stringify(posted.issues));
+    return { books, challan: posted.value.voucher, store };
+  }
+  const newInvoice = (books: Books, challan: Voucher) =>
+    invoiceFormFromChallan(challan, books.orders, books.masters, { id: crypto.randomUUID(), typeId: typeOf(books, 'sales'), date: '2026-05-15', newKey: () => crypto.randomUUID(), salesLedger: defaultSalesLedger(books.masters) });
+
+  it('an invoice made from the challan bills its lines and moves no stock; the challan is then invoiced and cannot be cancelled', async () => {
+    const { books, challan, store } = await withChallan();
+    const form = newInvoice(books, challan)!;
+    expect(form.reference).toBe('PO-DC-1');
+    expect(form.lines).toHaveLength(1);
+    expect(form.lines[0]).toMatchObject({ qty: '10', rate: '38', challanId: challan.id, challanLineId: 'c1', warehouseId: '', orderLabel: challan.number });
+    expect(previewSales(form, 'sales', books.masters, books.stock, books.orders).issues).toEqual([]);
+
+    const before = books.stock.qtyAt(item('Mounting Bracket') as never, store.id as never, '2026-05-15' as never);
+    const inv = await books.post(formToSalesDraft(form, 'sales', books.masters).draft);
+    if (!inv.ok) throw new Error(JSON.stringify(inv.issues));
+    expect(books.stock.qtyAt(item('Mounting Bracket') as never, store.id as never, '2026-05-15' as never)).toBe(before);
+    expect(books.orders.challans.state(challan.id)?.status).toBe('invoiced');
+    expect(salesFormFromVoucher(inv.value.voucher, books.masters, books.orders).lines[0]).toMatchObject({ challanId: challan.id, orderLabel: challan.number });
+    expect(newInvoice(books, challan)).toBeUndefined(); // nothing left to invoice
+    expect(invoiceDocFromBooks(inv.value.voucher, books)?.dcNo).toBe(challan.number); // the printed invoice names the challan
+
+    const cancel = await books.cancel(challan.id, challan.version);
+    expect(cancel.ok ? [] : cancel.issues.map((i) => i.code)).toContain(IssueCode.OrderHasDeliveries);
+    // cancelling the invoice makes the challan pending again
+    const undo = await books.cancel(inv.value.voucher.id, inv.value.voucher.version);
+    expect(undo.ok).toBe(true);
+    expect(books.orders.challans.state(challan.id)?.status).toBe('toInvoice');
+  });
+
+  it('cannot bill more than went out, and a free-of-cost challan is never invoiced', async () => {
+    const { books, challan } = await withChallan();
+    const form = newInvoice(books, challan)!;
+    const over = { ...form, lines: form.lines.map((l) => ({ ...l, qty: '12' })) };
+    expect(previewSales(over, 'sales', books.masters, books.stock, books.orders).issues).toContainEqual(expect.objectContaining({ field: 'line.0.qty', code: IssueCode.OverDelivery }));
+
+    const foc = await withChallan('foc');
+    expect(newInvoice(foc.books, foc.challan)).toBeUndefined();
+    const forced = { ...form, id: crypto.randomUUID(), lines: form.lines.map((l) => ({ ...l, challanId: foc.challan.id })) };
+    expect(previewSales(forced, 'sales', foc.books.masters, foc.books.stock, foc.books.orders).issues).toContainEqual(expect.objectContaining({ field: 'line.0.ord', message: expect.stringMatching(/free of cost/) }));
+  });
+});
+
+describe('the returnable challan', () => {
+  it('sends goods to a supplier and Mark returned brings the same back — once; a returned challan cannot be cancelled', async () => {
+    const books = await demo();
+    const steel = books.masters.party(party('Steel Supplies Pvt Ltd') as never)!;
+    const main = books.masters.warehouses.find((w) => w.name === 'Main Location')!;
+    const oil = item('Machine Oil') as never;
+    const at = '2026-06-30' as never;
+    const before = books.stock.qtyAt(oil, main.id, at);
+    const sent = await books.post({
+      id: crypto.randomUUID(),
+      voucherTypeId: typeOf(books, 'returnableChallan'),
+      date: '2026-05-10',
+      partyId: steel.id,
+      partyDetails: partyDetailsOfParty(steel),
+      lines: [{ id: 'r1', itemId: oil, warehouseId: main.id, qty: '20', rate: '210' }],
+    });
+    if (!sent.ok) throw new Error(JSON.stringify(sent.issues));
+    const challan = sent.value.voucher;
+    expect(challan.number).toMatch(/^RC\//);
+    expect(books.stock.qtyAt(oil, main.id, at)).toBe(before - 200000n);
+
+    const back = await books.post(returnDraftOf(challan, { id: crypto.randomUUID(), date: '2026-06-01' }));
+    if (!back.ok) throw new Error(JSON.stringify(back.issues));
+    expect(books.stock.qtyAt(oil, main.id, at)).toBe(before);
+    expect(books.orders.challans.returnOf(challan.id)?.number).toBe(back.value.voucher.number);
+
+    const twice = await books.post(returnDraftOf(challan, { id: crypto.randomUUID(), date: '2026-06-02' }));
+    expect(twice.ok ? [] : twice.issues.map((i) => i.code)).toContain(IssueCode.OverDelivery);
+    const cancel = await books.cancel(challan.id, challan.version);
+    expect(cancel.ok ? [] : cancel.issues.map((i) => i.code)).toContain(IssueCode.OrderHasDeliveries);
+    // cancelling the return puts it back out
+    expect((await books.cancel(back.value.voucher.id, back.value.voucher.version)).ok).toBe(true);
+    expect(books.orders.challans.returnOf(challan.id)).toBeUndefined();
   });
 });

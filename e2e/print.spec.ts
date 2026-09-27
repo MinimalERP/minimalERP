@@ -188,7 +188,7 @@ test.describe('Print', () => {
     await expect.poll(() => printedCount(app)).toBe(1);
   });
 
-  test('a dispatch docket: one customer only; page one the invoices (number, PO, amount) and the consignment, page two the items added together', async ({ app }) => {
+  test('a dispatch docket: one customer only; page one the invoices (number, PO — no amounts) and the consignment, page two the items added together; or all on one page', async ({ app }) => {
     await openSalesList(app);
     await app.keyboard.press('Control+Space');
     await app.keyboard.press('Control+Space');
@@ -209,6 +209,8 @@ test.describe('Print', () => {
     await app.keyboard.press('Enter');
     await app.keyboard.type('LR-778');
     await app.keyboard.press('Enter');
+    await expect(app.getByTestId('report-dialog').locator('[data-rf="pages"]')).toHaveValue('2');
+    await app.keyboard.press('Enter'); // two pages
 
     await expect(printCopies(app)).toHaveCount(2);
     const one = printCopies(app).nth(0);
@@ -220,14 +222,27 @@ test.describe('Print', () => {
     await expect(one).toContainText('Ship To');
     await expect(one).toContainText('XYZ Logistics');
     await expect(one).toContainText('LR-778');
+    await expect(one).not.toContainText('Amount');
+    await expect(one).not.toContainText('₹');
     const two = printCopies(app).nth(1);
     await expect(two).toContainText('Machine Oil');
     await expect(two).toContainText(/Total \(\d+ items?\)/);
     await expect.poll(() => printedCount(app)).toBe(1);
 
-    // the next docket is offered the next number
+    // the next docket is offered the next number; this one all on one page — the items under the consignment
     await app.keyboard.press('Alt+d');
     await expect(app.getByTestId('report-dialog').locator('input').first()).toHaveValue(/OD-\d{4}-00002/);
+    for (let i = 0; i < 5; i++) await app.keyboard.press('Enter');
+    await app.keyboard.press('Control+a'); // select the 2 in Pages
+    await app.keyboard.type('1');
+    await app.keyboard.press('Enter');
+    await expect(printCopies(app)).toHaveCount(1);
+    await expect(printCopies(app).nth(0)).toContainText('Invoices Included');
+    await expect(printCopies(app).nth(0)).toContainText('Machine Oil');
+    await expect.poll(() => printedCount(app)).toBe(2);
+    // the choice is offered again next time
+    await app.keyboard.press('Alt+d');
+    await expect(app.getByTestId('report-dialog').locator('[data-rf="pages"]')).toHaveValue('1');
     await app.keyboard.press('Escape');
   });
 

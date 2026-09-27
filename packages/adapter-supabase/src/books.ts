@@ -20,7 +20,7 @@ import {
   stockMovementFromWire,
   voucherFromWire,
 } from '@minimalerp/domain';
-import type { AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, PrintLayoutStore, PrintLayouts, SentDocument, MailSender, VoucherMailOrder, LedgerMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
+import type { AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, PrintLayoutStore, PrintLayouts, SentDocument, MailSender, VoucherMailOrder, LedgerMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, AssistantGateway, AssistantReply, AssistantScreen, AssistantTurn, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
 
 /** What arrives with a change's own answer: the parts of the books the browser is about to reload. */
@@ -81,7 +81,7 @@ export interface CompanySummary {
  */
 export class SupabaseBooksBackend
   extends SupabasePostingGateway
-  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, ChangeFeed, MailSender, CompanyExchange, PrintLayoutStore
+  implements MastersRepository, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, AssistantGateway, ChangeFeed, MailSender, CompanyExchange, PrintLayoutStore
 {
   private readonly kinds = defaultVoucherKinds();
   /** The masters of the last `load`, for turning stored vouchers back into what the screens hold (see `readable`). */
@@ -201,6 +201,14 @@ export class SupabaseBooksBackend
   async sendDocument(companyId: CompanyId, s: { readonly kind: IntakeKind; readonly document: IntakeDocument; readonly name?: string | undefined }): Promise<Result<{ readonly id: string }>> {
     const r = await this.call({ companyId, kind: s.kind, document: s.document, background: true, ...(s.name ? { mail: { subject: `Uploaded: ${s.name}`.slice(0, 200) } } : {}) }, 'intake');
     return r.ok ? ok({ id: String((r.value as { id?: unknown }).id ?? '') }) : r;
+  }
+
+  /** The floating assistant: the `assistant` function answers from the books, as this sign-in. */
+  async askAssistant(companyId: CompanyId, messages: readonly AssistantTurn[], screen?: AssistantScreen): Promise<Result<AssistantReply>> {
+    const r = await this.call({ companyId, messages, ...(screen ? { screen } : {}) }, 'assistant');
+    if (!r.ok) return r;
+    const v = r.value as { answer?: unknown; sources?: unknown };
+    return ok({ answer: typeof v.answer === 'string' ? v.answer : '', sources: Array.isArray(v.sources) ? v.sources.filter((x): x is string => typeof x === 'string') : [] });
   }
 
   async rejectInbox(companyId: CompanyId, id: string, reason?: string): Promise<Result<void>> {

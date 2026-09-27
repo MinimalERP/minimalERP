@@ -56,6 +56,8 @@ export interface InvoiceDoc {
   readonly poNo?: string | undefined;
   /** The E-way Bill number for this invoice's movement of goods (Sales) — shown only when present. */
   readonly ewayBillNo?: string | undefined;
+  /** The delivery challans a sales invoice bills ("DC/26-27/0004, DC/26-27/0007") — shown only when present. */
+  readonly dcNo?: string | undefined;
   /** The state of the delivery address, as it prints ("Maharashtra (27)") — shown only when known. */
   readonly placeOfSupply?: string | undefined;
   readonly party: PrintParty;
@@ -127,21 +129,23 @@ export interface StatementHead {
 }
 
 /**
- * A dispatch docket, two pages: the consignment (the customer, the invoices it carries, packages, transporter, LR) and every item on those
- * invoices, like items added together. Built from invoices already posted — nothing of it is stored.
+ * A dispatch docket: the consignment (the customer, the invoices it carries, packages, transporter, LR) and every item on those invoices,
+ * like items added together — on two pages, or both on one. It states no amounts. Built from invoices already posted — nothing of it is stored.
  */
 export interface DocketDoc {
   readonly kind: 'docket';
   readonly number: string;
   readonly date: string;
   readonly party: PrintParty;
-  readonly invoices: readonly { readonly number: string; readonly date: string; readonly poNo?: string | undefined; readonly amount: bigint }[];
+  readonly invoices: readonly { readonly number: string; readonly date: string; readonly poNo?: string | undefined }[];
   readonly packages: string;
   readonly transporter: string;
   readonly lrNo: string;
   readonly items: readonly { readonly desc: string; readonly hsn?: string | undefined; readonly qty: string }[];
   /** All the items' quantity, per unit ("120 Nos + 5 Kg"). */
   readonly totalQty: string;
+  /** The items under the consignment on one page, instead of on a page of their own. */
+  readonly onePage?: boolean | undefined;
 }
 
 export type PrintDoc = LedgerDoc | InvoiceDoc | StockDoc | ReportDoc | DocketDoc;
