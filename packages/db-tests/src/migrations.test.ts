@@ -37,6 +37,7 @@ describe('migrations', () => {
       'stock_groups',
       'stock_items',
       'stock_movements',
+      'tasks',
       'units',
       'voucher_links',
       'voucher_revisions',
@@ -68,7 +69,8 @@ describe('migrations', () => {
     // (minimalDASH added dash.view / dash.edit and was removed again: 20261015000100.)
     // The Delivery Challan adds three for owner, accountant and member, and clerk post: owner 46, accountant 45, member 45, clerk 13.
     // The Returnable Challan the same again: owner 49, accountant 48, member 48, clerk 14.
+    // Tasks on the Gateway add task.write for owner, accountant, member and clerk: owner 50, accountant 49, member 49, clerk 15.
     // ADR-0025's member holds everything the owner does except company.admin.
-    expect(byRole).toEqual({ accountant: 48, automation: 4, clerk: 14, member: 48, owner: 49, viewer: 3 });
+    expect(byRole).toEqual({ accountant: 49, automation: 4, clerk: 15, member: 49, owner: 50, viewer: 3 });
   });
 });

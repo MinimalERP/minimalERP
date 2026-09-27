@@ -4,6 +4,7 @@ import { ListView } from '../ui/ListView';
 import { useLetterKeys } from '../ui/useLetterKeys';
 import { useFrameState, useListNavigation, useServices, useSubscriptions } from '../shell/hooks';
 import type { ScreenRef } from '../shell/router';
+import { TasksPanel } from './TasksPanel';
 
 interface Mnemonic {
   /** The letter a bare keypress answers to (always upper-case). */
@@ -137,7 +138,9 @@ export function MenuScreen({ frame, menuId }: { frame: Frame<ScreenRef>; menuId:
       {rows.length === 0 ? (
         <p class="empty">Nothing here yet.</p>
       ) : (
-        groups.map((g) => (
+        <div class={isGateway ? 'gateway-body' : undefined}>
+          <div>
+        {groups.map((g) => (
           <div key={g.title || 'all'} class="menu-group" data-testid={g.title ? 'menu-group' : undefined}>
             {g.title && <h2 class="menu-group-title">{g.title}</h2>}
             <ListView
@@ -163,7 +166,11 @@ export function MenuScreen({ frame, menuId }: { frame: Frame<ScreenRef>; menuId:
               )}
             />
           </div>
-        ))
+        ))}
+          </div>
+          {/* the Gateway also shows what needs doing: due this week, tasks and enquiries */}
+          {isGateway && <TasksPanel />}
+        </div>
       )}
     </section>
   );

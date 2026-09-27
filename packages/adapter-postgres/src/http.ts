@@ -26,6 +26,9 @@ import {
   voucherMailProblems,
   ledgerMailHtml,
   ledgerMailProblems,
+  type TaskCommand,
+  type TaskList,
+  taskCommandSchema,
 } from '@minimalerp/domain';
 import type { InboxGateway, JournalRepository, MasterGateway, MastersRepository, PostOutcome, PostingGateway, StockRepository, VoucherRepository } from '@minimalerp/ports';
 import { z } from 'zod';
@@ -56,6 +59,8 @@ import { z } from 'zod';
  *         { action: 'exchange-sent', companyId }         what this company sent, and what became of each: { sent: [...] }
  *         { action: 'print-layout', companyId }          the company's own print layouts and pictures: { templates, images }
  *         { action: 'print-layout-set', companyId, templates, images }   replace them (whoever may change the masters)
+ *         { action: 'tasks', companyId }                 the Gateway's tasks and enquiries, and the people they can be for: { tasks, people }
+ *         { action: 'task', companyId, change }          one change to them (create / update / note): the list after it
  *   200   { ok: true,  value: { voucher, journal?, replayed? } }   money as decimal strings
  *   200   { ok: false, issues: [{ code, message, path? }] }        a business-rule refusal
  *   400 malformed request · 401 not signed in · 405 wrong method · 500 unexpected failure
@@ -142,6 +147,8 @@ const body = z.discriminatedUnion('action', [
   z.object({ action: z.literal('exchange-send'), companyId, voucherId: z.string().min(1) }),
   z.object({ action: z.literal('exchange-sent'), companyId }),
   z.object({ action: z.literal('print-layout'), companyId }),
+  z.object({ action: z.literal('tasks'), companyId }),
+  z.object({ action: z.literal('task'), companyId, change: taskCommandSchema }),
   z.object({
     action: z.literal('print-layout-set'),
     companyId,
@@ -173,6 +180,9 @@ export interface BooksServer extends PostingGateway, MasterGateway, MastersRepos
   /** The company's own print layouts and pictures (ADR-0025): read by anyone who sees its vouchers, replaced by whoever may change its masters. */
   printLayout(companyId: string): Promise<Result<PrintLayouts>>;
   setPrintLayout(companyId: string, layouts: PrintLayouts): Promise<Result<PrintLayouts>>;
+  /** The Gateway's tasks: read by anyone who sees the masters, changed by whoever may (task.write) — the database checks. */
+  tasks(companyId: string): Promise<Result<TaskList>>;
+  applyTask(companyId: string, change: TaskCommand): Promise<Result<TaskList>>;
   /** The audit line for a voucher (or a party's ledger) emailed to its party: to whom — never the message or the file. */
   recordMail(companyId: CompanyId, entityId: string, to: readonly string[], entity?: 'voucher' | 'ledger'): Promise<void>;
 }
@@ -508,6 +518,10 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
           return asResponse(await gateway.printLayout(cmd.companyId), (layouts) => layouts);
         case 'print-layout-set':
           return asResponse(await gateway.setPrintLayout(cmd.companyId, { templates: cmd.templates, images: cmd.images }), (layouts) => layouts);
+        case 'tasks':
+          return asResponse(await gateway.tasks(cmd.companyId), (list) => list);
+        case 'task':
+          return asResponse(await gateway.applyTask(cmd.companyId, cmd.change), (list) => list);
         case 'company-mail':
           return asResponse(await gateway.companyMail(cmd.companyId), (script) => ({ script }));
         case 'company-mail-set':

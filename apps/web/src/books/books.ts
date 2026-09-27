@@ -21,6 +21,8 @@ import {
   ok,
   seedCompany,
   localDate,
+  type TaskCommand,
+  type TaskList,
 } from '@minimalerp/domain';
 import type {
   ChangeFeed,
@@ -486,6 +488,9 @@ export interface BooksFactory {
   /** A company's own Gmail script, and setting it (online books, owner only; the server decides). */
   companyMail?(companyId: CompanyId): Promise<Result<CompanyMail | null>>;
   setCompanyMail?(companyId: CompanyId, url: string, secret: string): Promise<Result<CompanyMail | null>>;
+  /** The Gateway's tasks and enquiries, and changing them. */
+  tasks?(companyId: CompanyId): Promise<Result<TaskList>>;
+  applyTask?(companyId: CompanyId, change: TaskCommand): Promise<Result<TaskList>>;
   /** Forget the saved company (start over). Absent when the company is not the browser's to delete (the online books). */
   discard?(): Promise<void>;
   /** Whether the sample company may be loaded. False for the online books: it would fill someone's real books with make-believe. */
@@ -551,6 +556,20 @@ export class BooksHost {
     const id = this.books?.masters.company.id;
     if (!id || !this.factory?.setCompanyUser) return fail(issue(IssueCode.UnsupportedOperation, 'A company user can be set for online books only'));
     return this.factory.setCompanyUser(id, email);
+  }
+
+  /** The Gateway's tasks and enquiries, and the people they can be for. */
+  async tasks(): Promise<Result<TaskList>> {
+    const id = this.current?.companyId;
+    if (!id || !this.factory?.tasks) return fail(issue(IssueCode.UnsupportedOperation, 'Tasks are not available here'));
+    return this.factory.tasks(id);
+  }
+
+  /** One change to them; returns the list after it. */
+  async applyTask(change: TaskCommand): Promise<Result<TaskList>> {
+    const id = this.current?.companyId;
+    if (!id || !this.factory?.applyTask) return fail(issue(IssueCode.UnsupportedOperation, 'Tasks are not available here'));
+    return this.factory.applyTask(id, change);
   }
 
   async companyMail(): Promise<Result<CompanyMail | null>> {

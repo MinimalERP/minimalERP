@@ -1,4 +1,4 @@
-import { type CompanyId, type Result, IssueCode, fail, issue, ok } from '@minimalerp/domain';
+import { type CompanyId, type Result, type TaskCommand, type TaskList, IssueCode, fail, issue, ok } from '@minimalerp/domain';
 import { Books, type BooksBackend, type BooksFactory, type CompanyChoice, type CompanyMail, type CompanyUser, type NewCompany, newCompanyIssues } from './books';
 import type { SaveTracker } from './saving';
 import type { KeyValueStore } from './store';
@@ -12,6 +12,8 @@ export interface CloudBackend extends BooksBackend {
   setCompanyUser(companyId: CompanyId, email: string): Promise<Result<CompanyUser | null>>;
   companyMail(companyId: CompanyId): Promise<Result<CompanyMail | null>>;
   setCompanyMail(companyId: CompanyId, url: string, secret: string): Promise<Result<CompanyMail | null>>;
+  tasks(companyId: CompanyId): Promise<Result<TaskList>>;
+  applyTask(companyId: CompanyId, change: TaskCommand): Promise<Result<TaskList>>;
 }
 
 export interface CloudFactoryOptions {
@@ -64,6 +66,8 @@ export function createCloudFactory({ backend, drafts, saving, lastOpened }: Clou
     setCompanyUser: (companyId, email) => backend.setCompanyUser(companyId, email),
     companyMail: (companyId) => backend.companyMail(companyId),
     setCompanyMail: (companyId, url, secret) => backend.setCompanyMail(companyId, url, secret),
+    tasks: (companyId) => backend.tasks(companyId),
+    applyTask: (companyId, change) => backend.applyTask(companyId, change),
 
     async create(input: NewCompany) {
       const problems = newCompanyIssues(input);

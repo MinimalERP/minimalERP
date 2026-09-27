@@ -14,6 +14,10 @@ import {
   IssueCode,
   NO_USAGE,
   OrderBook,
+  type Task,
+  type TaskCommand,
+  type TaskList,
+  type TaskPerson,
   ChallanBook,
   returnableOf,
   challanDocOf,
@@ -775,6 +779,32 @@ export class PostgresBackend
       const strings = (o: unknown) =>
         Object.fromEntries(Object.entries(o !== null && typeof o === 'object' ? (o as Record<string, unknown>) : {}).filter((e): e is [string, string] => typeof e[1] === 'string'));
       return ok({ templates: strings(v.templates), images: strings(v.images) });
+    } catch (e) {
+      const known = issueFromDbError(e);
+      if (known) return fail(known);
+      throw e;
+    }
+  }
+
+  // ---- tasks on the Gateway ----
+
+  /** The company's task list: open tasks and enquiries (and those closed in the last week), and the people a task can be for. */
+  async tasks(companyId: string): Promise<Result<TaskList>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    return this.taskCall('select public.tasks_get($1::uuid, $2::uuid) as r', [this.options.actorId, companyId]);
+  }
+
+  /** One change to the list (checked by the database, audited). Returns the list. */
+  async applyTask(companyId: string, change: TaskCommand): Promise<Result<TaskList>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    return this.taskCall('select public.task_apply($1::uuid, $2::uuid, $3, $4::jsonb) as r', [this.options.actorId, companyId, this.options.requestId ?? null, JSON.stringify(change)]);
+  }
+
+  private async taskCall(sql: string, values: readonly unknown[]): Promise<Result<TaskList>> {
+    try {
+      const r = await this.db.query(sql, values);
+      const v = (r.rows[0]?.['r'] ?? {}) as { tasks?: unknown; people?: unknown };
+      return ok({ tasks: (Array.isArray(v.tasks) ? v.tasks : []) as Task[], people: (Array.isArray(v.people) ? v.people : []) as TaskPerson[] });
     } catch (e) {
       const known = issueFromDbError(e);
       if (known) return fail(known);

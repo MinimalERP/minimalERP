@@ -19,6 +19,8 @@ import {
   proposalSchema,
   stockMovementFromWire,
   voucherFromWire,
+  type TaskCommand,
+  type TaskList,
 } from '@minimalerp/domain';
 import type { AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, PrintLayoutStore, PrintLayouts, SentDocument, MailSender, VoucherMailOrder, LedgerMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, AssistantGateway, AssistantReply, AssistantScreen, AssistantTurn, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
@@ -226,6 +228,18 @@ export class SupabaseBooksBackend
   async setCompanyUser(companyId: CompanyId, email: string): Promise<Result<CompanyUser | null>> {
     const r = await this.call({ action: 'company-user-set', companyId, email });
     return r.ok ? ok((r.value as { user: CompanyUser | null }).user) : r;
+  }
+
+  /** The Gateway's tasks and enquiries, and the people they can be for. */
+  async tasks(companyId: CompanyId): Promise<Result<TaskList>> {
+    const r = await this.call({ action: 'tasks', companyId });
+    return r.ok ? ok(r.value as TaskList) : r;
+  }
+
+  /** One change to them (create / update / note); the server checks it. Returns the list after it. */
+  async applyTask(companyId: CompanyId, change: TaskCommand): Promise<Result<TaskList>> {
+    const r = await this.call({ action: 'task', companyId, change });
+    return r.ok ? ok(r.value as TaskList) : r;
   }
 
   /** The company's own Gmail script (ADR-0025): its address, never its secret. Only the owner may ask. */

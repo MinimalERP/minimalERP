@@ -1,4 +1,4 @@
-import { type Masters, type Result, asCompanyId, ok } from '@minimalerp/domain';
+import { type Masters, type Result, type TaskList, applyTask, asCompanyId, deterministicUuid, ok, withoutExpired } from '@minimalerp/domain';
 import type { KeyValueStore } from './store';
 import { Books, type BooksFactory, type LocalBackend, type NewCompany, type SavedCompany, newCompanyIssues, seedMasters } from './books';
 import type { SaveTracker } from './saving';
@@ -22,6 +22,9 @@ interface Stored {
 }
 
 const KEY = 'company';
+/** The browser's own books have one person: whoever uses this browser. */
+const YOU = { id: deterministicUuid('local|you'), email: 'You', role: 'owner' } as const;
+const TASKS = 'tasks';
 
 export interface LocalFactoryOptions {
   /** Builds the backend for a company's starting masters. The composition root chooses which one. */
@@ -105,6 +108,20 @@ export function createLocalFactory(options: LocalFactoryOptions): BooksFactory {
       generation++;
       await saves;
       await store.delete(KEY);
+      await store.delete(TASKS);
+    },
+
+    // the Gateway's tasks, kept beside the company in this browser; the same rules as the online books (`applyTask`)
+    async tasks() {
+      const tasks = ((await store.get(TASKS)) as TaskList['tasks'] | undefined) ?? [];
+      return ok(withoutExpired({ tasks, people: [YOU] }, new Date().toISOString()));
+    },
+    async applyTask(_companyId, change) {
+      const now = new Date().toISOString();
+      const list = withoutExpired({ tasks: ((await store.get(TASKS)) as TaskList['tasks'] | undefined) ?? [], people: [YOU] }, now);
+      const next = applyTask(list, change, YOU, now);
+      if (next.ok) await store.set(TASKS, next.value.tasks);
+      return next;
     },
   };
 }
