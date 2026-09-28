@@ -148,6 +148,14 @@ export interface LedgerMailOrder extends Omit<VoucherMailOrder, 'voucherId'> {
 export interface MailSender {
   sendVoucherMail(mail: VoucherMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>>;
   sendLedgerMail(mail: LedgerMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>>;
+  /** When the voucher was last emailed to its party, and to whom; null when never. Absent where mail is not kept (the browser's own books). */
+  lastVoucherMail?(companyId: CompanyId, voucherId: string): Promise<Result<LastMail | null>>;
+}
+
+/** The last time a voucher was emailed: when (ISO timestamp) and to which addresses. */
+export interface LastMail {
+  readonly at: string;
+  readonly to: readonly string[];
 }
 
 /** A voucher this company sent to another of the owner's companies (ADR-0025), and what became of it there. */

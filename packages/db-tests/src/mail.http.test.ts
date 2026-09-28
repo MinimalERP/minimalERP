@@ -80,6 +80,16 @@ describe('emailing a voucher to its party', () => {
     expect(audit.rows.map((x) => x['after'])).toEqual([{ to: ['sales@acme.in', 'ACCOUNTS@acme.in'] }]); // who, never the message or the file
   });
 
+  it('the voucher says when it was last emailed and to whom; one never emailed says so; outsiders are refused', async () => {
+    const last = async (userId: string, voucherId: string) =>
+      (await ask(handlerWith(), userId, { action: 'voucher-mail-last', voucherId })).json as unknown as { ok: boolean; value?: { last: { at: string; to: string[] } | null }; issues?: { code: string }[] };
+    const mailed = await last(w.ownerId, quoteId);
+    expect(mailed.value?.last?.to).toEqual(['sales@acme.in', 'ACCOUNTS@acme.in']);
+    expect(Date.now() - Date.parse(mailed.value?.last?.at ?? '')).toBeLessThan(60_000);
+    expect((await last(w.ownerId, randomUUID())).value).toEqual({ last: null });
+    expect((await last(outsider, quoteId)).issues?.map((i) => i.code)).toEqual(['PERMISSION_DENIED']);
+  });
+
   it('refuses an address that is not the voucher’s party’s — another party’s included — and sends nothing', async () => {
     const sent: OutgoingMail[] = [];
     const r = await ask(handlerWith(async (m) => (sent.push(m), { ok: true })), w.ownerId, { to: ['sales@acme.in', 'buyer@other.in'] });

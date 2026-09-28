@@ -30,7 +30,7 @@ export function TasksPanel() {
     if (!books) return;
     void host.tasks().then((r) => (r.ok ? setList(r.value) : setError(r.issues[0]?.message)));
     void host.websiteEnquiries().then((r) => setWebsite(r.ok ? r.value : undefined));
-  }, [books?.companyId]);
+  }, [books?.companyId, books?.masters]);
 
   const due = useMemo(
     () => (books ? dueThisWeek({ vouchers: books.vouchers, lines: books.lines, masters: books.masters, orders: books.orders, asOn: defaultDate(books.masters) as LocalDate }) : undefined),

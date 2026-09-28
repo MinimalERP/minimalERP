@@ -699,6 +699,7 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 .tasks-empty { color: var(--c-text-muted); margin: 0; }
 .task-notes { list-style: none; margin: var(--sp-2) 0; padding: 0; max-height: 12em; overflow: auto; }
 .task-dialog .palette-foot { display: flex; gap: var(--sp-2); justify-content: flex-end; }
+.website-enquiry .dialog-body > p, .website-enquiry .dialog-body > .chips { margin-left: var(--sp-3); margin-right: var(--sp-3); }
 /* the week's lists: small tables, figures aligned, lateness a quiet red tag */
 .due-block { margin: var(--sp-1) 0 var(--sp-2); }
 .due-title { font-weight: 600; font-size: var(--fs-sm); }

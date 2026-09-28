@@ -40,7 +40,7 @@ export function WebsiteEnquiriesScreen({ frame }: { frame: Frame<ScreenRef> }) {
   useEffect(() => {
     if (!books) return;
     void host.websiteEnquiries().then((r) => (r.ok ? setList(r.value) : setError(r.issues.map((i) => i.message).join('; '))));
-  }, [books?.companyId]);
+  }, [books?.companyId, books?.masters]); // again after Refresh (it brings the books back afresh), for what the website sent meanwhile
 
   const rows = (list?.enquiries ?? []).filter((e) => (filter === 'all' ? true : filter === 'open' ? isOpen(e.status) : e.status === filter));
   const safeIndex = Math.min(index, Math.max(0, rows.length - 1));
@@ -145,7 +145,7 @@ function EnquiryDialog({ enquiry: e, onChange, onClose }: { enquiry: WebsiteEnqu
 
   return (
     <div class="overlay-backdrop">
-      <div class="palette dialog task-dialog" role="dialog" aria-modal="true" aria-label={`Enquiry from ${e.name}`} data-testid="website-enquiry-dialog">
+      <div class="palette dialog task-dialog website-enquiry" role="dialog" aria-modal="true" aria-label={`Enquiry from ${e.name}`} data-testid="website-enquiry-dialog">
         <h2 class="dialog-title">Enquiry from {e.name}</h2>
         <div class="dialog-body">
           <p class="tasks-meta">

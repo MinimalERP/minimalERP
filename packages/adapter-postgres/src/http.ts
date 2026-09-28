@@ -64,6 +64,7 @@ import { z } from 'zod';
  *         { action: 'print-layout-set', companyId, templates, images }   replace them (whoever may change the masters)
  *         { action: 'tasks', companyId }                 the Gateway's tasks and enquiries, and the people they can be for: { tasks, people }
  *         { action: 'task', companyId, change }          one change to them (create / update / note): the list after it
+ *         { action: 'voucher-mail-last', companyId, voucherId }   when the voucher was last emailed, and to whom: { last: { at, to } | null }
  *         { action: 'website-enquiries', companyId }     the company website's quote enquiries: { site, enquiries }
  *         { action: 'website-enquiry', companyId, change }   a status, 'convert' into a Gateway enquiry, or 'delete' (with its drawing)
  *         { action: 'website-drawing', companyId, id }   a download link (an hour) for the drawing sent with one: { url }
@@ -155,6 +156,7 @@ const body = z.discriminatedUnion('action', [
   z.object({ action: z.literal('print-layout'), companyId }),
   z.object({ action: z.literal('tasks'), companyId }),
   z.object({ action: z.literal('task'), companyId, change: taskCommandSchema }),
+  z.object({ action: z.literal('voucher-mail-last'), companyId, voucherId: z.string().min(1) }),
   z.object({ action: z.literal('website-enquiries'), companyId }),
   z.object({ action: z.literal('website-enquiry'), companyId, change: websiteEnquiryCommandSchema }),
   z.object({ action: z.literal('website-drawing'), companyId, id: z.string().min(1) }),
@@ -198,6 +200,8 @@ export interface BooksServer extends PostingGateway, MasterGateway, MastersRepos
   websiteDrawing(companyId: string, id: string): Promise<Result<string | null>>;
   /** The audit line for a voucher (or a party's ledger) emailed to its party: to whom — never the message or the file. */
   recordMail(companyId: CompanyId, entityId: string, to: readonly string[], entity?: 'voucher' | 'ledger'): Promise<void>;
+  /** When a voucher was last emailed, and to whom (its audit line); null when never. */
+  lastMail(companyId: string, voucherId: string): Promise<{ readonly at: string; readonly to: readonly string[] } | null>;
 }
 
 /** A company's own print layouts (HTML by document, see domain print/template.ts) and pictures (logo, signature as data URLs). */
@@ -539,6 +543,11 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
           return asResponse(await gateway.tasks(cmd.companyId), (list) => list);
         case 'task':
           return asResponse(await gateway.applyTask(cmd.companyId, cmd.change), (list) => list);
+        case 'voucher-mail-last': {
+          const denied = await refuse(gateway, cmd.companyId, 'voucher.view');
+          if (denied) return json(200, denied);
+          return json(200, { ok: true, value: { last: await gateway.lastMail(cmd.companyId, cmd.voucherId) } });
+        }
         case 'website-enquiries':
           return asResponse(await gateway.websiteEnquiries(cmd.companyId), (list) => list);
         case 'website-enquiry': {

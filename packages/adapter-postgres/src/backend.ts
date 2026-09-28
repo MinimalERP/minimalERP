@@ -397,6 +397,20 @@ export class PostgresBackend
     );
   }
 
+  /** When a voucher was last emailed (its audit line), and to whom; null when never. */
+  async lastMail(companyId: string, voucherId: string): Promise<{ readonly at: string; readonly to: readonly string[] } | null> {
+    if (!isUuid(companyId) || !isUuid(voucherId)) return null;
+    const r = await this.db.query(
+      `select to_json(at) #>> '{}' as at, after -> 'to' as "to" from public.audit_log
+        where company_id = $1::uuid and entity_type = 'voucher' and entity_id = $2::uuid and action = 'voucher.mail'
+        order by id desc limit 1`,
+      [companyId, voucherId],
+    );
+    const row = r.rows[0];
+    if (!row) return null;
+    return { at: String(row['at']), to: Array.isArray(row['to']) ? (row['to'] as unknown[]).map(String) : [] };
+  }
+
   async can(companyId: string, permission: string): Promise<boolean> {
     if (!isUuid(companyId)) return false;
     const r = await this.db.query('select public.actor_can($1::uuid, $2::uuid, $3) as ok', [this.options.actorId, companyId, permission]);

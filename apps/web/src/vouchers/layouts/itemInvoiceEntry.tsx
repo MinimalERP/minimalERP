@@ -1,6 +1,6 @@
 import type { Frame } from '@minimalerp/command';
 import { type ChallanPurpose, type Voucher, billStatusOf, isMailKind, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
-import { useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { Only } from '../../shell/Only';
 import { useIdleOnBlankClick } from '../../shell/idle';
@@ -203,6 +203,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const [partyOpen, setPartyOpen] = useState(false);
   /** The email window (Alt+Shift+E on a saved document). */
   const [mailOpen, setMailOpen] = useState(false);
+  /** When it was last emailed and to whom (null: never; undefined: not known here, or not a kind that is emailed). */
+  const [lastMail, setLastMail] = useState<{ readonly at: string; readonly to: readonly string[] } | null | undefined>(undefined);
   const [reminding, setReminding] = useState(false);
   /** The dispatch docket's details window (Alt+D on a saved sales invoice). */
   const [docketOpen, setDocketOpen] = useState(false);
@@ -898,6 +900,17 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const shortName = p.invoice ? `${type?.name ?? cap(p.side)} Voucher` : (type?.name ?? `${cap(p.side)} Order`);
   const title = mode === 'create' ? `New ${shortName}` : `${mode === 'alter' ? 'Alter' : 'Display'} ${type?.name ?? ''} ${voucher?.number ?? ''}`;
   const cancelled = voucher?.status === 'cancelled';
+  // a saved document that is emailed to its party says when it last was (from the audit line the server wrote when it sent it)
+  const mailable = mode !== 'create' && voucher?.status === 'posted' && isMailKind(kind);
+  useEffect(() => {
+    setLastMail(undefined);
+    if (!mailable || !voucher) return;
+    let live = true;
+    void books.lastVoucherMail(voucher.id).then((last) => live && setLastMail(last));
+    return () => {
+      live = false;
+    };
+  }, [voucher?.id, mailable]);
   const showFill = p.order && orderState !== undefined;
 
   const pickerList = (key: string) => {
@@ -1212,7 +1225,10 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           voucher={voucher}
           onDone={(sentTo) => {
             setMailOpen(false);
-            if (sentTo) setBanner({ text: `Emailed ${voucher.number} to ${sentTo.join(', ')}.`, tone: 'ok' });
+            if (sentTo) {
+              setBanner({ text: `Emailed ${voucher.number} to ${sentTo.join(', ')}.`, tone: 'ok' });
+              setLastMail({ at: new Date().toISOString(), to: sentTo });
+            }
           }}
         />
       )}
@@ -1238,6 +1254,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         <>
           {title}
           {cancelled && <span class="badge">Cancelled</span>}
+          {lastMail !== undefined && !cancelled && (
+            <span class={lastMail ? 'badge' : 'badge open'} data-testid="mail-status" title={lastMail ? `To ${lastMail.to.join(', ')}` : 'This has not been emailed from the ERP'}>
+              {lastMail ? `Emailed ${mailedWhen(lastMail.at)}` : 'Not emailed'}
+            </span>
+          )}
           {convertedTo && !cancelled && (
             <span class="badge" data-testid="quote-status">
               Sales order {convertedTo.number}
@@ -1512,6 +1533,12 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
 const godownOf = (g: { id: string; label: string } | undefined): { warehouseId?: string; warehouseLabel?: string } => (g ? { warehouseId: g.id, warehouseLabel: g.label } : {});
 
 /** The main godown: the first active one, which a new invoice line starts in. */
+/** "27-Sep-2026 19:46", in India: when a document was last emailed. */
+function mailedWhen(iso: string): string {
+  const t = new Date(Date.parse(iso) + 330 * 60_000).toISOString();
+  return `${formatDate(t.slice(0, 10))} ${t.slice(11, 16)}`;
+}
+
 function defaultGodown(books: Books): { id: string; label: string } | undefined {
   const w = books.masters.warehouses.find((x) => x.isActive);
   return w ? { id: w.id, label: w.name } : undefined;

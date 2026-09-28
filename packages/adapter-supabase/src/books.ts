@@ -24,7 +24,7 @@ import {
   type WebsiteEnquiryCommand,
   type WebsiteEnquiryList,
 } from '@minimalerp/domain';
-import type { AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, PrintLayoutStore, PrintLayouts, SentDocument, MailSender, VoucherMailOrder, LedgerMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, AssistantGateway, AssistantReply, AssistantScreen, AssistantTurn, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
+import type { LastMail, AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, PrintLayoutStore, PrintLayouts, SentDocument, MailSender, VoucherMailOrder, LedgerMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, AssistantGateway, AssistantReply, AssistantScreen, AssistantTurn, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
 
 /** What arrives with a change's own answer: the parts of the books the browser is about to reload. */
@@ -301,6 +301,12 @@ export class SupabaseBooksBackend
   async sendVoucherMail(mail: VoucherMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>> {
     const r = await this.call({ action: 'send-mail', ...mail });
     return r.ok ? ok(r.value as { sentTo: string[] }) : r;
+  }
+
+  /** When a voucher was last emailed to its party, and to whom; null when never. */
+  async lastVoucherMail(companyId: CompanyId, voucherId: string): Promise<Result<LastMail | null>> {
+    const r = await this.call({ action: 'voucher-mail-last', companyId, voucherId });
+    return r.ok ? ok((r.value as { last: LastMail | null }).last) : r;
   }
 
   /** Emails a party its statement (a payment reminder) through the company's Gmail (the server checks the addresses are that party's). */

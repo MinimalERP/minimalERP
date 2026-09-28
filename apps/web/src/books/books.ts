@@ -27,6 +27,7 @@ import {
   type WebsiteEnquiryList,
 } from '@minimalerp/domain';
 import type {
+  LastMail,
   ChangeFeed,
   CompanyExchange,
   PrintLayoutStore,
@@ -249,6 +250,13 @@ export class Books {
   /** Emails a posted voucher to its party (online books only); nothing is stored but the audit line. */
   sendVoucherMail(mail: Omit<VoucherMailOrder, 'companyId'>): Promise<Result<{ readonly sentTo: readonly string[] }>> {
     return this.backend.sendVoucherMail({ ...mail, companyId: this.companyId });
+  }
+
+  /** When a voucher was last emailed, and to whom (null: never). Undefined where the books keep no mail (this browser's own books). */
+  async lastVoucherMail(voucherId: string): Promise<LastMail | null | undefined> {
+    if (!this.backend.lastVoucherMail) return undefined;
+    const r = await this.backend.lastVoucherMail(this.companyId, voucherId);
+    return r.ok ? r.value : undefined;
   }
 
   /** A party's statement (a payment reminder from its ledger), from the company's Gmail. */
