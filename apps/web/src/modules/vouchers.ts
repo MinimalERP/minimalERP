@@ -182,6 +182,8 @@ const websiteEnquiriesCommand: Command<AppContext> = {
   category: 'Voucher',
   keywords: ['website', 'enquiry', 'enquiries', 'inquiry', 'rfq', 'quote request', 'lead', 'leads', 'customer', 'drawing'],
   description: 'Quote requests from the website: call, WhatsApp, email, drawing, status, convert',
+  // the online books only (the website writes into the ERP's database): the same test as Send via ERP
+  when: (app) => app.books.current?.canSendToCompanies === true,
   run: (app) => app.navigate({ type: 'website-enquiries' }),
 };
 
