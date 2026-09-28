@@ -175,9 +175,20 @@ const sentCommand: Command<AppContext> = {
   run: (app) => app.navigate({ type: 'exchange-sent' }),
 };
 
+// The quote enquiries sent from the company's website (they arrive in the ERP's database; the online books only).
+const websiteEnquiriesCommand: Command<AppContext> = {
+  id: 'website.enquiries',
+  title: 'Website Enquiries',
+  category: 'Voucher',
+  keywords: ['website', 'enquiry', 'enquiries', 'inquiry', 'rfq', 'quote request', 'lead', 'leads', 'customer', 'drawing'],
+  description: 'Quote requests from the website: call, WhatsApp, email, drawing, status, convert',
+  run: (app) => app.navigate({ type: 'website-enquiries' }),
+};
+
 const commands: Command<AppContext>[] = [
   inboxCommand,
   sentCommand,
+  websiteEnquiriesCommand,
   contextual('inbox.reject', 'Reject this proposal', { label: 'Reject', group: 'Change', order: 31, on: ['inbox'] }),
   contextual('inbox.upload', 'Upload a document (PDF or photo) to be read', { label: 'Upload document', group: 'Actions', order: 5, on: ['inbox'] }),
   ...newCommands,
@@ -270,6 +281,7 @@ const menu: MenuEntry[] = [
   // last, so the voucher lists keep their places (and their arrow-key positions)
   { section: 'transactions', commandId: 'inbox.open', order: 40, group: 'AI Inbox' },
   { section: 'transactions', commandId: 'exchange.sent', order: 41, group: 'AI Inbox' },
+  { section: 'transactions', commandId: 'website.enquiries', order: 42, group: 'AI Inbox' },
 ];
 
 export const vouchersModule: ModuleManifest<AppContext> = {

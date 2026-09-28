@@ -21,6 +21,8 @@ import {
   voucherFromWire,
   type TaskCommand,
   type TaskList,
+  type WebsiteEnquiryCommand,
+  type WebsiteEnquiryList,
 } from '@minimalerp/domain';
 import type { AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, PrintLayoutStore, PrintLayouts, SentDocument, MailSender, VoucherMailOrder, LedgerMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, AssistantGateway, AssistantReply, AssistantScreen, AssistantTurn, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
@@ -240,6 +242,24 @@ export class SupabaseBooksBackend
   async applyTask(companyId: CompanyId, change: TaskCommand): Promise<Result<TaskList>> {
     const r = await this.call({ action: 'task', companyId, change });
     return r.ok ? ok(r.value as TaskList) : r;
+  }
+
+  /** The company website's quote enquiries, newest first (`site: false` for a company the website is not). */
+  async websiteEnquiries(companyId: CompanyId): Promise<Result<WebsiteEnquiryList>> {
+    const r = await this.call({ action: 'website-enquiries', companyId });
+    return r.ok ? ok(r.value as WebsiteEnquiryList) : r;
+  }
+
+  /** A status change, or turning one into a Gateway enquiry; the server checks it. Returns the list after it. */
+  async applyWebsiteEnquiry(companyId: CompanyId, change: WebsiteEnquiryCommand): Promise<Result<WebsiteEnquiryList>> {
+    const r = await this.call({ action: 'website-enquiry', companyId, change });
+    return r.ok ? ok(r.value as WebsiteEnquiryList) : r;
+  }
+
+  /** A download link for the drawing sent with an enquiry (it works for an hour). */
+  async websiteDrawing(companyId: CompanyId, id: string): Promise<Result<string>> {
+    const r = await this.call({ action: 'website-drawing', companyId, id });
+    return r.ok ? ok(String((r.value as { url?: unknown }).url ?? '')) : r;
   }
 
   /** The company's own Gmail script (ADR-0025): its address, never its secret. Only the owner may ask. */

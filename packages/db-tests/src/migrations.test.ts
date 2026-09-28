@@ -44,6 +44,8 @@ describe('migrations', () => {
       'voucher_types',
       'vouchers',
       'warehouses',
+      'website_enquiries',
+      'website_enquiry_company',
     ]);
   });
 

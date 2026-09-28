@@ -18,6 +18,9 @@ import {
   type TaskCommand,
   type TaskList,
   type TaskPerson,
+  type WebsiteEnquiry,
+  type WebsiteEnquiryCommand,
+  type WebsiteEnquiryList,
   ChallanBook,
   returnableOf,
   challanDocOf,
@@ -798,6 +801,47 @@ export class PostgresBackend
   async applyTask(companyId: string, change: TaskCommand): Promise<Result<TaskList>> {
     if (!isUuid(companyId)) return fail(companyMismatch(companyId));
     return this.taskCall('select public.task_apply($1::uuid, $2::uuid, $3, $4::text::jsonb) as r', [this.options.actorId, companyId, this.options.requestId ?? null, JSON.stringify(change)]);
+  }
+
+  // ---- enquiries from the company's website ----
+
+  /** The website's enquiries, newest first, for the company it belongs to (another company: `site: false`). */
+  async websiteEnquiries(companyId: string): Promise<Result<WebsiteEnquiryList>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    return this.websiteCall('select public.website_enquiries_get($1::uuid, $2::uuid) as r', [this.options.actorId, companyId]);
+  }
+
+  /** A status change, or turning one into a Gateway enquiry (task.write, checked by the database). Returns the list. */
+  async applyWebsiteEnquiry(companyId: string, change: WebsiteEnquiryCommand): Promise<Result<WebsiteEnquiryList>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    return this.websiteCall('select public.website_enquiry_apply($1::uuid, $2::uuid, $3, $4::text::jsonb) as r', [this.options.actorId, companyId, this.options.requestId ?? null, JSON.stringify(change)]);
+  }
+
+  /** An enquiry's drawing (its name in the bucket, null when none), for the server to sign a download link. */
+  async websiteDrawing(companyId: string, id: string): Promise<Result<string | null>> {
+    if (!isUuid(companyId)) return fail(companyMismatch(companyId));
+    if (!isUuid(id)) return ok(null);
+    try {
+      const r = await this.db.query('select public.website_enquiry_drawing($1::uuid, $2::uuid, $3::uuid) as r', [this.options.actorId, companyId, id]);
+      const v = r.rows[0]?.['r'];
+      return ok(typeof v === 'string' && v !== '' ? v : null);
+    } catch (e) {
+      const known = issueFromDbError(e);
+      if (known) return fail(known);
+      throw e;
+    }
+  }
+
+  private async websiteCall(sql: string, values: readonly unknown[]): Promise<Result<WebsiteEnquiryList>> {
+    try {
+      const r = await this.db.query(sql, values);
+      const v = (r.rows[0]?.['r'] ?? {}) as { site?: unknown; enquiries?: unknown };
+      return ok({ site: v.site === true, enquiries: (Array.isArray(v.enquiries) ? v.enquiries : []) as WebsiteEnquiry[] });
+    } catch (e) {
+      const known = issueFromDbError(e);
+      if (known) return fail(known);
+      throw e;
+    }
   }
 
   private async taskCall(sql: string, values: readonly unknown[]): Promise<Result<TaskList>> {

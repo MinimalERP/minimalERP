@@ -179,11 +179,12 @@ describe('privilege audit — fails if a future migration adds a table or functi
     expect(r.rows.map((x) => x.relname)).toEqual([]);
   });
 
-  it('signed-in users hold SELECT and nothing else on any public table; anon holds nothing', async () => {
+  it('signed-in users hold SELECT and nothing else on any public table; anon holds nothing but the website form’s INSERT', async () => {
     const r = await db.pool.query(
       `select grantee, table_name, privilege_type from information_schema.role_table_grants
         where table_schema = 'public' and grantee in ('anon', 'authenticated', 'PUBLIC')
-          and not (grantee = 'authenticated' and privilege_type = 'SELECT')`,
+          and not (grantee = 'authenticated' and privilege_type = 'SELECT')
+          and not (grantee = 'anon' and table_name = 'website_enquiries' and privilege_type = 'INSERT')`,
     );
     expect(r.rows).toEqual([]);
   });
@@ -198,9 +199,9 @@ describe('privilege audit — fails if a future migration adds a table or functi
     expect(r.rows.map((x) => x.relname)).toEqual([]);
   });
 
-  it('no policy permits writes', async () => {
-    const r = await db.pool.query(`select tablename, policyname, cmd from pg_policies where schemaname = 'public' and cmd <> 'SELECT'`);
-    expect(r.rows).toEqual([]);
+  it('no policy permits writes, but the website form’s: anon may add a new enquiry', async () => {
+    const r = await db.pool.query(`select tablename, policyname, cmd, roles::text as roles, with_check from pg_policies where schemaname = 'public' and cmd <> 'SELECT'`);
+    expect(r.rows).toEqual([{ tablename: 'website_enquiries', policyname: 'Website can submit enquiries', cmd: 'INSERT', roles: '{anon}', with_check: "(status = 'new'::text)" }]);
   });
 
   it('no function in public or private is executable by anon or signed-in users, except the two RLS helpers and search', async () => {

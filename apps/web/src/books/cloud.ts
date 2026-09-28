@@ -1,4 +1,4 @@
-import { type CompanyId, type Result, type TaskCommand, type TaskList, IssueCode, fail, issue, ok } from '@minimalerp/domain';
+import { type CompanyId, type Result, type TaskCommand, type TaskList, type WebsiteEnquiryCommand, type WebsiteEnquiryList, IssueCode, fail, issue, ok } from '@minimalerp/domain';
 import { Books, type BooksBackend, type BooksFactory, type CompanyChoice, type CompanyMail, type CompanyUser, type NewCompany, newCompanyIssues } from './books';
 import type { SaveTracker } from './saving';
 import type { KeyValueStore } from './store';
@@ -14,6 +14,9 @@ export interface CloudBackend extends BooksBackend {
   setCompanyMail(companyId: CompanyId, url: string, secret: string): Promise<Result<CompanyMail | null>>;
   tasks(companyId: CompanyId): Promise<Result<TaskList>>;
   applyTask(companyId: CompanyId, change: TaskCommand): Promise<Result<TaskList>>;
+  websiteEnquiries(companyId: CompanyId): Promise<Result<WebsiteEnquiryList>>;
+  applyWebsiteEnquiry(companyId: CompanyId, change: WebsiteEnquiryCommand): Promise<Result<WebsiteEnquiryList>>;
+  websiteDrawing(companyId: CompanyId, id: string): Promise<Result<string>>;
 }
 
 export interface CloudFactoryOptions {
@@ -68,6 +71,9 @@ export function createCloudFactory({ backend, drafts, saving, lastOpened }: Clou
     setCompanyMail: (companyId, url, secret) => backend.setCompanyMail(companyId, url, secret),
     tasks: (companyId) => backend.tasks(companyId),
     applyTask: (companyId, change) => backend.applyTask(companyId, change),
+    websiteEnquiries: (companyId) => backend.websiteEnquiries(companyId),
+    applyWebsiteEnquiry: (companyId, change) => backend.applyWebsiteEnquiry(companyId, change),
+    websiteDrawing: (companyId, id) => backend.websiteDrawing(companyId, id),
 
     async create(input: NewCompany) {
       const problems = newCompanyIssues(input);

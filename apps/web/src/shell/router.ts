@@ -21,6 +21,8 @@ export type ScreenRef =
   | { readonly type: 'company-gmail' }
   /** What this company sent to the owner's other companies via the ERP, and what became of each (ADR-0025). */
   | { readonly type: 'exchange-sent' }
+  /** The quote enquiries sent from the company's website. */
+  | { readonly type: 'website-enquiries' }
   | { readonly type: 'invoice-settings' }
   /** The company's own print layouts (ADR-0025). */
   | { readonly type: 'print-layouts' }
@@ -83,6 +85,8 @@ export function refToHash(ref: ScreenRef): string {
       return '#/company/gmail';
     case 'exchange-sent':
       return '#/sent';
+    case 'website-enquiries':
+      return '#/website-enquiries';
     case 'invoice-settings':
       return '#/company/invoice-settings';
     case 'print-layouts':
@@ -126,6 +130,7 @@ export function hashToRef(hash: string): ScreenRef | undefined {
   if (path === '/company/user') return { type: 'company-user' };
   if (path === '/company/gmail') return { type: 'company-gmail' };
   if (path === '/sent') return { type: 'exchange-sent' };
+  if (path === '/website-enquiries') return { type: 'website-enquiries' };
   if (path === '/company/invoice-settings') return { type: 'invoice-settings' };
   if (path === '/company/print-layouts') return { type: 'print-layouts' };
   if (path === '/inbox') return { type: 'inbox' };

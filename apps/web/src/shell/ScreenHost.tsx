@@ -10,6 +10,7 @@ import { MasterFormScreen } from '../screens/MasterFormScreen';
 import { MasterListScreen } from '../screens/MasterListScreen';
 import { ReportScreen } from '../screens/ReportScreen';
 import { VoucherScreen } from '../screens/VoucherScreen';
+import { WebsiteEnquiriesScreen } from '../screens/WebsiteEnquiriesScreen';
 import { MenuScreen } from '../screens/MenuScreen';
 import { PlaceholderScreen } from '../screens/PlaceholderScreen';
 import { useScope, useServices, useSubscriptions } from './hooks';
@@ -38,6 +39,8 @@ function ScreenBody({ frame }: { frame: Frame<ScreenRef> }) {
       return <CompanyGmailScreen />;
     case 'exchange-sent':
       return <ExchangeSentScreen />;
+    case 'website-enquiries':
+      return <WebsiteEnquiriesScreen frame={frame} />;
     case 'invoice-settings':
       return <InvoiceSettingsScreen frame={frame} />;
     case 'print-layouts':

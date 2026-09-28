@@ -1,4 +1,4 @@
-import { type LocalDate, type Task, type TaskKind, type TaskList, TASK_STATUSES, dueThisWeek, isClosedStatus, tasksToShow } from '@minimalerp/domain';
+import { type LocalDate, type Task, type TaskKind, type TaskList, type WebsiteEnquiryList, TASK_STATUSES, dueThisWeek, isClosedStatus, tasksToShow } from '@minimalerp/domain';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useCommandHandler, useScope, useServices, useSubscriptions } from '../shell/hooks';
 import { defaultDate } from '../vouchers/entryHelpers';
@@ -24,10 +24,12 @@ export function TasksPanel() {
   const [list, setList] = useState<TaskList | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [open, setOpen] = useState<{ kind: TaskKind; task?: Task } | undefined>(undefined);
+  const [website, setWebsite] = useState<WebsiteEnquiryList | undefined>(undefined);
 
   useEffect(() => {
     if (!books) return;
     void host.tasks().then((r) => (r.ok ? setList(r.value) : setError(r.issues[0]?.message)));
+    void host.websiteEnquiries().then((r) => setWebsite(r.ok ? r.value : undefined));
   }, [books?.companyId]);
 
   const due = useMemo(
@@ -127,6 +129,14 @@ export function TasksPanel() {
         ))}
       </ul>
 
+      {website?.site && (
+        <p class="tasks-meta" data-testid="website-enquiries-count">
+          <button type="button" class="link" onClick={() => app.navigate({ type: 'website-enquiries' })}>
+            Website enquiries
+          </button>
+          {`: ${website.enquiries.filter((e) => e.status === 'new').length} new`}
+        </p>
+      )}
       <h3>Enquiries</h3>
       {shown && shown.enquiries.length === 0 && <p class="tasks-empty">No enquiries. + Enquiry adds one.</p>}
       <ul class="tasks-list" data-testid="enquiry-list">

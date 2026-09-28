@@ -23,6 +23,8 @@ import {
   localDate,
   type TaskCommand,
   type TaskList,
+  type WebsiteEnquiryCommand,
+  type WebsiteEnquiryList,
 } from '@minimalerp/domain';
 import type {
   ChangeFeed,
@@ -491,6 +493,10 @@ export interface BooksFactory {
   /** The Gateway's tasks and enquiries, and changing them. */
   tasks?(companyId: CompanyId): Promise<Result<TaskList>>;
   applyTask?(companyId: CompanyId, change: TaskCommand): Promise<Result<TaskList>>;
+  /** The company website's quote enquiries, changing one, and a download link for its drawing (online books). */
+  websiteEnquiries?(companyId: CompanyId): Promise<Result<WebsiteEnquiryList>>;
+  applyWebsiteEnquiry?(companyId: CompanyId, change: WebsiteEnquiryCommand): Promise<Result<WebsiteEnquiryList>>;
+  websiteDrawing?(companyId: CompanyId, id: string): Promise<Result<string>>;
   /** Forget the saved company (start over). Absent when the company is not the browser's to delete (the online books). */
   discard?(): Promise<void>;
   /** Whether the sample company may be loaded. False for the online books: it would fill someone's real books with make-believe. */
@@ -570,6 +576,25 @@ export class BooksHost {
     const id = this.current?.companyId;
     if (!id || !this.factory?.applyTask) return fail(issue(IssueCode.UnsupportedOperation, 'Tasks are not available here'));
     return this.factory.applyTask(id, change);
+  }
+
+  /** The company website's quote enquiries (the online books only: the website writes into the ERP's database). */
+  async websiteEnquiries(): Promise<Result<WebsiteEnquiryList>> {
+    const id = this.current?.companyId;
+    if (!id || !this.factory?.websiteEnquiries) return ok({ site: false, enquiries: [] });
+    return this.factory.websiteEnquiries(id);
+  }
+
+  async applyWebsiteEnquiry(change: WebsiteEnquiryCommand): Promise<Result<WebsiteEnquiryList>> {
+    const id = this.current?.companyId;
+    if (!id || !this.factory?.applyWebsiteEnquiry) return fail(issue(IssueCode.UnsupportedOperation, 'Website enquiries are not available here'));
+    return this.factory.applyWebsiteEnquiry(id, change);
+  }
+
+  async websiteDrawing(enquiryId: string): Promise<Result<string>> {
+    const id = this.current?.companyId;
+    if (!id || !this.factory?.websiteDrawing) return fail(issue(IssueCode.UnsupportedOperation, 'Website enquiries are not available here'));
+    return this.factory.websiteDrawing(id, enquiryId);
   }
 
   async companyMail(): Promise<Result<CompanyMail | null>> {

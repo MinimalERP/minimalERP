@@ -65,6 +65,14 @@ Deno.serve(
     },
     gatewayFor: (actorId: string, requestId: string) => new PostgresBackend(db, { actorId, requestId }),
     sendMail,
+    // a website enquiry's drawing: a link that works for an hour (the caller's permission was checked before this is asked)
+    signDrawing: async (path: string) => {
+      const { data, error } = await admin.storage.from('website-enquiry-drawings').createSignedUrl(path, 3600);
+      return error ? undefined : data.signedUrl;
+    },
+    removeDrawing: async (path: string) => {
+      await admin.storage.from('website-enquiry-drawings').remove([path]);
+    },
     onError: (error: unknown, requestId: string) =>
       console.error(JSON.stringify({ level: 'error', requestId, error: String(error), stack: (error as Error)?.stack })),
   }),

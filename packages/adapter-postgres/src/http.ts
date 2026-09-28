@@ -29,6 +29,9 @@ import {
   type TaskCommand,
   type TaskList,
   taskCommandSchema,
+  type WebsiteEnquiryCommand,
+  type WebsiteEnquiryList,
+  websiteEnquiryCommandSchema,
 } from '@minimalerp/domain';
 import type { InboxGateway, JournalRepository, MasterGateway, MastersRepository, PostOutcome, PostingGateway, StockRepository, VoucherRepository } from '@minimalerp/ports';
 import { z } from 'zod';
@@ -61,6 +64,9 @@ import { z } from 'zod';
  *         { action: 'print-layout-set', companyId, templates, images }   replace them (whoever may change the masters)
  *         { action: 'tasks', companyId }                 the Gateway's tasks and enquiries, and the people they can be for: { tasks, people }
  *         { action: 'task', companyId, change }          one change to them (create / update / note): the list after it
+ *         { action: 'website-enquiries', companyId }     the company website's quote enquiries: { site, enquiries }
+ *         { action: 'website-enquiry', companyId, change }   a status, 'convert' into a Gateway enquiry, or 'delete' (with its drawing)
+ *         { action: 'website-drawing', companyId, id }   a download link (an hour) for the drawing sent with one: { url }
  *   200   { ok: true,  value: { voucher, journal?, replayed? } }   money as decimal strings
  *   200   { ok: false, issues: [{ code, message, path? }] }        a business-rule refusal
  *   400 malformed request · 401 not signed in · 405 wrong method · 500 unexpected failure
@@ -149,6 +155,9 @@ const body = z.discriminatedUnion('action', [
   z.object({ action: z.literal('print-layout'), companyId }),
   z.object({ action: z.literal('tasks'), companyId }),
   z.object({ action: z.literal('task'), companyId, change: taskCommandSchema }),
+  z.object({ action: z.literal('website-enquiries'), companyId }),
+  z.object({ action: z.literal('website-enquiry'), companyId, change: websiteEnquiryCommandSchema }),
+  z.object({ action: z.literal('website-drawing'), companyId, id: z.string().min(1) }),
   z.object({
     action: z.literal('print-layout-set'),
     companyId,
@@ -183,6 +192,10 @@ export interface BooksServer extends PostingGateway, MasterGateway, MastersRepos
   /** The Gateway's tasks: read by anyone who sees the masters, changed by whoever may (task.write) — the database checks. */
   tasks(companyId: string): Promise<Result<TaskList>>;
   applyTask(companyId: string, change: TaskCommand): Promise<Result<TaskList>>;
+  /** The company website's enquiries: read by anyone who sees the masters, changed by whoever may keep tasks — the database checks. */
+  websiteEnquiries(companyId: string): Promise<Result<WebsiteEnquiryList>>;
+  applyWebsiteEnquiry(companyId: string, change: WebsiteEnquiryCommand): Promise<Result<WebsiteEnquiryList>>;
+  websiteDrawing(companyId: string, id: string): Promise<Result<string | null>>;
   /** The audit line for a voucher (or a party's ledger) emailed to its party: to whom — never the message or the file. */
   recordMail(companyId: CompanyId, entityId: string, to: readonly string[], entity?: 'voucher' | 'ledger'): Promise<void>;
 }
@@ -254,6 +267,10 @@ export interface PostingHandlerDeps {
   allowOrigin?: string;
   /** Hands a voucher's mail to the company's own Gmail script. Absent: this host cannot send mail at all. */
   sendMail?(mail: OutgoingMail, script: MailScript): Promise<MailResult>;
+  /** A signed download link (valid an hour) for a drawing in the website's bucket. Absent: this host cannot hand out drawings. */
+  signDrawing?(path: string): Promise<string | undefined>;
+  /** Removes a deleted enquiry's drawing from the bucket. */
+  removeDrawing?(path: string): Promise<void>;
 }
 
 const outcomeToWire = (o: PostOutcome) => ({
@@ -522,6 +539,22 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
           return asResponse(await gateway.tasks(cmd.companyId), (list) => list);
         case 'task':
           return asResponse(await gateway.applyTask(cmd.companyId, cmd.change), (list) => list);
+        case 'website-enquiries':
+          return asResponse(await gateway.websiteEnquiries(cmd.companyId), (list) => list);
+        case 'website-enquiry': {
+          // a deleted enquiry takes its drawing with it: the file's name is read before the row goes
+          const drawing = cmd.change.op === 'delete' ? await gateway.websiteDrawing(cmd.companyId, cmd.change.id) : undefined;
+          const r = await gateway.applyWebsiteEnquiry(cmd.companyId, cmd.change);
+          if (r.ok && drawing?.ok && drawing.value) await deps.removeDrawing?.(drawing.value);
+          return asResponse(r, (list) => list);
+        }
+        case 'website-drawing': {
+          const path = await gateway.websiteDrawing(cmd.companyId, cmd.id);
+          if (!path.ok) return json(200, path);
+          if (!path.value) return json(200, fail(issue(IssueCode.MasterNotFound, 'This enquiry has no drawing')));
+          const url = deps.signDrawing ? await deps.signDrawing(path.value) : undefined;
+          return url ? json(200, { ok: true, value: { url } }) : json(200, fail(issue(IssueCode.UnsupportedOperation, 'The drawing could not be fetched: try again')));
+        }
         case 'company-mail':
           return asResponse(await gateway.companyMail(cmd.companyId), (script) => ({ script }));
         case 'company-mail-set':

@@ -24,7 +24,7 @@ export const TASK_STATUSES = { task: ['open', 'done'], enquiry: ['new', 'working
 export type TaskStatus = (typeof TASK_STATUSES)[TaskKind][number];
 /** A status after which there is nothing more to do: it leaves the list a week later. */
 export const isClosedStatus = (s: string): boolean => s === 'done' || s === 'won' || s === 'lost';
-export const TASK_SOURCES = ['typed', 'gmail', 'assistant'] as const;
+export const TASK_SOURCES = ['typed', 'gmail', 'assistant', 'website'] as const;
 export type TaskSource = (typeof TASK_SOURCES)[number];
 
 export interface TaskNote {

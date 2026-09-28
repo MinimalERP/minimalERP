@@ -90,6 +90,7 @@ export * from './intake/remittance';
 export * from './intake/purchaseOrder';
 export * from './reports/digest';
 export * from './tasks/tasks';
+export * from './tasks/websiteEnquiries';
 export * from './reports/orderRegister';
 export * from './assistant/lookups';
 export * from './assistant/assistant';
