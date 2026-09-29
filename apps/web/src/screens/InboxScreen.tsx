@@ -96,7 +96,7 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
         if (!live) return;
         setShared(files);
         if (files[0]) onFile(files[0].file, files[0].id);
-        else if (receipt) setShareError(receipt.error || (receipt.files === 0 ? `no file came with the share (${receipt.fields} field${receipt.fields === 1 ? '' : 's'})` : 'the file was not saved on this device'));
+        else if (receipt) setShareError(receipt.error || (receipt.files === 0 ? 'the app that shared it did not let MinimalERP read the file. In WhatsApp, long-press the PDF in the chat and share from there, not from the PDF viewer' : 'the file was not saved on this device'));
         else if (targetFailed || targetShared) setShareError('the file was not saved on this device');
       })
       .catch((error: unknown) => {
