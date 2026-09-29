@@ -233,7 +233,7 @@ async function start(): Promise<void> {
 
 void start();
 
-// Installable as an app (Chrome › Install app) — the built site only, so development and the tests see no service worker.
+// Installable as an app and a document share target — the built site only, so development and browser tests see no service worker.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((error: unknown) => console.warn('No service worker:', error));
 }

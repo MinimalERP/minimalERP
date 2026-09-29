@@ -1,6 +1,7 @@
 import type { Frame } from '@minimalerp/command';
 import type { InboxItem } from '@minimalerp/ports';
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { removeSharedDocument, sharedDocuments, type SharedDocument } from '../books/sharedDocuments';
 import { ChooseOneDialog } from './ReportDialogs';
 import { Only } from '../shell/Only';
 import { useFrameState, useListNavigation, useServices, useSubscriptions } from '../shell/hooks';
@@ -51,7 +52,7 @@ function summaryOf(item: InboxItem): string {
 }
 
 /**
- * The AI Inbox (ADR-0023): the documents a person sent from Gmail ("Send to ERP → Sales Order"), each read and matched into a PROPOSAL.
+ * The AI Inbox (ADR-0023): documents shared from another app, uploaded here or sent from Gmail, read and matched into a PROPOSAL.
  * Nothing here is in the books. Enter opens the proposal in the voucher window — what was matched is filled in, what was not is the
  * document's own words for a person to pick or create (Alt+C) — and accepting it there posts it and takes it off this list. Alt+X, pressed
  * twice, throws a proposal away.
@@ -62,11 +63,14 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
   const books = host.current;
   const [items, setItems] = useState<readonly InboxItem[] | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [shareError, setShareError] = useState(false);
   const [index, setIndex] = useFrameState(frame, 'index', 0);
   const [notice, setNotice] = useFrameState<string | undefined>(frame, 'notice', undefined);
   const [confirmReject, setConfirmReject] = useState<string | undefined>(undefined);
   /** Upload: the file chosen, waiting for "what is it?" */
   const [picked, setPicked] = useState<File | undefined>(undefined);
+  const [pickedSharedId, setPickedSharedId] = useState<string | undefined>(undefined);
+  const [shared, setShared] = useState<SharedDocument[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
@@ -82,6 +86,24 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
   };
   // every time the list comes to the front (it is mounted afresh when a voucher window over it closes): someone may have accepted one meanwhile
   useEffect(load, [books]);
+  useEffect(() => {
+    const query = window.location.hash.split('?')[1] ?? '';
+    const targetFailed = new URLSearchParams(query).has('shareError');
+    let live = true;
+    void sharedDocuments()
+      .then((files) => {
+        if (!live) return;
+        setShared(files);
+        if (files[0]) onFile(files[0].file, files[0].id);
+        else if (targetFailed) setShareError(true);
+      })
+      .catch(() => {
+        if (live) setShareError(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const rows = items ?? [];
   const safeIndex = Math.min(index, Math.max(0, rows.length - 1));
@@ -122,18 +144,41 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
     fileRef.current?.click();
     return true;
   };
-  const onFile = (file: File | undefined) => {
+  function onFile(file: File | undefined, sharedId?: string) {
     if (fileRef.current) fileRef.current.value = ''; // the same file can be chosen again
     if (!file) return;
-    if (!READABLE.test(file.type)) return setError(`${file.name} cannot be read: choose a PDF or a photo (JPG, PNG).`);
-    if (file.size > MAX_UPLOAD) return setError(`${file.name} is larger than 10 MB.`);
+    if (!READABLE.test(file.type)) {
+      if (sharedId) {
+        void removeSharedDocument(sharedId);
+        setShared((files) => files.filter((item) => item.id !== sharedId));
+      }
+      setPickedSharedId(undefined);
+      return setError(`${file.name} cannot be read: choose a PDF or a photo (JPG, PNG).`);
+    }
+    if (file.size > MAX_UPLOAD) {
+      if (sharedId) {
+        void removeSharedDocument(sharedId);
+        setShared((files) => files.filter((item) => item.id !== sharedId));
+      }
+      setPickedSharedId(undefined);
+      return setError(`${file.name} is larger than 10 MB.`);
+    }
     setError(undefined);
+    setShareError(false);
     setPicked(file);
-  };
+    setPickedSharedId(sharedId);
+  }
   const send = (kind: string | undefined) => {
     const file = picked;
+    const sharedId = pickedSharedId;
+    if (!kind) {
+      setPicked(undefined);
+      setPickedSharedId(undefined);
+      return;
+    }
+    if (!books || !file) return;
     setPicked(undefined);
-    if (!books || !file || !kind) return;
+    setPickedSharedId(undefined);
     const label = UPLOAD_KINDS.find((k) => k.value === kind)?.label ?? kind;
     setNotice(`Sending ${file.name}…`);
     void base64Of(file)
@@ -145,6 +190,12 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
           return;
         }
         setNotice(`${file.name} is being read as a ${label}: it will appear here in about a minute.`);
+        if (sharedId) {
+          const remaining = shared.filter((item) => item.id !== sharedId);
+          setShared(remaining);
+          void removeSharedDocument(sharedId);
+          if (remaining[0]) onFile(remaining[0].file, remaining[0].id);
+        }
         // look again while it is being read (a busy Gemini may take up to two minutes)
         timers.current.push(...[20_000, 45_000, 90_000, 130_000].map((ms) => setTimeout(load, ms)));
       })
@@ -159,10 +210,10 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
       {selected && <Only scope={SCOPE} command="inbox.reject" run={reject} />}
       {books && !picked && <Only scope={SCOPE} command="inbox.upload" run={upload} />}
       <input ref={fileRef} type="file" accept="application/pdf,image/*" hidden data-testid="inbox-file" onChange={(e) => onFile((e.target as HTMLInputElement).files?.[0])} />
-      {picked && <ChooseOneDialog title={`What is ${picked.name}?`} options={UPLOAD_KINDS} onDone={send} />}
+      {picked && books && <ChooseOneDialog title={`What is ${picked.name}?`} options={UPLOAD_KINDS} onDone={send} />}
       <h1 id="inbox-title">AI Inbox</h1>
       <p class="lede">
-        Documents you sent from Gmail, read and matched. Nothing here is in the books until you accept it. <Kbd chord={chord('nav.activate') ?? 'Enter'} /> open
+        Documents shared from WhatsApp or uploaded here, read and matched. Nothing is in the books until you accept it. <Kbd chord={chord('nav.activate') ?? 'Enter'} /> open
         {chord('inbox.reject') && (
           <>
             {' '}
@@ -186,14 +237,26 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
           {error}
         </p>
       )}
+      {shareError && <p class="error" role="alert" data-testid="share-error">The shared file could not be received. Try sharing a PDF or supported photo smaller than 10 MB.</p>}
+      {shared.length > 0 && (!picked || !books) && (
+        <p class="notice" role="status" data-testid="shared-files-pending">
+          {books ? (
+            <>
+              {shared.length} shared file{shared.length === 1 ? '' : 's'} waiting.{' '}
+              <button type="button" class="link" onClick={() => onFile(shared[0]?.file, shared[0]?.id)}>Choose document type</button>
+            </>
+          ) : (
+            <>Open a company to choose a type and send {shared[0]?.file.name}; the shared file is saved on this device.</>
+          )}
+        </p>
+      )}
       {!books ? (
         <p class="empty">Open a company first.</p>
       ) : items === undefined ? (
         <p class="empty">Loading…</p>
       ) : rows.length === 0 ? (
         <p class="empty" data-testid="inbox-empty">
-          Nothing waiting. In Gmail, open a customer’s PO, a supplier’s bill or a payment advice and choose <strong>Send to ERP</strong> in the
-          MinimalERP panel — or upload a PDF or photo here ({chord('inbox.upload') ?? 'Alt+U'}).
+          Nothing waiting. Share a PDF or photo from WhatsApp or another app to <strong>MinimalERP</strong>, or upload a document here ({chord('inbox.upload') ?? 'Alt+U'}).
         </p>
       ) : (
         <>

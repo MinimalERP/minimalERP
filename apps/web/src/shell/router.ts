@@ -121,7 +121,7 @@ export function refToHash(ref: ScreenRef): string {
 
 /** The screen an address points at, or undefined if it is not one we recognise. */
 export function hashToRef(hash: string): ScreenRef | undefined {
-  const path = hash.replace(/^#/, '');
+  const path = hash.replace(/^#/, '').split('?')[0] ?? '';
   if (path === '' || path === '/' || path === '/gateway') return GATEWAY;
   if (path === '/settings/keyboard') return { type: 'settings-keyboard' };
   if (path === '/company/new') return { type: 'company-new' };
