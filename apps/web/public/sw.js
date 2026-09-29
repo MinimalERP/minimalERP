@@ -25,26 +25,27 @@ async function receiveSharedFiles(request) {
   let received = false;
   try {
     const form = await request.formData();
-    const files = [...form.values()].filter((value) => value instanceof File && value.size > 0 && value.size <= MAX_SHARED_FILE);
+    // FormData file values can cross browser realms in installed PWAs, so do not rely on instanceof File.
+    const files = [...form.values()].filter((value) => value && typeof value === 'object' && typeof value.size === 'number' && typeof value.slice === 'function' && value.size > 0 && value.size <= MAX_SHARED_FILE);
+    // Resolve metadata before opening the transaction: awaiting inside an IndexedDB transaction can let it auto-commit.
+    const records = await Promise.all(files.map(async (file) => ({
+      id: crypto.randomUUID(),
+      name: typeof file.name === 'string' && file.name ? file.name : 'shared-document.pdf',
+      type: file.type && file.type !== 'application/octet-stream' ? file.type : await mimeFromFile(file),
+      blob: file,
+      receivedAt: Date.now(),
+    })));
     const db = await openShareDb();
     try {
       const tx = db.transaction(SHARE_STORE, 'readwrite');
       const store = tx.objectStore(SHARE_STORE);
-      for (const file of files) {
-        store.put({
-          id: crypto.randomUUID(),
-          name: file.name || 'shared-document',
-          type: file.type && file.type !== 'application/octet-stream' ? file.type : await mimeFromFile(file),
-          blob: file,
-          receivedAt: Date.now(),
-        });
-      }
+      for (const record of records) store.put(record);
       await new Promise((resolve, reject) => {
         tx.oncomplete = resolve;
         tx.onerror = () => reject(tx.error);
         tx.onabort = () => reject(tx.error);
       });
-      received = files.length > 0;
+      received = records.length > 0;
     } finally {
       db.close();
     }
