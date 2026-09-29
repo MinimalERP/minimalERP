@@ -28,6 +28,7 @@ export function orderRegisterColumns(side: OrderSide = 'sales'): ColumnSpec<Orde
     { id: 'reference', label: purchase ? 'Supplier ref' : 'Cust PO / ref', type: 'text', value: (r) => r.reference },
     { id: 'party', label: 'Party', type: 'text', value: (r) => r.party },
     { id: 'item', label: 'Item', type: 'text', value: (r) => r.item },
+    { id: 'fill', label: 'Fill', type: 'number', align: 'right', value: (r) => fillRatio(r), text: (r) => fillText(r) },
     {
       id: 'due',
       label: 'Due',
@@ -38,7 +39,6 @@ export function orderRegisterColumns(side: OrderSide = 'sales'): ColumnSpec<Orde
     { id: 'ordered', label: 'Ordered', type: 'number', align: 'right', value: (r) => num(r.ordered), text: (r) => q(r, r.ordered) },
     { id: 'delivered', label: purchase ? 'Received' : 'Delivered', type: 'number', align: 'right', value: (r) => num(r.delivered), text: (r) => q(r, r.delivered) },
     { id: 'pending', label: 'Pending', type: 'number', align: 'right', value: (r) => num(r.pending), text: (r) => (r.pending === 0n ? '' : q(r, r.pending)) },
-    { id: 'fill', label: 'Fill', type: 'number', align: 'right', value: (r) => fillRatio(r), text: (r) => fillText(r) },
     {
       id: 'status',
       label: 'Status',
