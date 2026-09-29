@@ -89,13 +89,14 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
   useEffect(() => {
     const query = window.location.hash.split('?')[1] ?? '';
     const targetFailed = new URLSearchParams(query).has('shareError');
+    const targetShared = new URLSearchParams(query).has('shared');
     let live = true;
     void sharedDocuments()
       .then((files) => {
         if (!live) return;
         setShared(files);
         if (files[0]) onFile(files[0].file, files[0].id);
-        else if (targetFailed) setShareError(true);
+        else if (targetFailed || targetShared) setShareError(true);
       })
       .catch(() => {
         if (live) setShareError(true);
@@ -148,20 +149,12 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
     if (fileRef.current) fileRef.current.value = ''; // the same file can be chosen again
     if (!file) return;
     if (!READABLE.test(file.type)) {
-      if (sharedId) {
-        void removeSharedDocument(sharedId);
-        setShared((files) => files.filter((item) => item.id !== sharedId));
-      }
       setPickedSharedId(undefined);
-      return setError(`${file.name} cannot be read: choose a PDF or a photo (JPG, PNG).`);
+      return setError(`${file.name} is saved on this device, but its file type could not be identified. Try downloading it as a PDF or JPG, then share it again.`);
     }
     if (file.size > MAX_UPLOAD) {
-      if (sharedId) {
-        void removeSharedDocument(sharedId);
-        setShared((files) => files.filter((item) => item.id !== sharedId));
-      }
       setPickedSharedId(undefined);
-      return setError(`${file.name} is larger than 10 MB.`);
+      return setError(`${file.name} is larger than 10 MB. It is still saved on this device; share a smaller copy to send it.`);
     }
     setError(undefined);
     setShareError(false);

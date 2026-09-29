@@ -1,5 +1,14 @@
 const DB_NAME = 'minimalerp-shared-documents';
 const STORE_NAME = 'files';
+const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  heic: 'image/heic',
+  heif: 'image/heif',
+};
 
 interface StoredSharedDocument {
   readonly id: string;
@@ -12,6 +21,24 @@ interface StoredSharedDocument {
 export interface SharedDocument {
   readonly id: string;
   readonly file: File;
+}
+
+function mimeFromName(name: string): string {
+  const ext = name.toLowerCase().split('.').pop();
+  return MIME_BY_EXTENSION[ext ?? ''] ?? 'application/octet-stream';
+}
+
+async function readableMime(blob: Blob, name: string, type: string): Promise<string> {
+  if (type && type !== 'application/octet-stream') return type;
+  const named = mimeFromName(name);
+  if (named !== 'application/octet-stream') return named;
+  const bytes = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) return 'application/pdf';
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' && String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP') return 'image/webp';
+  if (String.fromCharCode(...bytes.slice(4, 8)) === 'ftyp') return 'image/heic';
+  return type || 'application/octet-stream';
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -34,9 +61,9 @@ export async function sharedDocuments(): Promise<SharedDocument[]> {
       request.onsuccess = () => resolve(request.result as StoredSharedDocument[]);
       request.onerror = () => reject(request.error);
     });
-    return records
+    return Promise.all(records
       .sort((a, b) => a.receivedAt - b.receivedAt)
-      .map((record) => ({ id: record.id, file: new File([record.blob], record.name, { type: record.type }) }));
+      .map(async (record) => ({ id: record.id, file: new File([record.blob], record.name, { type: await readableMime(record.blob, record.name, record.type) }) })));
   } finally {
     db.close();
   }
