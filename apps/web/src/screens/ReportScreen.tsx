@@ -288,16 +288,6 @@ function ReportBody({
   };
   const getChosenOrderRows = (): OrderRow[] | undefined =>
     canPickOrderLines && pickedOrderLines.length > 0 ? rows.filter((r): r is OrderRow => 'orderId' in r && pickedOrderLineSet.has(r.key)) : undefined;
-  const exportCsv = (): boolean => {
-    if (!canPickOrderLines) return false;
-    const exportRows = getChosenOrderRows() ?? (rows as readonly OrderRow[]);
-    const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
-    const header = columns.map((c) => quote(c.label)).join(',');
-    const body = exportRows.map((r) => columns.map((c) => quote(c.text ? c.text(r) : String(c.value(r) ?? ''))).join(','));
-    downloadText(`sales-order-register_${period.from}_${period.to}.csv`, [header, ...body].join('\r\n'), 'text/csv');
-    return true;
-  };
-  useCommandHandler(SCOPE, 'report.exportCsv', exportCsv);
   const openDocket = (): boolean => {
     const vs = chosenVouchers();
     const problem = docketProblem(vs, books);
@@ -344,7 +334,7 @@ function ReportBody({
 
   /** Exports exactly what's on screen — the same filtered/sorted rows `buildReportDoc` prints, as CSV. */
   const exportCsv = (): boolean => {
-    const doc = buildReportDoc();
+    const doc = buildReportDoc(getChosenOrderRows());
     const slug = doc.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     downloadText(`${slug}_${period.from}_${period.to}.csv`, csvOf([doc.columns.map((c) => c.label), ...doc.rows]), 'text/csv');
     return true;
