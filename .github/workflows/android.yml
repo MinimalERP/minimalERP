@@ -34,7 +34,7 @@ jobs:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       - name: Build the signed APK
         working-directory: apps/android
-        run: gradle --no-daemon assembleRelease -PversionCode=${{ github.run_number }}
+        run: gradle --no-daemon --stacktrace assembleRelease -PversionCode=${{ github.run_number }}
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.p12
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}

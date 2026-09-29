@@ -4,6 +4,7 @@ plugins {
 
 // The release key comes from CI secrets (see .github/workflows/android.yml); without it the build is an unsigned debug-only one.
 def keystorePath = System.getenv('ANDROID_KEYSTORE_PATH')
+def buildNumber = (project.findProperty('versionCode') ?: '1').toString()
 
 android {
     namespace 'com.minimalerp.app'
@@ -14,17 +15,17 @@ android {
         minSdk 24
         targetSdk 35
         // CI passes its run number, so every published APK installs over the one before
-        versionCode (project.findProperty('versionCode') ?: '1') as int
-        versionName "1.${(project.findProperty('versionCode') ?: '1')}"
+        versionCode Integer.parseInt(buildNumber)
+        versionName "1.${buildNumber}"
     }
 
     signingConfigs {
-        if (keystorePath) {
-            release {
+        release {
+            if (keystorePath) {
                 storeFile file(keystorePath)
-                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
-                keyAlias System.getenv('ANDROID_KEY_ALIAS')
-                keyPassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD') ?: ''
+                keyAlias System.getenv('ANDROID_KEY_ALIAS') ?: ''
+                keyPassword System.getenv('ANDROID_KEYSTORE_PASSWORD') ?: ''
             }
         }
     }
@@ -32,7 +33,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            if (keystorePath) signingConfig signingConfigs.release
+            if (keystorePath) signingConfig = signingConfigs.release
         }
     }
 
