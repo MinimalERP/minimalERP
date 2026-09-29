@@ -256,6 +256,10 @@ function ReportBody({
   const [picked, setPicked] = useFrameState<string[]>(frame, 'picked', []);
   const canPick = report === 'vouchers' && listKind !== undefined && isItemDocKind(listKind);
   const pickedSet = useMemo(() => new Set(picked), [picked]);
+  const canPickOrderLines = report === 'sales-orders';
+  const [pickedOrderLines, setPickedOrderLines] = useFrameState<string[]>(frame, 'picked-order-lines', []);
+  const pickedOrderLineSet = useMemo(() => new Set(pickedOrderLines), [pickedOrderLines]);
+  const toggleOrderLine = (r: OrderRow) => setPickedOrderLines(pickedOrderLineSet.has(r.key) ? pickedOrderLines.filter((key) => key !== r.key) : [...pickedOrderLines, r.key]);
   const rowVoucherId = (r: AnyRow | undefined): string | undefined => (r && 'voucherId' in r ? (r as { voucherId: string }).voucherId : undefined);
   const togglePick = (): boolean => {
     const id = rowVoucherId(rows[safeRow]);
@@ -278,9 +282,22 @@ function ReportBody({
       if (docs.length > 0) print.printVoucher(docs);
       return true;
     }
-    print.printReport(buildReportDoc());
+    const selectedOrderRows = getChosenOrderRows();
+    print.printReport(buildReportDoc(selectedOrderRows));
     return true;
   };
+  const getChosenOrderRows = (): OrderRow[] | undefined =>
+    canPickOrderLines && pickedOrderLines.length > 0 ? rows.filter((r): r is OrderRow => 'orderId' in r && pickedOrderLineSet.has(r.key)) : undefined;
+  const exportCsv = (): boolean => {
+    if (!canPickOrderLines) return false;
+    const exportRows = getChosenOrderRows() ?? (rows as readonly OrderRow[]);
+    const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
+    const header = columns.map((c) => quote(c.label)).join(',');
+    const body = exportRows.map((r) => columns.map((c) => quote(c.text ? c.text(r) : String(c.value(r) ?? ''))).join(','));
+    downloadText(`sales-order-register_${period.from}_${period.to}.csv`, [header, ...body].join('\r\n'), 'text/csv');
+    return true;
+  };
+  useCommandHandler(SCOPE, 'report.exportCsv', exportCsv);
   const openDocket = (): boolean => {
     const vs = chosenVouchers();
     const problem = docketProblem(vs, books);
@@ -310,8 +327,9 @@ function ReportBody({
 
   /** Every row the screen shows (filtered, sorted) — not just what `DataGrid` currently has in its DOM (it windows a long
    * report for speed); the same `text`/`value` each column already reads on screen decides what prints. */
-  const buildReportDoc = (): ReportDoc => {
-    const body = rows.map((r) => columns.map((c) => (c.text ? c.text(r) : String(c.value(r) ?? ''))));
+  const buildReportDoc = (selectedRows?: readonly AnyRow[]): ReportDoc => {
+    const reportRows = selectedRows ?? rows;
+    const body = reportRows.map((r) => columns.map((c) => (c.text ? c.text(r) : String(c.value(r) ?? ''))));
     const doc: ReportDoc = {
       kind: 'report',
       title,
@@ -319,7 +337,7 @@ function ReportBody({
       filters: chips.map((c) => c.text),
       columns: columns.map((c) => ({ label: c.label, align: c.align })),
       rows: body,
-      rowCount: `${rows.length} shown of ${baseRows.length}`,
+      rowCount: selectedRows ? `${selectedRows.length} selected of ${rows.length} shown` : `${rows.length} shown of ${baseRows.length}`,
     };
     return report === 'ledger' && ledger && ledgerStatement ? ledgerPrint(doc, body) : doc;
   };
@@ -522,6 +540,7 @@ function ReportBody({
           activeCol={safeCol}
           query={query}
           label={title}
+          selection={canPickOrderLines ? { columnId: 'item', selectedKeys: pickedOrderLineSet, onToggle: (r) => toggleOrderLine(r as OrderRow) } : undefined}
           rowClass={(r) =>
             (canPick && pickedSet.has(rowVoucherId(r) ?? '') ? 'picked ' : '') +
             ('rowType' in r
@@ -581,6 +600,13 @@ function ReportBody({
           <span data-testid="list-picked">
             {' · '}
             <strong>{picked.length} selected</strong> — {chord('report.print') ?? 'Ctrl+P'} prints them{listKind === 'sales' ? `, ${chord('voucher.docket') ?? 'Alt+D'} dispatch docket` : ''}
+          </span>
+        )}
+        {canPickOrderLines && (
+          <span data-testid="order-lines-picked">
+            {' · '}
+            {pickedOrderLines.length > 0 ? `${pickedOrderLines.length} order lines ticked` : 'Tick order lines in the Item column to export a subset'}
+            {' — '}{chord('report.exportCsv') ?? 'Ctrl+M'} exports CSV, {chord('report.print') ?? 'Ctrl+P'} prints
           </span>
         )}
         {' · '}
@@ -675,6 +701,7 @@ function ReportBody({
 
       {report === 'vouchers' && listKind && <Only scope={SCOPE} command={`list.new.${listKind}`} run={newVoucher} />}
       {gridSupportsTypeFilter(report) && <Only scope={SCOPE} command="report.types" run={() => (setDialog('types'), true)} />}
+      {canPickOrderLines && <Only scope={SCOPE} command="report.exportCsv" run={exportCsv} />}
       <Only scope={SCOPE} command="report.print" run={printList} />
       <Only scope={SCOPE} command="gst.exportCsv" run={exportCsv} />
       {canPick && <Only scope={SCOPE} command="list.pick" run={togglePick} />}

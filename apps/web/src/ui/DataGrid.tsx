@@ -15,6 +15,8 @@ export interface DataGridProps<R> {
   readonly onPickRow: (index: number) => void;
   readonly onPickColumn: (index: number) => void;
   readonly onSortColumn: (index: number) => void;
+  /** Optional row selection for reports that can export a subset. */
+  readonly selection?: { readonly columnId: string; readonly selectedKeys: ReadonlySet<string>; readonly onToggle: (row: R) => void } | undefined;
 }
 
 /** Rows drawn around the cursor: a long Day Book stays fast because only this many are in the page at once. */
@@ -79,6 +81,17 @@ export function DataGrid<R>(p: DataGridProps<R>) {
               >
                 {p.columns.map((c, ci) => (
                   <td key={c.id} class={`${c.align === 'right' ? 'num' : ''} ${ci === p.activeCol && i === p.activeRow ? 'active-cell' : ''}`}>
+                    {p.selection?.columnId === c.id && (
+                      <>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${cell(c, row)}`}
+                          checked={p.selection.selectedKeys.has(p.rowKey(row))}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => p.selection?.onToggle(row)}
+                        />{' '}
+                      </>
+                    )}
                     {cell(c, row)}
                   </td>
                 ))}
