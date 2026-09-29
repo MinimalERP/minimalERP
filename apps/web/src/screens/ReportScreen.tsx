@@ -6,6 +6,7 @@ import {
   type GridQuery,
   EMPTY_QUERY,
   applyGridQuery,
+  csvOf,
   cycleSort,
   hasActiveFilters,
   localDate,
@@ -37,6 +38,7 @@ import { useCommandHandler, useFrameState, useListNavigation, useServices, useSu
 import { Only } from '../shell/Only';
 import type { ReportKind, ScreenRef } from '../shell/router';
 import { DataGrid } from '../ui/DataGrid';
+import { downloadText } from '../ui/download';
 import { Kbd } from '../ui/Kbd';
 import { formatAmount, formatBalance, formatDate, formatQuantity, normalizeAmount, parseDateInput, todayText } from '../vouchers/format';
 import { FieldsDialog, LedgerDialog, MultiSelectDialog } from './ReportDialogs';
@@ -320,6 +322,14 @@ function ReportBody({
       rowCount: `${rows.length} shown of ${baseRows.length}`,
     };
     return report === 'ledger' && ledger && ledgerStatement ? ledgerPrint(doc, body) : doc;
+  };
+
+  /** Exports exactly what's on screen — the same filtered/sorted rows `buildReportDoc` prints, as CSV. */
+  const exportCsv = (): boolean => {
+    const doc = buildReportDoc();
+    const slug = doc.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    downloadText(`${slug}_${period.from}_${period.to}.csv`, csvOf([doc.columns.map((c) => c.label), ...doc.rows]), 'text/csv');
+    return true;
   };
 
   /**
@@ -666,6 +676,7 @@ function ReportBody({
       {report === 'vouchers' && listKind && <Only scope={SCOPE} command={`list.new.${listKind}`} run={newVoucher} />}
       {gridSupportsTypeFilter(report) && <Only scope={SCOPE} command="report.types" run={() => (setDialog('types'), true)} />}
       <Only scope={SCOPE} command="report.print" run={printList} />
+      <Only scope={SCOPE} command="gst.exportCsv" run={exportCsv} />
       {canPick && <Only scope={SCOPE} command="list.pick" run={togglePick} />}
       {canPick && listKind === 'sales' && dialog === undefined && <Only scope={SCOPE} command="voucher.docket" run={openDocket} />}
       {dialog === 'docket' && (
