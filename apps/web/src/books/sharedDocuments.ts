@@ -81,3 +81,20 @@ export async function removeSharedDocument(id: string): Promise<void> {
     db.close();
   }
 }
+
+/** What the service worker last received from a share (written by public/sw.js), taken once. */
+export interface ShareReceipt {
+  readonly at: number;
+  readonly fields: number;
+  readonly files: number;
+  readonly error: string;
+}
+
+export async function takeShareReceipt(): Promise<ShareReceipt | undefined> {
+  if (typeof caches === 'undefined') return undefined;
+  const cache = await caches.open('minimalerp-share-receipt');
+  const response = await cache.match('/__share-receipt');
+  if (!response) return undefined;
+  await cache.delete('/__share-receipt');
+  return (await response.json()) as ShareReceipt;
+}

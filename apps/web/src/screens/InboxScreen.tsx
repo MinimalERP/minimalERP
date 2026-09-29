@@ -1,7 +1,7 @@
 import type { Frame } from '@minimalerp/command';
 import type { InboxItem } from '@minimalerp/ports';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { removeSharedDocument, sharedDocuments, type SharedDocument } from '../books/sharedDocuments';
+import { removeSharedDocument, sharedDocuments, takeShareReceipt, type SharedDocument } from '../books/sharedDocuments';
 import { ChooseOneDialog } from './ReportDialogs';
 import { Only } from '../shell/Only';
 import { useFrameState, useListNavigation, useServices, useSubscriptions } from '../shell/hooks';
@@ -63,7 +63,7 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
   const books = host.current;
   const [items, setItems] = useState<readonly InboxItem[] | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
-  const [shareError, setShareError] = useState(false);
+  const [shareError, setShareError] = useState<string | undefined>(undefined);
   const [index, setIndex] = useFrameState(frame, 'index', 0);
   const [notice, setNotice] = useFrameState<string | undefined>(frame, 'notice', undefined);
   const [confirmReject, setConfirmReject] = useState<string | undefined>(undefined);
@@ -91,15 +91,16 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
     const targetFailed = new URLSearchParams(query).has('shareError');
     const targetShared = new URLSearchParams(query).has('shared');
     let live = true;
-    void sharedDocuments()
-      .then((files) => {
+    void Promise.all([sharedDocuments(), takeShareReceipt().catch(() => undefined)])
+      .then(([files, receipt]) => {
         if (!live) return;
         setShared(files);
         if (files[0]) onFile(files[0].file, files[0].id);
-        else if (targetFailed || targetShared) setShareError(true);
+        else if (receipt) setShareError(receipt.error || (receipt.files === 0 ? `no file came with the share (${receipt.fields} field${receipt.fields === 1 ? '' : 's'})` : 'the file was not saved on this device'));
+        else if (targetFailed || targetShared) setShareError('the file was not saved on this device');
       })
-      .catch(() => {
-        if (live) setShareError(true);
+      .catch((error: unknown) => {
+        if (live) setShareError(error instanceof Error ? error.message : String(error));
       });
     return () => {
       live = false;
@@ -157,7 +158,7 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
       return setError(`${file.name} is larger than 10 MB. It is still saved on this device; share a smaller copy to send it.`);
     }
     setError(undefined);
-    setShareError(false);
+    setShareError(undefined);
     setPicked(file);
     setPickedSharedId(sharedId);
   }
@@ -230,7 +231,7 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
           {error}
         </p>
       )}
-      {shareError && <p class="error" role="alert" data-testid="share-error">The shared file could not be received. Try sharing a PDF or supported photo smaller than 10 MB.</p>}
+      {shareError && <p class="error" role="alert" data-testid="share-error">The shared file could not be received ({shareError}). Try sharing a PDF or supported photo smaller than 10 MB.</p>}
       {shared.length > 0 && (!picked || !books) && (
         <p class="notice" role="status" data-testid="shared-files-pending">
           {books ? (

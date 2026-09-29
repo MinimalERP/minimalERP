@@ -10,6 +10,8 @@ self.addEventListener('fetch', (event) => {
 
 const SHARE_DB = 'minimalerp-shared-documents';
 const SHARE_STORE = 'files';
+const SHARE_RECEIPT_CACHE = 'minimalerp-share-receipt';
+const SHARE_RECEIPT_URL = '/__share-receipt';
 
 function openShareDb() {
   return new Promise((resolve, reject) => {
@@ -22,8 +24,10 @@ function openShareDb() {
 
 async function receiveSharedFiles(request) {
   let received = false;
+  const receipt = { at: Date.now(), fields: 0, files: 0, error: '' };
   try {
     const form = await request.formData();
+    receipt.fields = [...form.keys()].length;
     // FormData file values can cross browser realms in installed PWAs, so do not rely on instanceof File.
     const files = [...form.values()].filter((value) => value && typeof value === 'object' && typeof value.size === 'number' && typeof value.slice === 'function' && value.size > 0);
     // Resolve metadata before opening the transaction: awaiting inside an IndexedDB transaction can let it auto-commit.
@@ -45,11 +49,20 @@ async function receiveSharedFiles(request) {
         tx.onabort = () => reject(tx.error);
       });
       received = records.length > 0;
+      receipt.files = records.length;
     } finally {
       db.close();
     }
   } catch (error) {
     console.error('Could not receive shared documents', error);
+    receipt.error = String(error && error.message ? error.message : error);
+  }
+  // The Inbox reads this even if the address loses its ?shared mark on the way.
+  try {
+    const cache = await caches.open(SHARE_RECEIPT_CACHE);
+    await cache.put(SHARE_RECEIPT_URL, new Response(JSON.stringify(receipt), { headers: { 'Content-Type': 'application/json' } }));
+  } catch (error) {
+    console.error('Could not keep the share receipt', error);
   }
   return Response.redirect(new URL(received ? '#/inbox?shared=1' : '#/inbox?shareError=1', self.registration.scope), 303);
 }
