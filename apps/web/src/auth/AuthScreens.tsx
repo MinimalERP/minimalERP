@@ -2,6 +2,7 @@ import type { AuthGateway, AuthSession } from '@minimalerp/ports';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { type Landing, passwordProblem } from './config';
 import { Busy } from '../ui/Busy';
+import { ANDROID_APK_URL, offerAndroidApp } from '../ui/nativeApp';
 
 /**
  * What a person sees before they are signed in. There is no "create an account" here: the site is invite-only, so an account exists
@@ -126,6 +127,14 @@ function SignIn({
             Use without signing in
           </button>
           <span>Your books stay in this browser only: not backed up, not shared, and gone if you clear this site’s data.</span>
+        </p>
+      )}
+      {offerAndroidApp() && (
+        <p class="auth-local" data-testid="get-android-app">
+          <a class="button link" href={ANDROID_APK_URL}>
+            Get the Android app
+          </a>
+          <span>Share a bill from WhatsApp straight to the AI Inbox. Install it, allow this source if asked, then sign in there.</span>
         </p>
       )}
     </form>

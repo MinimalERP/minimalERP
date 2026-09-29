@@ -15,6 +15,12 @@ function bridge(): AndroidBridge | undefined {
 
 export const isAndroidApp = (): boolean => bridge() !== undefined;
 
+/** The latest signed build, published by .github/workflows/android.yml. */
+export const ANDROID_APK_URL = 'https://github.com/MinimalERP/minimalERP/releases/latest/download/MinimalERP.apk';
+
+/** On an Android phone in a browser (not already in the app): the sign-in page offers the app. */
+export const offerAndroidApp = (): boolean => !isAndroidApp() && /Android/i.test(navigator.userAgent);
+
 /** Files shared to the Android app since the page last asked (taken once). */
 export function takeAndroidShares(): { name: string; type: string; base64: string }[] {
   const native = bridge();
