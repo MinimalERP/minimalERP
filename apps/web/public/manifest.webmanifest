@@ -12,7 +12,7 @@
     "enctype": "multipart/form-data",
     "params": {
       "files": [
-        { "name": "files", "accept": ["application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"] }
+        { "name": "files", "accept": ["application/pdf", ".pdf", "image/png", ".png", "image/jpeg", ".jpg", ".jpeg", "image/webp", ".webp", "image/heic", ".heic", "image/heif", ".heif"] }
       ]
     }
   },

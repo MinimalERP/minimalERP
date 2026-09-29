@@ -219,7 +219,8 @@ export function bindRouter(screens: ScreenStack<ScreenRef>, win: RouterWindow): 
     else screens.reset(GATEWAY, ref);
   };
   const toAddress = () => {
-    const hash = refToHash(screens.top.screen);
+    const ref = screens.top.screen;
+    const hash = ref.type === 'inbox' ? withShareStatus(refToHash(ref), win.location.hash) : refToHash(ref);
     if (win.location.hash !== hash) win.history.replaceState(win.history.state ?? null, '', hash); // keeps the back button's mark
   };
 
@@ -234,6 +235,17 @@ export function bindRouter(screens: ScreenStack<ScreenRef>, win: RouterWindow): 
     offStack();
     win.removeEventListener('hashchange', onHash);
   };
+}
+
+/** Keep the service worker's share result long enough for the Inbox to show a received file or an error. */
+function withShareStatus(hash: string, currentHash: string): string {
+  const query = currentHash.split('?')[1] ?? '';
+  const params = new URLSearchParams(query);
+  if (!params.has('shared') && !params.has('shareError')) return hash;
+  const status = new URLSearchParams();
+  if (params.has('shared')) status.set('shared', '1');
+  if (params.has('shareError')) status.set('shareError', '1');
+  return `${hash}?${status.toString()}`;
 }
 
 /** Only what the back button needs from `window`. */

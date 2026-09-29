@@ -10,7 +10,6 @@ self.addEventListener('fetch', (event) => {
 
 const SHARE_DB = 'minimalerp-shared-documents';
 const SHARE_STORE = 'files';
-const MAX_SHARED_FILE = 10 * 1024 * 1024;
 
 function openShareDb() {
   return new Promise((resolve, reject) => {
@@ -26,7 +25,7 @@ async function receiveSharedFiles(request) {
   try {
     const form = await request.formData();
     // FormData file values can cross browser realms in installed PWAs, so do not rely on instanceof File.
-    const files = [...form.values()].filter((value) => value && typeof value === 'object' && typeof value.size === 'number' && typeof value.slice === 'function' && value.size > 0 && value.size <= MAX_SHARED_FILE);
+    const files = [...form.values()].filter((value) => value && typeof value === 'object' && typeof value.size === 'number' && typeof value.slice === 'function' && value.size > 0);
     // Resolve metadata before opening the transaction: awaiting inside an IndexedDB transaction can let it auto-commit.
     const records = await Promise.all(files.map(async (file) => ({
       id: crypto.randomUUID(),
