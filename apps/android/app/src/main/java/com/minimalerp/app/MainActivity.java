@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.res.Configuration;
+import android.graphics.Insets;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -13,6 +15,8 @@ import android.print.PrintManager;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Base64;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -20,6 +24,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import org.json.JSONArray;
@@ -51,7 +56,8 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         WebView.setWebContentsDebuggingEnabled(true); // chrome://inspect over USB, as for the installed web app
         web = new WebView(this);
-        setContentView(web);
+        setContentView(fitted(web));
+        readableBars();
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -131,6 +137,37 @@ public class MainActivity extends Activity {
         if (requestCode != PICK_FILE || pickCallback == null) return;
         pickCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
         pickCallback = null;
+    }
+
+    /**
+     * Android 15 draws every app edge to edge: keep the page clear of the status bar, the camera cut-out, the back/home buttons and the
+     * keyboard, with the bands in the page's own background (apps/web/src/ui/tokens.css) and bar icons that stay readable on it.
+     */
+    private FrameLayout fitted(WebView view) {
+        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        FrameLayout frame = new FrameLayout(this);
+        frame.setBackgroundColor(dark ? 0xFF16150F : 0xFFF6F5F1);
+        view.setBackgroundColor(dark ? 0xFF16150F : 0xFFF6F5F1);
+        frame.addView(view, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        frame.setOnApplyWindowInsetsListener((v, insets) -> {
+            if (Build.VERSION.SDK_INT >= 30) {
+                Insets i = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
+                v.setPadding(i.left, i.top, i.right, i.bottom);
+                return WindowInsets.CONSUMED;
+            }
+            v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(), insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            return insets.consumeSystemWindowInsets();
+        });
+        return frame;
+    }
+
+    private void readableBars() {
+        if (Build.VERSION.SDK_INT < 30) return;
+        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        WindowInsetsController bars = getWindow().getInsetsController();
+        if (bars == null) return;
+        int light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+        bars.setSystemBarsAppearance(dark ? 0 : light, light);
     }
 
     /** A fresh page load (the query makes it one even from the Inbox itself), so the Inbox mounts and takes the files. */
