@@ -1,4 +1,6 @@
-const DB_NAME = 'minimalerp-shared-documents';
+import { takeAndroidShares } from '../ui/nativeApp';
+
+const DB_NAME ='minimalerp-shared-documents';
 const STORE_NAME = 'files';
 const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   pdf: 'application/pdf',
@@ -52,10 +54,29 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
+/** Files shared to the Android app join those the service worker received, so the rest of the Inbox's flow is the same. */
+async function keepAndroidShares(db: IDBDatabase): Promise<void> {
+  const files = takeAndroidShares();
+  if (files.length === 0) return;
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  for (const f of files) {
+    const bytes = Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0));
+    const record: StoredSharedDocument = { id: crypto.randomUUID(), name: f.name, type: f.type, blob: new Blob([bytes], { type: f.type }), receivedAt: Date.now() };
+    store.put(record);
+  }
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
 /** Shared files stay on this device until their owner submits them to the AI reader. */
 export async function sharedDocuments(): Promise<SharedDocument[]> {
   const db = await openDb();
   try {
+    await keepAndroidShares(db);
     const records = await new Promise<StoredSharedDocument[]>((resolve, reject) => {
       const request = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).getAll();
       request.onsuccess = () => resolve(request.result as StoredSharedDocument[]);

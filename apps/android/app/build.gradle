@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The release key comes from CI secrets (see .github/workflows/android.yml); without it the build is an unsigned debug-only one.
+def keystorePath = System.getenv('ANDROID_KEYSTORE_PATH')
+
+android {
+    namespace 'com.minimalerp.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.minimalerp.app'
+        minSdk 24
+        targetSdk 35
+        // CI passes its run number, so every published APK installs over the one before
+        versionCode (project.findProperty('versionCode') ?: '1') as int
+        versionName "1.${(project.findProperty('versionCode') ?: '1')}"
+    }
+
+    signingConfigs {
+        if (keystorePath) {
+            release {
+                storeFile file(keystorePath)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keystorePath) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { useCommandHandler, useFrameState, useListNavigation, useScope, useServices, useSubscriptions } from '../shell/hooks';
 import type { ScreenRef } from '../shell/router';
 import { ListView } from '../ui/ListView';
+import { isAndroidApp, openInApp } from '../ui/nativeApp';
 import { formatDate } from '../vouchers/format';
 
 const SCOPE = 'screen:website-enquiries';
@@ -132,8 +133,10 @@ function EnquiryDialog({ enquiry: e, onChange, onClose }: { enquiry: WebsiteEnqu
     onClose();
   };
   const drawing = async () => {
-    const tab = window.open('', '_blank'); // opened now, while the click counts, so it is not blocked as a pop-up
+    const inApp = isAndroidApp(); // the Android app opens it in the phone's browser; there is no pop-up to pre-open
+    const tab = inApp ? null : window.open('', '_blank'); // opened now, while the click counts, so it is not blocked as a pop-up
     const r = await host.websiteDrawing(e.id);
+    if (inApp && r.ok && r.value) return void openInApp(r.value);
     if (r.ok && r.value) {
       if (tab) tab.location.href = r.value;
       else window.location.assign(r.value);

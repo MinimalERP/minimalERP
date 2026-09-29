@@ -1,3 +1,4 @@
+import { printPage } from './nativeApp';
 import type { DocketDoc, PrintDoc, ReportDoc } from './PrintView';
 
 /** What "1 copy" … "4 copies" prints — Original / Duplicate / Triplicate / a plain Extra Copy, the classic GST-invoice convention. */
@@ -77,7 +78,7 @@ export class PrintCoordinator {
    * `window.print()` is not guaranteed to block until the dialog closes, so tearing down on its return could race the
    * browser's own capture of the page. */
   private fireWhenMounted(): void {
-    setTimeout(() => window.print(), 0);
+    setTimeout(printPage, 0);
   }
 
   private notify(): void {

@@ -2,6 +2,7 @@ import { type Issue, type Result, type Voucher, MAX_MAIL_FILES, MAX_MAIL_TOTAL_B
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { Hint } from '../shell/Hint';
+import { saveInApp } from '../ui/nativeApp';
 import { useCommandHandler, useScope } from '../shell/hooks';
 
 const SCOPE = 'overlay:mail';
@@ -26,6 +27,7 @@ function readBase64(file: File): Promise<string> {
 function openFile(a: { readonly name: string; readonly base64: string }): void {
   const bytes = Uint8Array.from(atob(a.base64), (c) => c.charCodeAt(0));
   const pdf = /\.pdf$/i.test(a.name);
+  if (saveInApp(a.name, pdf ? 'application/pdf' : 'application/octet-stream', bytes)) return;
   const url = URL.createObjectURL(new Blob([bytes], { type: pdf ? 'application/pdf' : 'application/octet-stream' }));
   if (pdf) window.open(url, '_blank', 'noopener');
   else {
