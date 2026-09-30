@@ -134,7 +134,10 @@ function ReportBody({
     const t = todayText();
     return t >= y.start && t <= y.end;
   }) ?? masters.financialYears.at(-1);
-  const [query, setQuery] = useFrameState<GridQuery>(frame, 'query', EMPTY_QUERY);
+  const defaultQuery: GridQuery = report === 'sales-orders'
+    ? { ...EMPTY_QUERY, filters: { status: { kind: 'in', values: ['Open'] } } }
+    : EMPTY_QUERY;
+  const [query, setQuery] = useFrameState<GridQuery>(frame, 'query', defaultQuery);
   // Outstanding is AS ON a date (today, unless changed with F2); the rest cover the financial year.
   const today = todayText();
   const asOnReport = gridUsesAsOnDate(report);
@@ -449,8 +452,8 @@ function ReportBody({
       <FieldsDialog
         title={`Filter ${c.label}`}
         fields={[
-          { key: 'min', label: 'From', value: existing?.kind === 'range' ? shown(existing.min) : '', hint: isDate ? 'a date like 10-5-24' : isNumber ? 'a quantity like 25' : 'an amount like 10,000' },
-          { key: 'max', label: 'To', value: existing?.kind === 'range' ? shown(existing.max) : '' },
+          { key: 'min', label: 'From', value: existing?.kind === 'range' ? shown(existing.min) : report === 'sales-orders' && isNumber ? '0' : '', hint: isDate ? 'a date like 10-5-24' : isNumber ? 'a quantity like 25' : 'an amount like 10,000' },
+          { key: 'max', label: 'To', value: existing?.kind === 'range' ? shown(existing.max) : report === 'sales-orders' && isNumber ? '0' : '' },
         ]}
         validate={(v) => {
           const errs: Record<string, string> = {};
