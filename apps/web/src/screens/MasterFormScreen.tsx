@@ -50,6 +50,10 @@ function itemFileUrl(file: ItemFile): string {
   return `data:${file.mimeType};base64,${file.base64}`;
 }
 
+function isPdf(file: ItemFile): boolean {
+  return file.mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+}
+
 function itemMainDrawing(item: import('@minimalerp/domain').StockItem): ItemFile | undefined {
   return item.mainDrawingFile ?? (item.mainDrawingId ? item.details?.flatMap((row) => row.files).find((file) => file.id === item.mainDrawingId) : undefined);
 }
@@ -114,6 +118,7 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
   const [banner, setBanner] = useState<{ text: string; tone: 'error' | 'ok' } | undefined>(undefined);
   const leave = useLeaveGuard();
   const [busy, setBusy] = useState(false);
+  const [pdfViewerFile, setPdfViewerFile] = useState<ItemFile | undefined>(undefined);
   const [pick, setPick] = useState({ index: 0, touched: false });
   /** The field whose popup list was closed with Esc. Typing, ↓ or moving to another field opens a list again. */
   const [pickerClosed, setPickerClosed] = useState<string | undefined>(undefined);
@@ -694,7 +699,7 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
             <h2 class="form-section">Main drawing</h2>
             {mainDrawingFile ? (
               <div class="item-file-row">
-                <a href={itemFileUrl(mainDrawingFile)} download={mainDrawingFile.name}>{mainDrawingFile.name}</a>
+                <a href={itemFileUrl(mainDrawingFile)} download={!isPdf(mainDrawingFile) ? mainDrawingFile.name : undefined} onClick={(e) => { if (isPdf(mainDrawingFile)) { e.preventDefault(); setPdfViewerFile(mainDrawingFile); } }}>{mainDrawingFile.name}</a>
                 {linkedDrawingItem && <span class="field-hint">Linked from {linkedDrawingItem.code ? `${linkedDrawingItem.code} — ` : ''}{linkedDrawingItem.name}</span>}
                 {!readOnly && <button type="button" class="item-file-remove" onClick={() => saveMainDrawingFile(undefined)}>Remove main drawing</button>}
               </div>
@@ -722,7 +727,7 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
                       <td><input aria-label={`Detail 2, row ${rowIndex + 1}`} value={row.detail2} readOnly={readOnly} onInput={(e) => { const next = [...itemDetails]; next[rowIndex] = { ...row, detail2: (e.target as HTMLInputElement).value }; saveItemDetails(next); }} /></td>
                       <td>
                         <ul class="item-file-list">
-                          {row.files.map((file, fileIndex) => <li key={`${file.name}-${fileIndex}`}><a href={itemFileUrl(file)} download={file.name}>{file.name}</a>{!readOnly && <button type="button" class="item-file-remove" aria-label={`Remove ${file.name}`} onClick={() => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: row.files.filter((_, i) => i !== fileIndex) }; saveItemDetails(next); }}>×</button>}</li>)}
+                          {row.files.map((file, fileIndex) => <li key={`${file.name}-${fileIndex}`}><a href={itemFileUrl(file)} download={!isPdf(file) ? file.name : undefined} onClick={(e) => { if (isPdf(file)) { e.preventDefault(); setPdfViewerFile(file); } }}>{file.name}</a>{!readOnly && <button type="button" class="item-file-remove" aria-label={`Remove ${file.name}`} onClick={() => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: row.files.filter((_, i) => i !== fileIndex) }; saveItemDetails(next); }}>×</button>}</li>)}
                         </ul>
                         {!readOnly && <label class="item-attach-file">Attach file<input type="file" multiple onChange={(e) => { const input = e.target as HTMLInputElement; const chosen = [...(input.files ?? [])]; input.value = ''; void Promise.all(chosen.map((file) => fileAsItemFile(file))).then((files) => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: [...row.files, ...files].slice(0, 10) }; saveItemDetails(next); }).catch((error: unknown) => setBanner({ text: error instanceof Error ? error.message : 'Could not read those files.', tone: 'error' })); }} /></label>}
                         {!readOnly && <button type="button" class="item-file-remove" aria-label={`Remove row ${rowIndex + 1}`} onClick={() => saveItemDetails(itemDetails.filter((_, i) => i !== rowIndex))}>×</button>}
@@ -737,6 +742,19 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
           </section>
         )}
       </form>
+
+      {pdfViewerFile && (
+        <div class="item-pdf-backdrop" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) setPdfViewerFile(undefined); }} onKeyDown={(e) => { if (e.key === 'Escape') setPdfViewerFile(undefined); }}>
+          <section class="item-pdf-viewer" role="dialog" aria-modal="true" aria-label={`PDF viewer: ${pdfViewerFile.name}`}>
+            <header class="item-pdf-viewer-head">
+              <strong>{pdfViewerFile.name}</strong>
+              <a class="button" href={itemFileUrl(pdfViewerFile)} download={pdfViewerFile.name}>Download</a>
+              <button type="button" class="button" autoFocus onClick={() => setPdfViewerFile(undefined)}>Close</button>
+            </header>
+            <iframe title={`PDF preview: ${pdfViewerFile.name}`} src={itemFileUrl(pdfViewerFile)} />
+          </section>
+        </div>
+      )}
 
     </section>
   );
