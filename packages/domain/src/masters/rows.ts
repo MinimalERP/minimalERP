@@ -208,6 +208,8 @@ export function buildMasters(core: unknown, ledgerRows: unknown): Masters {
       hsn: optStr(o, 'hsn'),
       gstRateId: rate === undefined ? null : asGstRateId(rate),
       itemType: str(o, 'item_type') as ItemType,
+      mainDrawing: fileOf(o['main_drawing']),
+      details: detailsOf(o['details']),
       isActive: bool(o, 'is_active'),
     };
   });
@@ -265,6 +267,23 @@ export function buildMasters(core: unknown, ledgerRows: unknown): Masters {
     stockItems,
     warehouses,
     gstRates,
+  });
+}
+
+function fileOf(v: unknown): StockItem['mainDrawing'] {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const f = v as Record<string, unknown>;
+  if (typeof f['name'] !== 'string' || typeof f['mimeType'] !== 'string' || typeof f['base64'] !== 'string') return undefined;
+  return { name: f['name'], mimeType: f['mimeType'], base64: f['base64'] };
+}
+
+function detailsOf(v: unknown): StockItem['details'] {
+  if (!Array.isArray(v)) return undefined;
+  return v.flatMap((entry) => {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return [];
+    const row = entry as Record<string, unknown>;
+    const files = Array.isArray(row['files']) ? row['files'].map(fileOf).filter((f) => f !== undefined) : [];
+    return [{ detail1: typeof row['detail1'] === 'string' ? row['detail1'] : '', detail2: typeof row['detail2'] === 'string' ? row['detail2'] : '', files }];
   });
 }
 

@@ -297,6 +297,17 @@ export const FORMS: Readonly<Record<MasterKind, FormSpec>> = {
         hint: 'Left blank: the main godown',
       }),
     ],
+    fromRecord: (record, values) => {
+      const item = record as import('@minimalerp/domain').StockItem;
+      return { ...values, __mainDrawing: JSON.stringify(item.mainDrawing ?? null), __details: JSON.stringify(item.details ?? []) };
+    },
+    toData: (values, data) => {
+      let mainDrawing: unknown = null;
+      let details: unknown = [];
+      try { mainDrawing = JSON.parse(values.__mainDrawing ?? 'null'); } catch { /* ignore malformed transient state */ }
+      try { details = JSON.parse(values.__details ?? '[]'); } catch { /* ignore malformed transient state */ }
+      return { ...data, mainDrawing, details };
+    },
   },
   warehouse: {
     kind: 'warehouse',

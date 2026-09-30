@@ -125,6 +125,8 @@ export function masterRecordToRow(kind: MasterKind, record: MasterRecord): Row {
         hsn: nul(i.hsn),
         gst_rate_id: i.gstRateId,
         item_type: i.itemType,
+        main_drawing: i.mainDrawing ?? null,
+        details: i.details ?? [],
         is_active: i.isActive,
       };
     }

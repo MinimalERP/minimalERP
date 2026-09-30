@@ -105,7 +105,22 @@ export interface StockItem {
   readonly hsn?: string | undefined;
   readonly gstRateId: GstRateId | null;
   readonly itemType: ItemType;
+  /** Optional drawing and flexible notes/files attached to this item master. Files are kept as base64 for the existing company snapshot path. */
+  readonly mainDrawing?: ItemFile | undefined;
+  readonly details?: readonly StockItemDetail[] | undefined;
   readonly isActive: boolean;
+}
+
+export interface ItemFile {
+  readonly name: string;
+  readonly mimeType: string;
+  readonly base64: string;
+}
+
+export interface StockItemDetail {
+  readonly detail1: string;
+  readonly detail2: string;
+  readonly files: readonly ItemFile[];
 }
 
 /** A godown / store / location that holds stock. May be nested (Plant → Store 1). */

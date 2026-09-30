@@ -1,5 +1,6 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
 import { type Issue, type MasterKind, type MasterRecord, findMaster, isMasterActive, partyLedgerId } from '@minimalerp/domain';
+import type { ItemFile, StockItemDetail } from '@minimalerp/domain';
 import { Fragment } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import {
@@ -28,6 +29,26 @@ import { SeriesAdvanceDialog } from './SeriesAdvanceDialog';
 
 const SCOPE = 'screen:master';
 const MAX_OPTIONS = 8;
+const MAX_ITEM_FILE_BYTES = 10 * 1024 * 1024;
+
+function decodeJson<T>(value: string | undefined, fallback: T): T {
+  try { return value === undefined ? fallback : JSON.parse(value) as T; } catch { return fallback; }
+}
+
+async function fileAsItemFile(file: File): Promise<ItemFile> {
+  if (file.size > MAX_ITEM_FILE_BYTES) throw new Error('Files must be 10 MB or smaller.');
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read that file.'));
+    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read that file.'));
+    reader.readAsDataURL(file);
+  });
+  return { name: file.name, mimeType: file.type || 'application/octet-stream', base64: dataUrl.split(',')[1] ?? '' };
+}
+
+function itemFileUrl(file: ItemFile): string {
+  return `data:${file.mimeType};base64,${file.base64}`;
+}
 
 /** What a screen opened for a result hands back to the field that asked for it. */
 export interface CreatedMaster {
@@ -116,6 +137,20 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
     const nextValues = { ...freshValues(), [key]: value };
     setValues(nextValues);
     if (label !== undefined) setLabels({ ...((frame.state.get('labels') as Record<string, string> | undefined) ?? labels), [key]: label });
+  };
+
+  const mainDrawing = kind === 'stockItem' ? decodeJson<ItemFile | null>(values.__mainDrawing, existing && 'mainDrawing' in existing ? existing.mainDrawing ?? null : null) : null;
+  const itemDetails = kind === 'stockItem' ? decodeJson<StockItemDetail[]>(values.__details, existing && 'details' in existing ? [...(existing.details ?? [])] : []) : [];
+  const saveMainDrawing = (file: ItemFile | null) => setValues({ ...freshValues(), __mainDrawing: JSON.stringify(file) });
+  const saveItemDetails = (details: StockItemDetail[]) => setValues({ ...freshValues(), __details: JSON.stringify(details) });
+  const uploadItemFile = async (file: File | undefined, done: (value: ItemFile) => void) => {
+    if (!file) return;
+    try {
+      done(await fileAsItemFile(file));
+      setBanner(undefined);
+    } catch (error) {
+      setBanner({ text: error instanceof Error ? error.message : 'Could not read that file.', tone: 'error' });
+    }
   };
 
   // What a ref/choice field shows: what is being typed, else the chosen record's name.
@@ -646,6 +681,42 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
             </Fragment>
           );
         })}
+        {kind === 'stockItem' && (
+          <section class="item-documents" aria-label="Stock item drawings and details" data-testid="item-documents">
+            <h2 class="form-section">Main drawing</h2>
+            {mainDrawing ? (
+              <div class="item-file-row">
+                <a href={itemFileUrl(mainDrawing)} download={mainDrawing.name}>{mainDrawing.name}</a>
+                {!readOnly && <button type="button" class="item-file-remove" onClick={() => saveMainDrawing(null)}>Remove</button>}
+              </div>
+            ) : <p class="field-hint">No main drawing attached.</p>}
+            {!readOnly && <label class="item-upload">Upload main drawing<input type="file" onChange={(e) => { const input = e.target as HTMLInputElement; void uploadItemFile(input.files?.[0], saveMainDrawing).finally(() => { input.value = ''; }); }} /></label>}
+
+            <h2 class="form-section">Item details and files</h2>
+            <div class="item-details-scroll">
+              <table class="item-details-table">
+                <thead><tr><th scope="col">Detail 1</th><th scope="col">Detail 2</th><th scope="col">Files</th>{!readOnly && <th scope="col" aria-label="Row actions" />}</tr></thead>
+                <tbody>
+                  {itemDetails.map((row, rowIndex) => (
+                    <tr key={rowIndex}>
+                      <td><textarea aria-label={`Detail 1, row ${rowIndex + 1}`} value={row.detail1} readOnly={readOnly} onInput={(e) => { const next = [...itemDetails]; next[rowIndex] = { ...row, detail1: (e.target as HTMLTextAreaElement).value }; saveItemDetails(next); }} /></td>
+                      <td><textarea aria-label={`Detail 2, row ${rowIndex + 1}`} value={row.detail2} readOnly={readOnly} onInput={(e) => { const next = [...itemDetails]; next[rowIndex] = { ...row, detail2: (e.target as HTMLTextAreaElement).value }; saveItemDetails(next); }} /></td>
+                      <td>
+                        <ul class="item-file-list">
+                          {row.files.map((file, fileIndex) => <li key={`${file.name}-${fileIndex}`}><a href={itemFileUrl(file)} download={file.name}>{file.name}</a>{!readOnly && <button type="button" class="item-file-remove" aria-label={`Remove ${file.name}`} onClick={() => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: row.files.filter((_, i) => i !== fileIndex) }; saveItemDetails(next); }}>×</button>}</li>)}
+                        </ul>
+                        {!readOnly && <label class="item-upload">Add files<input type="file" multiple onChange={(e) => { const input = e.target as HTMLInputElement; const chosen = [...(input.files ?? [])]; input.value = ''; void Promise.all(chosen.map((file) => fileAsItemFile(file))).then((files) => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: [...row.files, ...files].slice(0, 10) }; saveItemDetails(next); }).catch((error: unknown) => setBanner({ text: error instanceof Error ? error.message : 'Could not read those files.', tone: 'error' })); }} /></label>}
+                      </td>
+                      {!readOnly && <td><button type="button" class="item-file-remove" aria-label={`Remove row ${rowIndex + 1}`} onClick={() => saveItemDetails(itemDetails.filter((_, i) => i !== rowIndex))}>Remove row</button></td>}
+                    </tr>
+                  ))}
+                  {itemDetails.length === 0 && <tr><td colSpan={readOnly ? 3 : 4} class="item-details-empty">No detail rows yet.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            {!readOnly && <button type="button" class="item-add-row" disabled={itemDetails.length >= 200} onClick={() => saveItemDetails([...itemDetails, { detail1: '', detail2: '', files: [] }])}>Add detail row</button>}
+          </section>
+        )}
       </form>
 
     </section>
