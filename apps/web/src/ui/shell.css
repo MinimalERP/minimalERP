@@ -272,16 +272,14 @@
 .item-upload input { max-width: 18rem; color: var(--c-text); font: inherit; }
 .item-file-row { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); }
 .item-details-scroll { overflow-x: auto; }
-.item-details-table { width: 100%; min-width: 640px; border-collapse: collapse; }
-.item-details-table th, .item-details-table td { padding: var(--sp-2); border-bottom: 1px solid var(--c-border); text-align: left; vertical-align: top; }
-.item-details-table th { background: var(--c-surface-alt); color: var(--c-text-muted); font-weight: 600; }
-.item-details-table textarea { box-sizing: border-box; width: 100%; min-height: 4.5rem; resize: vertical; font: inherit; color: var(--c-text); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius); padding: var(--sp-2); }
-.item-details-table textarea[readonly] { border-color: transparent; resize: none; }
+.item-details-table { width: 100%; border-collapse: collapse; }
+.item-details-table th, .item-details-table td { padding: 4px 8px; border: 1px solid var(--c-border); text-align: left; vertical-align: middle; }
+.item-details-table input:not([type="file"]) { box-sizing: border-box; width: 100%; min-width: 10rem; font: inherit; color: var(--c-text); background: var(--c-surface); border: 0; padding: 4px; }
+.item-details-table input[readonly] { color: var(--c-text); }
 .item-file-list { list-style: none; margin: 0 0 var(--sp-2); padding: 0; }
 .item-file-list li { display: flex; align-items: center; gap: var(--sp-2); overflow-wrap: anywhere; margin-bottom: var(--sp-1); }
-.item-file-remove, .item-add-row { font: inherit; color: var(--c-accent); background: transparent; border: 1px solid var(--c-border); border-radius: var(--radius); padding: 2px var(--sp-2); cursor: pointer; }
-.item-add-row { margin: var(--sp-3) var(--sp-4); }
-.item-details-empty { color: var(--c-text-muted); }
+.item-file-remove, .item-add-row { font: inherit; color: var(--c-accent); background: transparent; border: 0; padding: 2px 4px; cursor: pointer; text-decoration: underline; }
+.item-add-row { margin: var(--sp-2) 0; }
 .field-row {
   display: grid; grid-template-columns: 13em 1fr; align-items: start; gap: var(--sp-4);
   padding: var(--sp-3) var(--sp-4);

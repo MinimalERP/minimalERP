@@ -209,7 +209,8 @@ export function buildMasters(core: unknown, ledgerRows: unknown): Masters {
       gstRateId: rate === undefined ? null : asGstRateId(rate),
       itemType: str(o, 'item_type') as ItemType,
       mainDrawingId: typeof o['main_drawing'] === 'string' ? o['main_drawing'] : undefined,
-      ...(fileOf(o['main_drawing']) ? { legacyMainDrawing: fileOf(o['main_drawing']) } : {}),
+      ...(linkedStockItemIdOf(o['main_drawing']) ? { mainDrawingItemId: asStockItemId(linkedStockItemIdOf(o['main_drawing']) as string) } : {}),
+      ...(fileOf(o['main_drawing']) ? { mainDrawingFile: fileOf(o['main_drawing']) } : {}),
       details: detailsOf(o['details']),
       isActive: bool(o, 'is_active'),
     };
@@ -277,6 +278,12 @@ function fileOf(v: unknown): ItemFile | undefined {
   if (typeof f['name'] !== 'string' || typeof f['mimeType'] !== 'string' || typeof f['base64'] !== 'string') return undefined;
   const id = typeof f['id'] === 'string' ? f['id'] : deterministicUuid(`legacy-stock-item-file|${f['base64']}`);
   return { id, name: f['name'], mimeType: f['mimeType'], base64: f['base64'] };
+}
+
+function linkedStockItemIdOf(v: unknown): string | undefined {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const id = (v as Record<string, unknown>)['linkedStockItemId'];
+  return typeof id === 'string' ? id : undefined;
 }
 
 function detailsOf(v: unknown): StockItem['details'] {

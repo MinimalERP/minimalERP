@@ -68,10 +68,15 @@ const qtyText = (masters: Masters, item: StockItem, q: bigint) => {
 };
 
 const TYPE_WORDS: Record<string, string> = { raw: 'raw material', wip: 'work in progress', finished: 'finished (made by us)', trading: 'trading', service: 'service' };
-const itemNotes = (item: StockItem) => ({
-  ...(item.mainDrawingId ? { mainDrawing: item.details?.flatMap((row) => row.files).find((file) => file.id === item.mainDrawingId)?.name ?? item.legacyMainDrawing?.name ?? '' } : item.legacyMainDrawing ? { mainDrawing: item.legacyMainDrawing.name } : {}),
+const itemNotes = (masters: Masters, item: StockItem) => {
+  const file = item.mainDrawingFile ?? (item.mainDrawingId ? item.details?.flatMap((row) => row.files).find((drawing) => drawing.id === item.mainDrawingId) : undefined);
+  const source = item.mainDrawingItemId ? masters.stockItems.find((candidate) => candidate.id === item.mainDrawingItemId) : undefined;
+  const sourceFile = source?.mainDrawingFile ?? (source?.mainDrawingId ? source.details?.flatMap((row) => row.files).find((drawing) => drawing.id === source.mainDrawingId) : undefined);
+  return {
+  ...(file ? { mainDrawing: file.name } : source && sourceFile ? { mainDrawing: sourceFile.name, mainDrawingFromItem: source.code || source.name } : {}),
   ...(item.details?.length ? { details: item.details.map((row) => ({ detail1: row.detail1, detail2: row.detail2, files: row.files.map((file) => file.name) })) } : {}),
-});
+  };
+};
 
 /** find_items: a search — every item whose code starts with the words or whose name contains them (an exact code first), with its stock. */
 export function findItems(b: AssistantBooks, query: string) {
@@ -86,7 +91,7 @@ export function findItems(b: AssistantBooks, query: string) {
   return {
     query,
     found: matches.length,
-    ...capped(matches.map((i) => ({ code: i.code ?? '', name: i.name, type: TYPE_WORDS[i.itemType] ?? i.itemType, inStock: qtyText(b.masters, i, total(i)), ...itemNotes(i) }))),
+    ...capped(matches.map((i) => ({ code: i.code ?? '', name: i.name, type: TYPE_WORDS[i.itemType] ?? i.itemType, inStock: qtyText(b.masters, i, total(i)), ...itemNotes(b.masters, i) }))),
   };
 }
 
@@ -106,7 +111,7 @@ export function stockOf(b: AssistantBooks, item: string) {
       type: TYPE_WORDS[i.itemType] ?? i.itemType,
       inStock: qtyText(b.masters, i, total),
       byGodown: [...byWh.entries()].filter(([, q]) => q !== 0n).map(([wh, q]) => ({ godown: b.masters.warehouse(wh as never)?.name ?? '', qty: qtyText(b.masters, i, q) })),
-      ...itemNotes(i),
+      ...itemNotes(b.masters, i),
     };
   };
   if (!exact) {

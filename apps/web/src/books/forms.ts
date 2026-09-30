@@ -299,14 +299,16 @@ export const FORMS: Readonly<Record<MasterKind, FormSpec>> = {
     ],
     fromRecord: (record, values) => {
       const item = record as import('@minimalerp/domain').StockItem;
-      return { ...values, __mainDrawingId: item.mainDrawingId ?? item.legacyMainDrawing?.id ?? '', __details: JSON.stringify(item.details ?? []) };
+      return { ...values, __mainDrawingId: item.mainDrawingId ?? '', __mainDrawingFile: item.mainDrawingFile ? JSON.stringify(item.mainDrawingFile) : '', __mainDrawingItemId: item.mainDrawingItemId ?? '', __details: JSON.stringify(item.details ?? []) };
     },
     toData: (values, data) => {
       let mainDrawingId: unknown = null;
       let details: unknown = [];
       if ((values.__mainDrawingId ?? '').trim() !== '') mainDrawingId = values.__mainDrawingId;
+      let mainDrawingFile: unknown = null;
+      try { if (values.__mainDrawingFile) mainDrawingFile = JSON.parse(values.__mainDrawingFile); } catch { /* ignore malformed transient state */ }
       try { details = JSON.parse(values.__details ?? '[]'); } catch { /* ignore malformed transient state */ }
-      return { ...data, mainDrawingId, details };
+      return { ...data, mainDrawingId, mainDrawingFile, mainDrawingItemId: values.__mainDrawingItemId || null, details };
     },
   },
   warehouse: {

@@ -50,6 +50,10 @@ function itemFileUrl(file: ItemFile): string {
   return `data:${file.mimeType};base64,${file.base64}`;
 }
 
+function itemMainDrawing(item: import('@minimalerp/domain').StockItem): ItemFile | undefined {
+  return item.mainDrawingFile ?? (item.mainDrawingId ? item.details?.flatMap((row) => row.files).find((file) => file.id === item.mainDrawingId) : undefined);
+}
+
 /** What a screen opened for a result hands back to the field that asked for it. */
 export interface CreatedMaster {
   readonly kind: MasterKind;
@@ -113,6 +117,7 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
   const [pick, setPick] = useState({ index: 0, touched: false });
   /** The field whose popup list was closed with Esc. Typing, ↓ or moving to another field opens a list again. */
   const [pickerClosed, setPickerClosed] = useState<string | undefined>(undefined);
+  const [drawingSearch, setDrawingSearch] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
 
   // A ledger's opening balance only makes sense for balance-sheet groups (assets and liabilities).
@@ -139,18 +144,22 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
     if (label !== undefined) setLabels({ ...((frame.state.get('labels') as Record<string, string> | undefined) ?? labels), [key]: label });
   };
 
-  const mainDrawingId = kind === 'stockItem' ? values.__mainDrawingId || (existing && 'legacyMainDrawing' in existing ? existing.legacyMainDrawing?.id ?? '' : '') : '';
+  const mainDrawingId = kind === 'stockItem' ? values.__mainDrawingId ?? '' : '';
   const itemDetails = kind === 'stockItem' ? decodeJson<StockItemDetail[]>(values.__details, existing && 'details' in existing ? [...(existing.details ?? [])] : []) : [];
-  const allItemFiles = itemDetails.flatMap((row, rowIndex) => row.files.map((file) => ({ file, rowIndex, detail: `${row.detail1} ${row.detail2}`.trim() })));
-  const legacyMainDrawing = existing && 'legacyMainDrawing' in existing ? existing.legacyMainDrawing : undefined;
-  const mainDrawingFile = allItemFiles.find(({ file }) => file.id === mainDrawingId)?.file ?? (legacyMainDrawing?.id === mainDrawingId ? legacyMainDrawing : undefined);
-  const saveMainDrawing = (fileId: string) => setValues({ ...freshValues(), __mainDrawingId: fileId });
+  const storedMainDrawing = existing && 'mainDrawingFile' in existing ? existing.mainDrawingFile : undefined;
+  const mainDrawingItemId = values.__mainDrawingItemId ?? (existing && 'mainDrawingItemId' in existing ? existing.mainDrawingItemId ?? '' : '');
+  const directMainDrawing = values.__mainDrawingFile === undefined ? storedMainDrawing : values.__mainDrawingFile === '' ? undefined : decodeJson<ItemFile | undefined>(values.__mainDrawingFile, storedMainDrawing);
+  const oldDetailDrawing = itemDetails.flatMap((row) => row.files).find((file) => file.id === mainDrawingId);
+  const linkedDrawingItem = masters?.stockItems.find((item) => item.id === mainDrawingItemId);
+  const mainDrawingFile = directMainDrawing ?? oldDetailDrawing ?? (linkedDrawingItem ? itemMainDrawing(linkedDrawingItem) : undefined);
+  const saveMainDrawingFile = (file: ItemFile | undefined) => setValues({ ...freshValues(), __mainDrawingFile: file ? JSON.stringify(file) : '', __mainDrawingItemId: '', __mainDrawingId: '' });
+  const saveMainDrawingItem = (itemId: string) => setValues({ ...freshValues(), __mainDrawingItemId: itemId, __mainDrawingFile: '', __mainDrawingId: '' });
+  const drawingChoices = (masters?.stockItems ?? []).filter((item) => item.id !== id && itemMainDrawing(item) !== undefined && `${item.code ?? ''} ${item.name}`.toLocaleLowerCase().includes(drawingSearch.trim().toLocaleLowerCase()));
   const saveItemDetails = (details: StockItemDetail[]) => {
     const v = freshValues();
     const selected = v.__mainDrawingId ?? '';
     const found = details.some((row) => row.files.some((file) => file.id === selected));
-    const keepLegacy = existing && 'legacyMainDrawing' in existing && existing.legacyMainDrawing?.id === selected;
-    setValues({ ...v, __details: JSON.stringify(details), ...(!found && !keepLegacy ? { __mainDrawingId: '' } : {}) });
+    setValues({ ...v, __details: JSON.stringify(details), ...(!found ? { __mainDrawingId: '' } : {}) });
   };
   // What a ref/choice field shows: what is being typed, else the chosen record's name.
   const shown = (f: FieldSpec): string => {
@@ -686,16 +695,20 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
             {mainDrawingFile ? (
               <div class="item-file-row">
                 <a href={itemFileUrl(mainDrawingFile)} download={mainDrawingFile.name}>{mainDrawingFile.name}</a>
+                {linkedDrawingItem && <span class="field-hint">Linked from {linkedDrawingItem.code ? `${linkedDrawingItem.code} — ` : ''}{linkedDrawingItem.name}</span>}
+                {!readOnly && <button type="button" class="item-file-remove" onClick={() => saveMainDrawingFile(undefined)}>Remove main drawing</button>}
               </div>
             ) : <p class="field-hint">No main drawing linked.</p>}
-            {!readOnly && <div class="field-control item-main-drawing-select">
-              <label class="field-label" for="main-drawing-file">Link main drawing to an existing part PDF</label>
-              <select id="main-drawing-file" class="field-input" value={mainDrawingId} onChange={(e) => saveMainDrawing((e.target as HTMLSelectElement).value)}>
-                <option value="">No main drawing</option>
-                {allItemFiles.map(({ file, rowIndex, detail }) => <option key={`${file.id}-${rowIndex}`} value={file.id}>{detail ? `${detail} — ` : ''}{file.name}</option>)}
-                {legacyMainDrawing && !allItemFiles.some(({ file }) => file.id === legacyMainDrawing.id) && <option value={legacyMainDrawing.id}>{legacyMainDrawing.name} (currently saved drawing)</option>}
+            {!readOnly && <div class="item-main-drawing-select">
+              <label class="field-label" for="main-drawing-upload">Upload this item’s main drawing</label>
+              <input id="main-drawing-upload" class="field-input" type="file" accept="application/pdf,.pdf" onChange={(e) => { const input = e.target as HTMLInputElement; const chosen = input.files?.[0]; input.value = ''; if (chosen) void fileAsItemFile(chosen).then(saveMainDrawingFile).catch((error: unknown) => setBanner({ text: error instanceof Error ? error.message : 'Could not read that file.', tone: 'error' })); }} />
+              <label class="field-label" for="main-drawing-search">Or link an existing item’s main drawing</label>
+              <input id="main-drawing-search" class="field-input" type="search" value={drawingSearch} placeholder="Search by part number or item name" onInput={(e) => setDrawingSearch((e.target as HTMLInputElement).value)} />
+              <select id="main-drawing-item" class="field-input" value={mainDrawingItemId} onChange={(e) => saveMainDrawingItem((e.target as HTMLSelectElement).value)}>
+                <option value="">No linked item</option>
+                {drawingChoices.map((item) => <option key={item.id} value={item.id}>{item.code ? `${item.code} — ` : ''}{item.name}</option>)}
+                {linkedDrawingItem && !drawingChoices.some((item) => item.id === linkedDrawingItem.id) && <option value={linkedDrawingItem.id}>{linkedDrawingItem.code ? `${linkedDrawingItem.code} — ` : ''}{linkedDrawingItem.name}</option>}
               </select>
-              {allItemFiles.length === 0 && <span class="field-hint">First upload a PDF in a row’s Files column.</span>}
             </div>}
 
             <h2 class="form-section">Item details and files</h2>
@@ -705,18 +718,18 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
                 <tbody>
                   {itemDetails.map((row, rowIndex) => (
                     <tr key={rowIndex}>
-                      <td><textarea aria-label={`Detail 1, row ${rowIndex + 1}`} value={row.detail1} readOnly={readOnly} onInput={(e) => { const next = [...itemDetails]; next[rowIndex] = { ...row, detail1: (e.target as HTMLTextAreaElement).value }; saveItemDetails(next); }} /></td>
-                      <td><textarea aria-label={`Detail 2, row ${rowIndex + 1}`} value={row.detail2} readOnly={readOnly} onInput={(e) => { const next = [...itemDetails]; next[rowIndex] = { ...row, detail2: (e.target as HTMLTextAreaElement).value }; saveItemDetails(next); }} /></td>
+                      <td><input aria-label={`Detail 1, row ${rowIndex + 1}`} value={row.detail1} readOnly={readOnly} onInput={(e) => { const next = [...itemDetails]; next[rowIndex] = { ...row, detail1: (e.target as HTMLInputElement).value }; saveItemDetails(next); }} /></td>
+                      <td><input aria-label={`Detail 2, row ${rowIndex + 1}`} value={row.detail2} readOnly={readOnly} onInput={(e) => { const next = [...itemDetails]; next[rowIndex] = { ...row, detail2: (e.target as HTMLInputElement).value }; saveItemDetails(next); }} /></td>
                       <td>
                         <ul class="item-file-list">
                           {row.files.map((file, fileIndex) => <li key={`${file.name}-${fileIndex}`}><a href={itemFileUrl(file)} download={file.name}>{file.name}</a>{!readOnly && <button type="button" class="item-file-remove" aria-label={`Remove ${file.name}`} onClick={() => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: row.files.filter((_, i) => i !== fileIndex) }; saveItemDetails(next); }}>×</button>}</li>)}
                         </ul>
                         {!readOnly && <label class="item-upload">Add files<input type="file" multiple onChange={(e) => { const input = e.target as HTMLInputElement; const chosen = [...(input.files ?? [])]; input.value = ''; void Promise.all(chosen.map((file) => fileAsItemFile(file))).then((files) => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: [...row.files, ...files].slice(0, 10) }; saveItemDetails(next); }).catch((error: unknown) => setBanner({ text: error instanceof Error ? error.message : 'Could not read those files.', tone: 'error' })); }} /></label>}
+                        {!readOnly && <button type="button" class="item-file-remove" onClick={() => saveItemDetails(itemDetails.filter((_, i) => i !== rowIndex))}>Remove row</button>}
                       </td>
-                      {!readOnly && <td><button type="button" class="item-file-remove" aria-label={`Remove row ${rowIndex + 1}`} onClick={() => saveItemDetails(itemDetails.filter((_, i) => i !== rowIndex))}>Remove row</button></td>}
                     </tr>
                   ))}
-                  {itemDetails.length === 0 && <tr><td colSpan={readOnly ? 3 : 4} class="item-details-empty">No detail rows yet.</td></tr>}
+                  {itemDetails.length === 0 && <tr><td colSpan={3}>No rows. Details are optional.</td></tr>}
                 </tbody>
               </table>
             </div>

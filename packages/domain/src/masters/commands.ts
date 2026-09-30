@@ -654,6 +654,8 @@ const stockItemDef = define({
     gstRateId: nullableId(),
     itemType: z.enum(ITEM_TYPES as [string, ...string[]]),
     mainDrawingId: z.string().max(120).nullable().optional(),
+    mainDrawingItemId: z.string().max(120).nullable().optional(),
+    mainDrawingFile: z.object({ id: z.string().min(1).max(120), name: z.string().min(1).max(255), mimeType: z.string().max(120), base64: z.string().max(14_000_000) }).nullable().optional(),
     details: z.array(z.object({
       detail1: z.string().max(2000),
       detail2: z.string().max(2000),
@@ -674,8 +676,15 @@ const stockItemDef = define({
     if (f.gstRateId !== null && !masters.gstRates.some((r) => r.id === f.gstRateId)) problems.push(unknownRef('GST rate', 'gstRateId'));
     if (f.mainDrawingId) {
       const files = (f.details ?? existing?.details ?? []).flatMap((row) => row.files);
-      if (!files.some((file) => file.id === f.mainDrawingId) && existing?.legacyMainDrawing?.id !== f.mainDrawingId) {
+      if (!files.some((file) => file.id === f.mainDrawingId) && existing?.mainDrawingFile?.id !== f.mainDrawingId) {
         problems.push(issue(IssueCode.SchemaInvalid, 'Choose the main drawing from a file attached to a detail row', 'mainDrawingId'));
+      }
+    }
+    if (f.mainDrawingItemId) {
+      const source = masters.stockItems.find((item) => item.id === f.mainDrawingItemId);
+      const sourceHasDrawing = source && (source.mainDrawingFile || (source.mainDrawingId && source.details?.some((row) => row.files.some((file) => file.id === source.mainDrawingId))));
+      if (f.mainDrawingItemId === existing?.id || !source || !sourceHasDrawing) {
+        problems.push(issue(IssueCode.SchemaInvalid, 'Choose a different item that has a main drawing', 'mainDrawingItemId'));
       }
     }
     if (f.hsn !== undefined) {
@@ -695,8 +704,9 @@ const stockItemDef = define({
     hsn: f.hsn,
     gstRateId: f.gstRateId as StockItem['gstRateId'],
     itemType: f.itemType as StockItem['itemType'],
-    mainDrawingId: f.mainDrawingId === null || f.mainDrawingId === existing?.legacyMainDrawing?.id ? undefined : f.mainDrawingId ?? existing?.mainDrawingId,
-    legacyMainDrawing: f.mainDrawingId === null || (f.mainDrawingId !== undefined && f.mainDrawingId !== existing?.legacyMainDrawing?.id) ? undefined : existing?.legacyMainDrawing,
+    mainDrawingId: f.mainDrawingId === null || f.mainDrawingItemId || f.mainDrawingFile ? undefined : f.mainDrawingId ?? existing?.mainDrawingId,
+    mainDrawingFile: f.mainDrawingFile ?? (f.mainDrawingId === null || f.mainDrawingItemId || (f.mainDrawingId !== undefined && f.mainDrawingId !== existing?.mainDrawingFile?.id) ? undefined : existing?.mainDrawingFile),
+    mainDrawingItemId: f.mainDrawingItemId === null || f.mainDrawingFile ? undefined : (f.mainDrawingItemId as StockItem['mainDrawingItemId'] | undefined),
     details: f.details ?? existing?.details ?? [],
     isActive: existing?.isActive ?? true,
   }),

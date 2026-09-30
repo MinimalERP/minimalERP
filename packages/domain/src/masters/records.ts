@@ -105,10 +105,12 @@ export interface StockItem {
   readonly hsn?: string | undefined;
   readonly gstRateId: GstRateId | null;
   readonly itemType: ItemType;
-  /** The main drawing points to a file already attached in a detail row, so its bytes are stored only once. */
+  /** Compatibility for the first release, where the main drawing pointed into a detail row. */
   readonly mainDrawingId?: string | undefined;
-  /** A pre-linking main drawing file, kept only to preserve records created by the first release. */
-  readonly legacyMainDrawing?: ItemFile | undefined;
+  /** Main drawing uploaded directly to this item. */
+  readonly mainDrawingFile?: ItemFile | undefined;
+  /** Main drawing shared from another stock item. Its file bytes stay on the source item. */
+  readonly mainDrawingItemId?: StockItemId | undefined;
   readonly details?: readonly StockItemDetail[] | undefined;
   readonly isActive: boolean;
 }
