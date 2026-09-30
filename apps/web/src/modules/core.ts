@@ -76,6 +76,14 @@ const commands: Command<AppContext>[] = [
     run: (app) => app.navigate({ type: 'settings-keyboard' }),
   },
   {
+    id: 'settings.gatewayShortcuts',
+    title: 'Gateway Shortcuts',
+    category: 'Settings',
+    keywords: ['home shortcuts', 'gateway links', 'quick links', 'favorites'],
+    description: 'Choose which links appear in the Gateway Shortcuts panel',
+    run: (app) => app.navigate({ type: 'settings-gateway-shortcuts' }),
+  },
+  {
     id: 'account.signOut',
     title: 'Sign Out',
     category: 'Account',
@@ -158,6 +166,7 @@ export const coreModule: ModuleManifest<AppContext> = {
   menuSections: [{ id: 'utilities', title: 'Utilities & Settings', order: 4, description: 'Preferences and tools' }],
   menu: [
     { section: 'utilities', commandId: 'settings.keyboard', order: 1 },
+    { section: 'utilities', commandId: 'settings.gatewayShortcuts', order: 2 },
     { section: 'utilities', commandId: 'account.signOut', order: 9 },
     { section: 'utilities', commandId: 'account.signIn', order: 9 },
   ],

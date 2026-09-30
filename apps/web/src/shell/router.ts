@@ -11,6 +11,7 @@ export type ScreenRef =
   | { readonly type: 'menu'; readonly id: string } // 'gateway' or a menu section id
   | { readonly type: 'planned'; readonly id: string } // a command that is on the roadmap but not built yet
   | { readonly type: 'settings-keyboard' }
+  | { readonly type: 'settings-gateway-shortcuts' }
   | { readonly type: 'company-new' }
   | { readonly type: 'company-reset' }
   /** Pick which of the account's companies to open (online books). */
@@ -73,6 +74,8 @@ export function refToHash(ref: ScreenRef): string {
       return `#/planned/${encodeURIComponent(ref.id)}`;
     case 'settings-keyboard':
       return '#/settings/keyboard';
+    case 'settings-gateway-shortcuts':
+      return '#/settings/gateway-shortcuts';
     case 'company-new':
       return '#/company/new';
     case 'company-reset':
@@ -124,6 +127,7 @@ export function hashToRef(hash: string): ScreenRef | undefined {
   const path = hash.replace(/^#/, '').split('?')[0] ?? '';
   if (path === '' || path === '/' || path === '/gateway') return GATEWAY;
   if (path === '/settings/keyboard') return { type: 'settings-keyboard' };
+  if (path === '/settings/gateway-shortcuts') return { type: 'settings-gateway-shortcuts' };
   if (path === '/company/new') return { type: 'company-new' };
   if (path === '/company/reset') return { type: 'company-reset' };
   if (path === '/company/switch') return { type: 'company-switch' };

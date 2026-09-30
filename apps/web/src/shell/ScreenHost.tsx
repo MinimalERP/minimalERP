@@ -6,6 +6,7 @@ import { InboxScreen } from '../screens/InboxScreen';
 import { InvoiceSettingsScreen } from '../screens/InvoiceSettingsScreen';
 import { PrintLayoutsScreen } from '../screens/PrintLayoutsScreen';
 import { KeymapSettingsScreen } from '../screens/KeymapSettingsScreen';
+import { GatewayShortcutsSettingsScreen } from '../screens/GatewayShortcutsSettingsScreen';
 import { MasterFormScreen } from '../screens/MasterFormScreen';
 import { MasterListScreen } from '../screens/MasterListScreen';
 import { ReportScreen } from '../screens/ReportScreen';
@@ -27,6 +28,8 @@ function ScreenBody({ frame }: { frame: Frame<ScreenRef> }) {
       return <PlaceholderScreen commandId={ref.id} />;
     case 'settings-keyboard':
       return <KeymapSettingsScreen frame={frame} />;
+    case 'settings-gateway-shortcuts':
+      return <GatewayShortcutsSettingsScreen frame={frame} />;
     case 'company-new':
       return <CompanyCreateScreen frame={frame} />;
     case 'company-reset':

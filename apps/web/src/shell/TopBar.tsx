@@ -18,6 +18,8 @@ export function useScreenTitle() {
         return registry.get(ref.id)?.title ?? ref.id;
       case 'settings-keyboard':
         return 'Keyboard Shortcuts';
+      case 'settings-gateway-shortcuts':
+        return 'Gateway Shortcuts';
       case 'company-new':
         return 'Create Company';
       case 'company-reset':

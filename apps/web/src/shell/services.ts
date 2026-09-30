@@ -11,6 +11,7 @@ import { BooksHost } from '../books/books';
 import { SaveTracker } from '../books/saving';
 import { PrintCoordinator } from '../ui/printCoordinator';
 import { GATEWAY, type ScreenRef, sameScreen } from './router';
+import { GatewayShortcutsStore } from './gatewayShortcuts';
 
 /** Who is signed in (online books only; the in-browser books have no account). */
 export interface Account {
@@ -151,6 +152,7 @@ export interface Services {
   readonly scopes: ScopeStack;
   readonly registry: CommandRegistry<AppContext>;
   readonly keymapStore: KeymapStore;
+  readonly gatewayShortcuts: GatewayShortcutsStore;
   readonly keyboard: KeyboardManager;
   readonly screens: ScreenStack<ScreenRef>;
   readonly search: SearchService<AppContext>;
@@ -228,6 +230,7 @@ export function createServices(options: ServicesOptions): Services {
   for (const module of options.modules) registry.registerModule(module);
 
   const keymapStore = new KeymapStore(registry.defaultBindings(), options.storage);
+  const gatewayShortcuts = new GatewayShortcutsStore(options.storage);
   late.keymapStore = keymapStore;
   const recents = new RecentStore(options.storage, options.now);
 
@@ -246,5 +249,5 @@ export function createServices(options: ServicesOptions): Services {
 
   const saving = options.saving ?? new SaveTracker();
   const print = new PrintCoordinator();
-  return { books, saving, print, scopes, registry, keymapStore, keyboard, screens, search, recents, ui, app };
+  return { books, saving, print, scopes, registry, keymapStore, gatewayShortcuts, keyboard, screens, search, recents, ui, app };
 }

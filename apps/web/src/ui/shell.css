@@ -707,6 +707,13 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 /* the Gateway's tasks: beside the menu on a wide screen, under it on a phone */
 .gateway-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
 @media (min-width: 900px) { .gateway-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: start; } }
+.gateway-shortcuts { margin-top: var(--sp-3); border: 1px solid var(--c-border, #d8d4cc); border-radius: var(--radius); padding: var(--sp-2) var(--sp-3); }
+.gateway-shortcuts-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.gateway-shortcuts-head h2 { margin: 0 auto 0 0; font-size: var(--fs-lg); }
+.gateway-shortcuts .link { font: inherit; background: none; border: 0; padding: 0; color: var(--c-accent); cursor: pointer; }
+.gateway-shortcut-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--sp-2); }
+.gateway-shortcut { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); min-width: 0; padding: var(--sp-2); border: 1px solid var(--c-border, #d8d4cc); border-radius: var(--radius-sm); background: var(--c-surface, #fff); color: var(--c-text); text-align: left; cursor: pointer; }
+.gateway-shortcut:hover, .gateway-shortcut:focus-visible { background: var(--c-focus-bg); outline: 2px solid var(--c-focus); outline-offset: 1px; }
 .tasks-panel { border: 1px solid var(--c-border, #d8d4cc); border-radius: var(--radius); padding: var(--sp-2) var(--sp-3); min-width: 0; }
 .tasks-head { display: flex; align-items: center; gap: var(--sp-2); }
 .tasks-head h2 { margin: 0 auto 0 0; font-size: var(--fs-lg); }
