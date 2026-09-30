@@ -261,10 +261,11 @@ function ReportBody({
   const pickedOrderLineSet = useMemo(() => new Set(pickedOrderLines), [pickedOrderLines]);
   const toggleOrderLine = (r: OrderRow) => setPickedOrderLines(pickedOrderLineSet.has(r.key) ? pickedOrderLines.filter((key) => key !== r.key) : [...pickedOrderLines, r.key]);
   const rowVoucherId = (r: AnyRow | undefined): string | undefined => (r && 'voucherId' in r ? (r as { voucherId: string }).voucherId : undefined);
+  const togglePickId = (id: string) => setPicked(pickedSet.has(id) ? picked.filter((x) => x !== id) : [...picked, id]);
   const togglePick = (): boolean => {
     const id = rowVoucherId(rows[safeRow]);
     if (!id) return true;
-    setPicked(pickedSet.has(id) ? picked.filter((x) => x !== id) : [...picked, id]);
+    togglePickId(id);
     if (safeRow < rows.length - 1) setRow(safeRow + 1);
     return true;
   };
@@ -530,7 +531,13 @@ function ReportBody({
           activeCol={safeCol}
           query={query}
           label={title}
-          selection={canPickOrderLines ? { columnId: 'item', selectedKeys: pickedOrderLineSet, onToggle: (r) => toggleOrderLine(r as OrderRow) } : undefined}
+          selection={
+            canPick
+              ? { columnId: 'number', selectedKeys: pickedSet, onToggle: (r) => { const id = rowVoucherId(r as AnyRow); if (id) togglePickId(id); } }
+              : canPickOrderLines
+                ? { columnId: 'item', selectedKeys: pickedOrderLineSet, onToggle: (r) => toggleOrderLine(r as OrderRow) }
+                : undefined
+          }
           rowClass={(r) =>
             (canPick && pickedSet.has(rowVoucherId(r) ?? '') ? 'picked ' : '') +
             ('rowType' in r
