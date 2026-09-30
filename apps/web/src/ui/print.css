@@ -7,6 +7,9 @@
 #print-root { display: none; }
 
 @media print {
+  /* the app's own dark theme (tokens.css) sets html/body to a near-black background; a printed page must stay white
+     regardless of the phone's or browser's colour scheme, or the margins around the paper print black */
+  html, body { background: #ffffff !important; }
   .shell > *:not(#print-root) { display: none !important; }
   #print-root { display: block !important; }
   #print-root .paper { box-shadow: none; width: auto; padding: 0; }
