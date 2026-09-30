@@ -135,7 +135,14 @@ function ReportBody({
     return t >= y.start && t <= y.end;
   }) ?? masters.financialYears.at(-1);
   const defaultQuery: GridQuery = report === 'sales-orders'
-    ? { ...EMPTY_QUERY, filters: { status: { kind: 'in', values: ['Open'] } } }
+    ? {
+        ...EMPTY_QUERY,
+        sort: [{ column: 'due', dir: 'asc' }],
+        filters: {
+          status: { kind: 'in', values: ['Open'] },
+          fill: { kind: 'range', max: 0 },
+        },
+      }
     : EMPTY_QUERY;
   const [query, setQuery] = useFrameState<GridQuery>(frame, 'query', defaultQuery);
   // Outstanding is AS ON a date (today, unless changed with F2); the rest cover the financial year.
