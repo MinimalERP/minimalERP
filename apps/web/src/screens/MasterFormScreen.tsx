@@ -714,7 +714,7 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
             <h2 class="form-section">Item details and files</h2>
             <div class="item-details-scroll">
               <table class="item-details-table">
-                <thead><tr><th scope="col">Detail 1</th><th scope="col">Detail 2</th><th scope="col">Files</th>{!readOnly && <th scope="col" aria-label="Row actions" />}</tr></thead>
+                <thead><tr><th scope="col">Detail 1</th><th scope="col">Detail 2</th><th scope="col">Files</th></tr></thead>
                 <tbody>
                   {itemDetails.map((row, rowIndex) => (
                     <tr key={rowIndex}>
@@ -724,8 +724,8 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
                         <ul class="item-file-list">
                           {row.files.map((file, fileIndex) => <li key={`${file.name}-${fileIndex}`}><a href={itemFileUrl(file)} download={file.name}>{file.name}</a>{!readOnly && <button type="button" class="item-file-remove" aria-label={`Remove ${file.name}`} onClick={() => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: row.files.filter((_, i) => i !== fileIndex) }; saveItemDetails(next); }}>×</button>}</li>)}
                         </ul>
-                        {!readOnly && <label class="item-upload">Add files<input type="file" multiple onChange={(e) => { const input = e.target as HTMLInputElement; const chosen = [...(input.files ?? [])]; input.value = ''; void Promise.all(chosen.map((file) => fileAsItemFile(file))).then((files) => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: [...row.files, ...files].slice(0, 10) }; saveItemDetails(next); }).catch((error: unknown) => setBanner({ text: error instanceof Error ? error.message : 'Could not read those files.', tone: 'error' })); }} /></label>}
-                        {!readOnly && <button type="button" class="item-file-remove" onClick={() => saveItemDetails(itemDetails.filter((_, i) => i !== rowIndex))}>Remove row</button>}
+                        {!readOnly && <label class="item-attach-file">Attach file<input type="file" multiple onChange={(e) => { const input = e.target as HTMLInputElement; const chosen = [...(input.files ?? [])]; input.value = ''; void Promise.all(chosen.map((file) => fileAsItemFile(file))).then((files) => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: [...row.files, ...files].slice(0, 10) }; saveItemDetails(next); }).catch((error: unknown) => setBanner({ text: error instanceof Error ? error.message : 'Could not read those files.', tone: 'error' })); }} /></label>}
+                        {!readOnly && <button type="button" class="item-file-remove" aria-label={`Remove row ${rowIndex + 1}`} onClick={() => saveItemDetails(itemDetails.filter((_, i) => i !== rowIndex))}>×</button>}
                       </td>
                     </tr>
                   ))}
