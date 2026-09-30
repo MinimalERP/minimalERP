@@ -17,7 +17,7 @@
   @page voucher { size: A4; margin: 0.4in 0.2in 0.2in 0.75in; }
   #print-root .print-copy.bordered {
     page: voucher;
-    box-sizing: border-box; min-height: calc(297mm - 0.6in - 6mm); /* A4 less top and bottom margins, a few mm short: 1mm cut it too close and browser mm/in/DPI rounding reliably tipped it onto a blank second page */
+    box-sizing: border-box; min-height: calc(297mm - 0.6in - 15mm); /* A4 less top and bottom margins, well short of the true edge: printing several copies in one job showed the page-height rounding drifts further with each forced page break, so later copies need more slack than the first to still land on one page */
     border: 1.5px solid #000; padding: 4mm;
     box-decoration-break: clone; -webkit-box-decoration-break: clone; /* a long voucher: every page gets its own closed frame */
   }
@@ -35,20 +35,23 @@
   font-family: var(--font-figures);
 }
 
-.print-root .inv-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 10px; break-inside: avoid; page-break-inside: avoid; }
+/* display: table, not flex: Chromium's print engine does not honour break-inside on a flex container (it can fragment
+   a flex row mid-way across a page break regardless), but it has always reliably kept a table row together — the same
+   trick table.items thead already relies on below. */
+.print-root .inv-head { display: table; width: 100%; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 10px; break-inside: avoid; page-break-inside: avoid; }
 .print-root .inv-head:has(+ .inv-parties) { border-bottom: 0; } /* the address box's own top border is the line */
-.print-root .inv-company { font-size: 13px; }
+.print-root .inv-company { display: table-cell; vertical-align: top; font-size: 13px; }
 .print-root .inv-company .name { font-size: 22px; font-weight: bold; letter-spacing: 0.01em; margin-bottom: 2px; }
 .print-root .inv-company div { margin-top: 1px; }
-.print-root .inv-doc { text-align: right; font-size: 12px; flex-shrink: 0; }
+.print-root .inv-doc { display: table-cell; vertical-align: top; text-align: right; font-size: 12px; }
 .print-root .inv-doc .title { font-size: 14px; font-weight: bold; letter-spacing: 0.05em; }
 .print-root .inv-doc .copy-label { margin-top: 6px; font-weight: bold; text-transform: uppercase; border: 1px solid #000; padding: 2px 8px; display: inline-block; }
-.print-root .inv-doc table { margin-top: 8px; border-collapse: collapse; font-size: 12px; }
+.print-root .inv-doc table { margin-top: 8px; margin-left: auto; border-collapse: collapse; font-size: 12px; }
 .print-root .inv-doc td { padding: 1px 4px; text-align: right; white-space: nowrap; }
 .print-root .inv-doc td:first-child { color: #333; text-align: left; padding-right: 8px; }
 
-.print-root .inv-parties { display: flex; gap: 0; border: 1px solid #000; margin-bottom: 10px; font-size: 12px; break-inside: avoid; page-break-inside: avoid; }
-.print-root .inv-parties > div { flex: 1; padding: 6px 10px; }
+.print-root .inv-parties { display: table; width: 100%; table-layout: fixed; border: 1px solid #000; margin-bottom: 10px; font-size: 12px; break-inside: avoid; page-break-inside: avoid; }
+.print-root .inv-parties > div { display: table-cell; width: 50%; vertical-align: top; padding: 6px 10px; }
 .print-root .inv-parties > div:first-child { border-right: 1px solid #000; }
 .print-root .inv-parties .label { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.04em; color: #333; margin-bottom: 3px; }
 .print-root .inv-parties .pname { font-weight: bold; }
@@ -135,7 +138,7 @@
 .pdf-render { position: fixed; left: -10000px; top: 0; }
 .pdf-render #print-root { display: block !important; }
 .pdf-render .paper { box-shadow: none; width: 185.8mm; padding: 0; }
-.pdf-render .print-copy.bordered { box-sizing: border-box; min-height: 275.7mm; border: 1.5px solid #000; padding: 4mm; } /* same slack fix as the native print path above */
+.pdf-render .print-copy.bordered { box-sizing: border-box; min-height: 266.7mm; border: 1.5px solid #000; padding: 4mm; } /* same slack fix as the native print path above */
 .pdf-render .print-copy.bordered .inv-parties { margin-left: -4mm; margin-right: -4mm; border-left: 0; border-right: 0; }
 .pdf-render .print-copy.bordered table.items { width: calc(100% + 8mm); margin-left: -4mm; margin-right: -4mm; }
 .pdf-render .print-copy.bordered table.items tr > :first-child { border-left: 0; }
