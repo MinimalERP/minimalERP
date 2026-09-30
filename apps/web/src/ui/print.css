@@ -17,11 +17,13 @@
   @page voucher { size: A4; margin: 0.4in 0.2in 0.2in 0.75in; }
   #print-root .print-copy.bordered {
     page: voucher;
-    box-sizing: border-box; min-height: calc(297mm - 0.6in - 35mm); /* A4 less top and bottom margins, well short of the true edge: a small gap under a short voucher's frame beats an unreliable near-exact fit */
-    border: 1.5px solid #000; padding: 4mm;
-    /* no box-decoration-break: clone here — it invites the page's fragmentation engine to treat this box as meant to
-       split, which several browsers (Firefox especially) handle inconsistently once more than one copy is printed in
-       the same job; a voucher that genuinely runs to a second page now prints its border only on the first. */
+    box-sizing: border-box; border: 1.5px solid #000; padding: 4mm;
+    /* no min-height, no box-decoration-break: clone. Forcing this box to near-page height "however few lines it
+       has" is what caused the whole family of pagination bugs here: several rounds of narrowing the margin never
+       converged, because the real problem was asking the browser to fragment a box that was deliberately sized to
+       sit right at the page boundary — Firefox handles that unreliably once more than one copy is in the same job.
+       Left to its natural (shorter) height, a normal voucher has no reason to need a second page at all; the frame
+       simply ends after the content instead of always reaching the bottom of the page. */
   }
   /* the address box and the item table run edge to edge: their sides are the frame's own line, never a second one beside it */
   #print-root .print-copy.bordered .inv-parties { margin-left: -4mm; margin-right: -4mm; border-left: 0; border-right: 0; }
@@ -140,7 +142,7 @@
 .pdf-render { position: fixed; left: -10000px; top: 0; }
 .pdf-render #print-root { display: block !important; }
 .pdf-render .paper { box-shadow: none; width: 185.8mm; padding: 0; }
-.pdf-render .print-copy.bordered { box-sizing: border-box; min-height: 246.7mm; border: 1.5px solid #000; padding: 4mm; } /* same slack fix as the native print path above */
+.pdf-render .print-copy.bordered { box-sizing: border-box; border: 1.5px solid #000; padding: 4mm; } /* no forced min-height here either — same reasoning as the native print path above */
 .pdf-render .print-copy.bordered .inv-parties { margin-left: -4mm; margin-right: -4mm; border-left: 0; border-right: 0; }
 .pdf-render .print-copy.bordered table.items { width: calc(100% + 8mm); margin-left: -4mm; margin-right: -4mm; }
 .pdf-render .print-copy.bordered table.items tr > :first-child { border-left: 0; }
