@@ -1,10 +1,10 @@
 import { type MailKind, type MailTemplate, type MailTemplates, isMailKind } from './mailTemplates';
-import { type CompanyId, asCompanyId, asFinancialYearId, asGroupId, asGstRateId, asLedgerId, asPartyId, asSeriesId, asStockGroupId, asStockItemId, asUnitId, asVoucherTypeId, asWarehouseId } from '../ids';
+import { type CompanyId, asCompanyId, asFinancialYearId, asGroupId, asGstRateId, asLedgerId, asPartyId, asSeriesId, asStockGroupId, asStockItemId, asUnitId, asVoucherTypeId, asWarehouseId, deterministicUuid } from '../ids';
 import { type FinancialYear, localDate } from '../dates';
 import { parseMoney } from '../money';
 import { type AccountGroup, type Nature, type ReservedGroupKey, GroupTree } from './groups';
 import { type BaseKind, type Ledger, type NumberingSeries, type VoucherType, Masters } from './masters';
-import type { GstRate, ItemType, Party, PartyRole, StockGroup, StockItem, Unit, Warehouse } from './records';
+import type { GstRate, ItemFile, ItemType, Party, PartyRole, StockGroup, StockItem, Unit, Warehouse } from './records';
 
 /**
  * The masters of a company as the database (or the Edge Function that reads it) hands them over: the JSON `load_masters_json` and
@@ -208,7 +208,8 @@ export function buildMasters(core: unknown, ledgerRows: unknown): Masters {
       hsn: optStr(o, 'hsn'),
       gstRateId: rate === undefined ? null : asGstRateId(rate),
       itemType: str(o, 'item_type') as ItemType,
-      mainDrawing: fileOf(o['main_drawing']),
+      mainDrawingId: typeof o['main_drawing'] === 'string' ? o['main_drawing'] : undefined,
+      ...(fileOf(o['main_drawing']) ? { legacyMainDrawing: fileOf(o['main_drawing']) } : {}),
       details: detailsOf(o['details']),
       isActive: bool(o, 'is_active'),
     };
@@ -270,11 +271,12 @@ export function buildMasters(core: unknown, ledgerRows: unknown): Masters {
   });
 }
 
-function fileOf(v: unknown): StockItem['mainDrawing'] {
+function fileOf(v: unknown): ItemFile | undefined {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return undefined;
   const f = v as Record<string, unknown>;
   if (typeof f['name'] !== 'string' || typeof f['mimeType'] !== 'string' || typeof f['base64'] !== 'string') return undefined;
-  return { name: f['name'], mimeType: f['mimeType'], base64: f['base64'] };
+  const id = typeof f['id'] === 'string' ? f['id'] : deterministicUuid(`legacy-stock-item-file|${f['base64']}`);
+  return { id, name: f['name'], mimeType: f['mimeType'], base64: f['base64'] };
 }
 
 function detailsOf(v: unknown): StockItem['details'] {
@@ -282,7 +284,7 @@ function detailsOf(v: unknown): StockItem['details'] {
   return v.flatMap((entry) => {
     if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return [];
     const row = entry as Record<string, unknown>;
-    const files = Array.isArray(row['files']) ? row['files'].map(fileOf).filter((f) => f !== undefined) : [];
+    const files = Array.isArray(row['files']) ? row['files'].map(fileOf).filter((file) => file !== undefined) : [];
     return [{ detail1: typeof row['detail1'] === 'string' ? row['detail1'] : '', detail2: typeof row['detail2'] === 'string' ? row['detail2'] : '', files }];
   });
 }

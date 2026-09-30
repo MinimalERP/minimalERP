@@ -69,7 +69,7 @@ const qtyText = (masters: Masters, item: StockItem, q: bigint) => {
 
 const TYPE_WORDS: Record<string, string> = { raw: 'raw material', wip: 'work in progress', finished: 'finished (made by us)', trading: 'trading', service: 'service' };
 const itemNotes = (item: StockItem) => ({
-  ...(item.mainDrawing ? { mainDrawing: item.mainDrawing.name } : {}),
+  ...(item.mainDrawingId ? { mainDrawing: item.details?.flatMap((row) => row.files).find((file) => file.id === item.mainDrawingId)?.name ?? item.legacyMainDrawing?.name ?? '' } : item.legacyMainDrawing ? { mainDrawing: item.legacyMainDrawing.name } : {}),
   ...(item.details?.length ? { details: item.details.map((row) => ({ detail1: row.detail1, detail2: row.detail2, files: row.files.map((file) => file.name) })) } : {}),
 });
 

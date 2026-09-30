@@ -105,13 +105,16 @@ export interface StockItem {
   readonly hsn?: string | undefined;
   readonly gstRateId: GstRateId | null;
   readonly itemType: ItemType;
-  /** Optional drawing and flexible notes/files attached to this item master. Files are kept as base64 for the existing company snapshot path. */
-  readonly mainDrawing?: ItemFile | undefined;
+  /** The main drawing points to a file already attached in a detail row, so its bytes are stored only once. */
+  readonly mainDrawingId?: string | undefined;
+  /** A pre-linking main drawing file, kept only to preserve records created by the first release. */
+  readonly legacyMainDrawing?: ItemFile | undefined;
   readonly details?: readonly StockItemDetail[] | undefined;
   readonly isActive: boolean;
 }
 
 export interface ItemFile {
+  readonly id: string;
   readonly name: string;
   readonly mimeType: string;
   readonly base64: string;

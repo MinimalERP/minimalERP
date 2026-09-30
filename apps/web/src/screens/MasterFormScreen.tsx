@@ -43,7 +43,7 @@ async function fileAsItemFile(file: File): Promise<ItemFile> {
     reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read that file.'));
     reader.readAsDataURL(file);
   });
-  return { name: file.name, mimeType: file.type || 'application/octet-stream', base64: dataUrl.split(',')[1] ?? '' };
+  return { id: crypto.randomUUID(), name: file.name, mimeType: file.type || 'application/octet-stream', base64: dataUrl.split(',')[1] ?? '' };
 }
 
 function itemFileUrl(file: ItemFile): string {
@@ -139,20 +139,19 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
     if (label !== undefined) setLabels({ ...((frame.state.get('labels') as Record<string, string> | undefined) ?? labels), [key]: label });
   };
 
-  const mainDrawing = kind === 'stockItem' ? decodeJson<ItemFile | null>(values.__mainDrawing, existing && 'mainDrawing' in existing ? existing.mainDrawing ?? null : null) : null;
+  const mainDrawingId = kind === 'stockItem' ? values.__mainDrawingId || (existing && 'legacyMainDrawing' in existing ? existing.legacyMainDrawing?.id ?? '' : '') : '';
   const itemDetails = kind === 'stockItem' ? decodeJson<StockItemDetail[]>(values.__details, existing && 'details' in existing ? [...(existing.details ?? [])] : []) : [];
-  const saveMainDrawing = (file: ItemFile | null) => setValues({ ...freshValues(), __mainDrawing: JSON.stringify(file) });
-  const saveItemDetails = (details: StockItemDetail[]) => setValues({ ...freshValues(), __details: JSON.stringify(details) });
-  const uploadItemFile = async (file: File | undefined, done: (value: ItemFile) => void) => {
-    if (!file) return;
-    try {
-      done(await fileAsItemFile(file));
-      setBanner(undefined);
-    } catch (error) {
-      setBanner({ text: error instanceof Error ? error.message : 'Could not read that file.', tone: 'error' });
-    }
+  const allItemFiles = itemDetails.flatMap((row, rowIndex) => row.files.map((file) => ({ file, rowIndex, detail: `${row.detail1} ${row.detail2}`.trim() })));
+  const legacyMainDrawing = existing && 'legacyMainDrawing' in existing ? existing.legacyMainDrawing : undefined;
+  const mainDrawingFile = allItemFiles.find(({ file }) => file.id === mainDrawingId)?.file ?? (legacyMainDrawing?.id === mainDrawingId ? legacyMainDrawing : undefined);
+  const saveMainDrawing = (fileId: string) => setValues({ ...freshValues(), __mainDrawingId: fileId });
+  const saveItemDetails = (details: StockItemDetail[]) => {
+    const v = freshValues();
+    const selected = v.__mainDrawingId ?? '';
+    const found = details.some((row) => row.files.some((file) => file.id === selected));
+    const keepLegacy = existing && 'legacyMainDrawing' in existing && existing.legacyMainDrawing?.id === selected;
+    setValues({ ...v, __details: JSON.stringify(details), ...(!found && !keepLegacy ? { __mainDrawingId: '' } : {}) });
   };
-
   // What a ref/choice field shows: what is being typed, else the chosen record's name.
   const shown = (f: FieldSpec): string => {
     if (f.type !== 'ref' && f.type !== 'choice') return values[f.key] ?? '';
@@ -684,13 +683,20 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
         {kind === 'stockItem' && (
           <section class="item-documents" aria-label="Stock item drawings and details" data-testid="item-documents">
             <h2 class="form-section">Main drawing</h2>
-            {mainDrawing ? (
+            {mainDrawingFile ? (
               <div class="item-file-row">
-                <a href={itemFileUrl(mainDrawing)} download={mainDrawing.name}>{mainDrawing.name}</a>
-                {!readOnly && <button type="button" class="item-file-remove" onClick={() => saveMainDrawing(null)}>Remove</button>}
+                <a href={itemFileUrl(mainDrawingFile)} download={mainDrawingFile.name}>{mainDrawingFile.name}</a>
               </div>
-            ) : <p class="field-hint">No main drawing attached.</p>}
-            {!readOnly && <label class="item-upload">Upload main drawing<input type="file" onChange={(e) => { const input = e.target as HTMLInputElement; void uploadItemFile(input.files?.[0], saveMainDrawing).finally(() => { input.value = ''; }); }} /></label>}
+            ) : <p class="field-hint">No main drawing linked.</p>}
+            {!readOnly && <div class="field-control item-main-drawing-select">
+              <label class="field-label" for="main-drawing-file">Link main drawing to an existing part PDF</label>
+              <select id="main-drawing-file" class="field-input" value={mainDrawingId} onChange={(e) => saveMainDrawing((e.target as HTMLSelectElement).value)}>
+                <option value="">No main drawing</option>
+                {allItemFiles.map(({ file, rowIndex, detail }) => <option key={`${file.id}-${rowIndex}`} value={file.id}>{detail ? `${detail} — ` : ''}{file.name}</option>)}
+                {legacyMainDrawing && !allItemFiles.some(({ file }) => file.id === legacyMainDrawing.id) && <option value={legacyMainDrawing.id}>{legacyMainDrawing.name} (currently saved drawing)</option>}
+              </select>
+              {allItemFiles.length === 0 && <span class="field-hint">First upload a PDF in a row’s Files column.</span>}
+            </div>}
 
             <h2 class="form-section">Item details and files</h2>
             <div class="item-details-scroll">

@@ -653,11 +653,11 @@ const stockItemDef = define({
     hsn: optionalCode(),
     gstRateId: nullableId(),
     itemType: z.enum(ITEM_TYPES as [string, ...string[]]),
-    mainDrawing: z.object({ name: z.string().min(1).max(255), mimeType: z.string().max(120), base64: z.string().max(14_000_000) }).nullable().optional(),
+    mainDrawingId: z.string().max(120).nullable().optional(),
     details: z.array(z.object({
       detail1: z.string().max(2000),
       detail2: z.string().max(2000),
-      files: z.array(z.object({ name: z.string().min(1).max(255), mimeType: z.string().max(120), base64: z.string().max(14_000_000) })).max(10),
+      files: z.array(z.object({ id: z.string().min(1).max(120), name: z.string().min(1).max(255), mimeType: z.string().max(120), base64: z.string().max(14_000_000) })).max(10),
     })).max(200).optional(),
   }),
   find: (m, iid) => m.stockItems.find((i) => i.id === iid),
@@ -672,6 +672,12 @@ const stockItemDef = define({
     else if (!unit.isActive) problems.push(inactiveRef('unit', 'unitId'));
     if (f.groupId !== null && !masters.stockGroups.some((g) => g.id === f.groupId)) problems.push(unknownRef('stock group', 'groupId'));
     if (f.gstRateId !== null && !masters.gstRates.some((r) => r.id === f.gstRateId)) problems.push(unknownRef('GST rate', 'gstRateId'));
+    if (f.mainDrawingId) {
+      const files = (f.details ?? existing?.details ?? []).flatMap((row) => row.files);
+      if (!files.some((file) => file.id === f.mainDrawingId) && existing?.legacyMainDrawing?.id !== f.mainDrawingId) {
+        problems.push(issue(IssueCode.SchemaInvalid, 'Choose the main drawing from a file attached to a detail row', 'mainDrawingId'));
+      }
+    }
     if (f.hsn !== undefined) {
       const p = hsnProblem(f.hsn);
       if (p) problems.push(issue(IssueCode.InvalidHsn, p, 'hsn'));
@@ -689,7 +695,8 @@ const stockItemDef = define({
     hsn: f.hsn,
     gstRateId: f.gstRateId as StockItem['gstRateId'],
     itemType: f.itemType as StockItem['itemType'],
-    mainDrawing: f.mainDrawing === null ? undefined : f.mainDrawing ?? existing?.mainDrawing,
+    mainDrawingId: f.mainDrawingId === null || f.mainDrawingId === existing?.legacyMainDrawing?.id ? undefined : f.mainDrawingId ?? existing?.mainDrawingId,
+    legacyMainDrawing: f.mainDrawingId === null || (f.mainDrawingId !== undefined && f.mainDrawingId !== existing?.legacyMainDrawing?.id) ? undefined : existing?.legacyMainDrawing,
     details: f.details ?? existing?.details ?? [],
     isActive: existing?.isActive ?? true,
   }),
