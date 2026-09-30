@@ -7,6 +7,9 @@ export const COPY_COUNT_OPTIONS: readonly ChoiceOption[] = [
   { value: '2', label: '2 copies', hint: 'Original, Duplicate' },
   { value: '3', label: '3 copies', hint: 'Original, Duplicate, Triplicate' },
   { value: '4', label: '4 copies', hint: 'Original, Duplicate, Triplicate, Extra Copy' },
+  { value: 'duplicate', label: 'Duplicate only', hint: 'Just one copy, labelled Duplicate' },
+  { value: 'triplicate', label: 'Triplicate only', hint: 'Just one copy, labelled Triplicate' },
+  { value: 'extra', label: 'Extra Copy only', hint: 'Just one copy, labelled Extra Copy' },
 ];
 
 /** `books.masters.company`, in the shape `PrintView` wants — the Invoice / PDF Settings fields, as they are (blank ones are simply absent). */

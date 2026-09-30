@@ -1,12 +1,20 @@
 import { printPage } from './nativeApp';
 import type { DocketDoc, PrintDoc, ReportDoc } from './PrintView';
 
-/** What "1 copy" … "4 copies" prints — Original / Duplicate / Triplicate / a plain Extra Copy, the classic GST-invoice convention. */
+/**
+ * What "1 copy" … "4 copies" prints — Original / Duplicate / Triplicate / a plain Extra Copy, the classic GST-invoice
+ * convention — plus a way to print just one specific copy on its own (e.g. a Triplicate reprint, without the Original
+ * and Duplicate ahead of it): a single label prints as one `.print-copy`, so it also sidesteps a Firefox print-engine
+ * quirk where 3+ copies stacked in one job can push the last one onto an extra page.
+ */
 export const COPY_LABELS: Readonly<Record<string, readonly string[]>> = {
   '1': ['ORIGINAL'],
   '2': ['ORIGINAL', 'DUPLICATE'],
   '3': ['ORIGINAL', 'DUPLICATE', 'TRIPLICATE'],
   '4': ['ORIGINAL', 'DUPLICATE', 'TRIPLICATE', 'EXTRA COPY'],
+  duplicate: ['DUPLICATE'],
+  triplicate: ['TRIPLICATE'],
+  extra: ['EXTRA COPY'],
 };
 
 /**
