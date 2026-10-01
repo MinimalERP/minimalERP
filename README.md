@@ -60,6 +60,7 @@ as repository secrets and backed up off the repository. Losing that key means ev
 | `packages/adapter-memory` | In-memory ports: the reference implementation and test oracle. |
 | `packages/adapter-postgres` | Server-side posting service over PostgreSQL (runs in the Edge Function). |
 | `packages/adapter-gemini` | **Integration:** document intake via Gemini (`intake` Edge Function; ADR-0023). Not in the web composition root. |
+| `packages/adapter-openai` | **Integration:** the same two jobs via OpenAI (ChatGPT); used instead of Gemini when `OPENAI_API_KEY` and `OPENAI_MODEL` are set. |
 | `packages/adapter-supabase` | Browser adapter: calls the Edge Function, reads under RLS. |
 | `packages/db-tests` | Integration tests against a real PostgreSQL. A leaf: nothing imports it. |
 | `packages/command` | Command Registry, Universal Search (Go To) service and providers, recents/favourites, screen stack. |

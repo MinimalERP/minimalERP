@@ -258,6 +258,15 @@ importers:
         specifier: workspace:*
         version: link:../ports
 
+  packages/adapter-openai:
+    dependencies:
+      '@minimalerp/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@minimalerp/ports':
+        specifier: workspace:*
+        version: link:../ports
+
   packages/adapter-postgres:
     dependencies:
       '@minimalerp/domain':

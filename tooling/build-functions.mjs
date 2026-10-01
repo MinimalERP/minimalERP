@@ -26,7 +26,7 @@ const common = {
 export async function buildFunctions() {
   const outfile = resolve(root, 'supabase/functions/post-voucher/handler.bundle.js');
   await build({ ...common, entryPoints: [resolve(root, 'packages/adapter-postgres/src/index.ts')], outfile });
-  // intake = the Postgres backend + the intake handler + the Gemini reader. The two packages may not know each other (boundaries), so the
+  // intake = the Postgres backend + the intake handler + the readers (Gemini, OpenAI). The two packages may not know each other (boundaries), so the
   // function's entry joins them here; each resolves its own dependencies from its package.
   await build({
     ...common,
@@ -34,6 +34,7 @@ export async function buildFunctions() {
       contents: [
         "export { PostgresBackend, createIntakeHandler } from './packages/adapter-postgres/src/index.ts';",
         "export { GeminiReader } from './packages/adapter-gemini/src/index.ts';",
+        "export { OpenAiReader } from './packages/adapter-openai/src/index.ts';",
       ].join('\n'),
       resolveDir: root,
       loader: 'ts',
@@ -41,13 +42,14 @@ export async function buildFunctions() {
     },
     outfile: resolve(root, 'supabase/functions/intake/handler.bundle.js'),
   });
-  // assistant = the Postgres backend + the assistant handler + Gemini's chat (the floating assistant)
+  // assistant = the Postgres backend + the assistant handler + the chats (Gemini, OpenAI) (the floating assistant)
   await build({
     ...common,
     stdin: {
       contents: [
         "export { PostgresBackend, createAssistantHandler } from './packages/adapter-postgres/src/index.ts';",
         "export { GeminiChat } from './packages/adapter-gemini/src/index.ts';",
+        "export { OpenAiChat } from './packages/adapter-openai/src/index.ts';",
       ].join('\n'),
       resolveDir: root,
       loader: 'ts',

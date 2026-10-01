@@ -49,6 +49,7 @@ pnpm build:functions
 supabase functions deploy post-voucher --project-ref <ref>              # the function serves the writes AND the reads/company actions
 supabase functions deploy intake --project-ref <ref>                    # the AI Inbox (ADR-0023)
 supabase secrets set GEMINI_API_KEY=<key> GEMINI_MODEL=<model> --project-ref <ref>
+supabase secrets set OPENAI_API_KEY=<key> OPENAI_MODEL=<model> --project-ref <ref>   # optional: ChatGPT then reads and answers instead of Gemini
 ```
 `supabase/config.toml` is created by `supabase init` (needs the Supabase CLI). The function needs no secrets set by hand:
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_DB_URL` are provided by the platform.
