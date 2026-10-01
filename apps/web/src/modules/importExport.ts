@@ -10,8 +10,8 @@ const openCommand: Command<AppContext> = {
   id: 'io.open',
   title: 'Import / Export',
   category: 'Data',
-  keywords: ['csv', 'bulk', 'import', 'export', 'items', 'parties', 'contacts', 'vouchers', 'spreadsheet'],
-  description: 'Bulk-load or export Items, Parties and Vouchers/Sales Orders as CSV',
+  keywords: ['csv', 'pdf', 'bank statement', 'bulk', 'import', 'export', 'items', 'parties', 'contacts', 'vouchers', 'spreadsheet'],
+  description: 'Import bank statements, or bulk-load/export Items, Parties and Vouchers',
   run: (app) => app.navigate({ type: 'import-export' }),
 };
 
@@ -26,8 +26,8 @@ const contextual = (id: string, title: string, panel: NonNullable<Command<AppCon
 
 const commands: Command<AppContext>[] = [
   openCommand,
-  contextual('io.cycleKind', 'Switch Items / Parties / Vouchers', { label: 'Switch kind', group: 'Actions', order: 1, on: ['import-export'] }),
-  contextual('io.upload', 'Import a CSV file', { label: 'Import CSV', group: 'Actions', order: 2, on: ['import-export'] }),
+  contextual('io.cycleKind', 'Switch import type', { label: 'Switch type', group: 'Actions', order: 1, on: ['import-export'] }),
+  contextual('io.upload', 'Import a file', { label: 'Import file', group: 'Actions', order: 2, on: ['import-export'] }),
   contextual('io.export', 'Export as CSV', { label: 'Export CSV', group: 'Actions', order: 3, on: ['import-export'] }),
   contextual('io.types', 'Choose which vouchers to export', { label: 'Voucher types', group: 'Actions', order: 4, on: ['import-export'] }),
   contextual('io.template', 'Download a sample CSV to fill in', { label: 'Sample file', group: 'Actions', order: 5, on: ['import-export'] }),

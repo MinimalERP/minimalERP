@@ -183,7 +183,7 @@ export function ImportExportScreen({ frame }: { frame: Frame<ScreenRef> }) {
           <p class="lede">
             {chord('io.upload') && (
               <>
-                <Kbd chord={chord('io.upload') as string} /> import a CSV
+                <Kbd chord={chord('io.upload') as string} /> {statement ? 'import a statement file' : 'import a CSV'}
               </>
             )}
             {chord('io.export') && (
