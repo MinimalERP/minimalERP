@@ -59,3 +59,15 @@ The rehearsal lists them ("Missing in Zoho, will be posted as CANCELLED: …") b
 it in the other (24-25/170), and only a single run sees that it is neither missing nor duplicated. A fraction of a whole-number unit
 ("18.50 Nos" of scrap) is posted as a description line, like a service. A line with no item name (only a
 description) is posted as a description line, like a service, not as a stock item.
+
+## Payments received (Receipts)
+
+```
+pnpm --filter @minimalerp/migrate-zoho receipts -- --csv 1.csv [--csv 2.csv] --company <uuid> --actor <uuid> --bank "Yes Bank" [--commit]
+```
+
+Zoho's "Payments Received" export (all fields): one Receipt per payment, into the bank ledger `--bank` names, each settling the
+invoices Zoho applied it to — for the amount applied plus the TDS the customer withheld (to TDS Receivable). An unused amount goes on
+account (a Customer Advance: as an advance). The invoices must already be in the books: a payment naming one that is not, or settling
+more than is open on it, stops the run before anything is written. A customer the books do not have is created. Re-running skips what
+is already posted.
