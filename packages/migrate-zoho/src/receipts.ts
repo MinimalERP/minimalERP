@@ -24,7 +24,9 @@ import pg from 'pg';
  * customer deducted — so the Outstanding report shows what Zoho shows. The invoices must already be in the books (see post.ts): a
  * payment naming an invoice that is not there, or settling more than is still open on it, stops the run before anything is written.
  *
- *   1. one Receipt per Zoho payment, dated as in Zoho, into the bank ledger named by --bank, numbered by the Receipt series;
+ *   1. one Receipt per Zoho payment, dated as in Zoho, numbered by the Receipt series, into the bank or cash ledger --bank names for
+ *      Zoho's "Deposit To" account: `--bank "Yes Bank 5491"` for every payment, or one `--bank "<Zoho account>=<ledger>"` per account
+ *      (`--bank "ICICI Bank Account=ICICI Bank" --bank "Petty Cash=Cash"`), a plain one being the rest's;
  *   2. per invoice applied: "against" that invoice for what it settled (Zoho's amount applied + the TDS withheld), the TDS going to
  *      TDS Receivable; what Zoho left unused goes on account (a Customer Advance: as an advance);
  *   3. a customer the books do not have yet is created (Customer role added to a supplier that is one).
@@ -32,7 +34,7 @@ import pg from 'pg';
  * Without --commit it rehearses against an in-memory copy and writes nothing. Every id derives from Zoho's CustomerPayment ID, so a
  * re-run skips what is already posted.
  *
- *   pnpm --filter @minimalerp/migrate-zoho receipts -- --csv 1.csv [--csv 2.csv] --company <uuid> --actor <uuid> --bank "Yes Bank" [--commit]
+ *   pnpm --filter @minimalerp/migrate-zoho receipts -- --csv 1.csv [--csv 2.csv] --company <uuid> --actor <uuid> --bank "Yes Bank" [--bank "Petty Cash=Cash" …] [--commit]
  *
  * DATABASE_URL carries the connection string. Never commit it, the CSV, or the report.
  */
@@ -217,7 +219,8 @@ export function planReceipts(payments: readonly ZohoPayment[], masters: Masters,
 export interface Context {
   readonly companyId: CompanyId;
   readonly gw: Gateway;
-  readonly bank: string;
+  /** The --bank values: "<ledger>" for every payment, or "<Zoho Deposit To>=<ledger>" for one account's. */
+  readonly bank: readonly string[];
   readonly log: (line: string) => void;
 }
 
@@ -264,8 +267,16 @@ export async function postReceipts(ctx: Context, plan: ReceiptPlan, masters: Mas
   const type = masters.voucherTypes.find((t) => t.baseKind === 'receipt' && t.isActive !== false);
   if (!type) throw new Error('No Receipt voucher type');
   const banks = masters.ledgers.filter((l) => l.isActive && masters.isCashOrBank(l.id));
-  const bank = banks.find((l) => lower(l.name) === lower(ctx.bank));
-  if (!bank) throw new Error(`No bank ledger called "${ctx.bank}". The bank and cash ledgers are: ${banks.map((l) => l.name).join(', ')}`);
+  const ledgerNamed = (name: string) => {
+    const l = banks.find((b) => lower(b.name) === lower(name));
+    if (!l) throw new Error(`No bank or cash ledger called "${name}". They are: ${banks.map((b) => b.name).join(', ')}`);
+    return l;
+  };
+  // Zoho's Deposit To account → the ledger; checked for every payment before the first is posted
+  const pairs = ctx.bank.map((b) => b.split('=')).map((p) => (p.length > 1 ? { zoho: lower(p[0] as string), ledger: ledgerNamed(p.slice(1).join('=').trim()) } : { zoho: undefined, ledger: ledgerNamed(p[0] as string) }));
+  const bankFor = (depositTo: string) => (pairs.find((p) => p.zoho === lower(depositTo)) ?? pairs.find((p) => p.zoho === undefined))?.ledger;
+  const unmapped = [...new Set(plan.receipts.map((r) => (r.payment.rows[0] as ZohoPaymentRow).depositTo).filter((d) => !bankFor(d)))];
+  if (unmapped.length > 0) throw new Error(`Which ledger did Zoho's ${unmapped.map((d) => `"${d}"`).join(', ')} go into? Add --bank "${unmapped[0]}=<ledger>"`);
 
   const out: PostedReceipt[] = [];
   for (const r of plan.receipts) {
@@ -278,6 +289,8 @@ export async function postReceipts(ctx: Context, plan: ReceiptPlan, masters: Mas
     }
     const party = r.partyId ? masters.party(r.partyId as never) : findParty(masters, head);
     if (!party) throw new Error(`Zoho payment ${head.paymentNumber}: customer "${head.customerName}" is not in the books`);
+    const into = bankFor(head.depositTo);
+    if (!into) throw new Error(`Zoho payment ${head.paymentNumber}: no ledger for "${head.depositTo}"`);
     const amount = r.allocations.reduce((t, a) => t + a.amount, 0n);
     const narration = [`Zoho payment ${head.paymentNumber}`, head.reference, head.description].filter((s) => s !== '').join(' · ').slice(0, 500);
     const posted = await gw.post({
@@ -286,7 +299,7 @@ export async function postReceipts(ctx: Context, plan: ReceiptPlan, masters: Mas
         id,
         voucherTypeId: type.id,
         date: head.date,
-        accountLedgerId: bank.id,
+        accountLedgerId: into.id,
         narration,
         lines: [
           {
@@ -314,7 +327,7 @@ interface Args {
   readonly csv: readonly string[];
   readonly company: string;
   readonly actor: string;
-  readonly bank: string;
+  readonly bank: readonly string[];
   readonly dbUrl: string;
   readonly commit: boolean;
   readonly out: string;
@@ -328,10 +341,10 @@ function parseArgs(argv: readonly string[]): Args {
   const csv = argv.flatMap((a, i) => (a === '--csv' && argv[i + 1] !== undefined ? [argv[i + 1] as string] : []));
   const company = get('--company');
   const actor = get('--actor');
-  const bank = get('--bank');
+  const bank = argv.flatMap((a, i) => (a === '--bank' && argv[i + 1] !== undefined ? [argv[i + 1] as string] : []));
   const dbUrl = process.env['DATABASE_URL'];
-  if (csv.length === 0 || !company || !actor || !bank || !dbUrl) {
-    throw new Error('Usage: DATABASE_URL=... receipts --csv <path> [--csv <path> …] --company <uuid> --actor <uuid> --bank "<bank ledger>" [--commit] [--out <path>]');
+  if (csv.length === 0 || !company || !actor || bank.length === 0 || !dbUrl) {
+    throw new Error('Usage: DATABASE_URL=... receipts --csv <path> [--csv <path> …] --company <uuid> --actor <uuid> --bank "<ledger>" [--bank "<Zoho account>=<ledger>" …] [--commit] [--out <path>]');
   }
   return { csv, company, actor, bank, dbUrl, commit: argv.includes('--commit'), out: get('--out') ?? 'zoho-receipts-report.json' };
 }
@@ -351,7 +364,10 @@ async function main(): Promise<void> {
     const first = payments[0]?.rows[0];
     const last = payments.at(-1)?.rows[0];
     console.log(`Company: ${masters.company.name}`);
-    console.log(`${payments.length} payments (${first?.date} … ${last?.date}), into "${args.bank}"; ${vouchers.length} vouchers already in the books`);
+    console.log(`${payments.length} payments (${first?.date} … ${last?.date}); ${vouchers.length} vouchers already in the books`);
+    const accounts = new Map<string, number>();
+    for (const p of payments) accounts.set((p.rows[0] as ZohoPaymentRow).depositTo, (accounts.get((p.rows[0] as ZohoPaymentRow).depositTo) ?? 0) + 1);
+    console.log(`Zoho's "Deposit To": ${[...accounts].map(([a, n]) => `${a} (${n})`).join('; ')}; --bank ${args.bank.map((b) => `"${b}"`).join(' ')}`);
     console.log(`Customers: ${[...new Set(plan.receipts.map((r) => r.customer))].join('; ')}`);
     if (plan.newCustomers.length > 0) console.log(`Customers to create (or give the Customer role): ${plan.newCustomers.map((c) => c.customerName).join('; ')}`);
     const tds = plan.receipts.reduce((t, r) => t + r.allocations.reduce((s, a) => s + (a.tds ?? 0n), 0n), 0n);

@@ -47,7 +47,7 @@ describe('Zoho payments as Receipts', () => {
       pay({ amount: '1700.000', unused: '30.000', invoiceNumber: '25-26/1', applied: '1170.00', tds: '10.000' }),
       pay({ amount: '1700.000', unused: '30.000', invoiceNumber: '25-26/2', applied: '500.00', tds: '0.000' }),
     ]);
-    const ctx = { companyId, gw, bank: 'Yes Bank', log: () => {} };
+    const ctx = { companyId, gw, bank: ['Yes Bank'], log: () => {} };
     const run = async () => {
       const plan = planReceipts(payments, await gw.load(companyId), await gw.list(companyId));
       expect(plan.problems).toEqual([]);
@@ -86,7 +86,7 @@ describe('Zoho payments as Receipts', () => {
     const payments = groupPayments([pay({ customerName: 'ACME LIMITED', amount: '1180.000', invoiceNumber: '25-26/1', applied: '1180.00' })]);
     const plan = planReceipts(payments, await gw.load(companyId), await gw.list(companyId));
     expect(plan.newCustomers).toEqual([]);
-    const ctx = { companyId, gw, bank: 'Yes Bank', log: () => {} };
+    const ctx = { companyId, gw, bank: ['Yes Bank'], log: () => {} };
     const posted = await postReceipts(ctx, plan, await createCustomers(ctx, plan));
     expect(posted[0]?.customer).toBe('Acme Ltd');
     expect((await gw.load(companyId)).parties).toHaveLength(1);
@@ -98,8 +98,27 @@ describe('Zoho payments as Receipts', () => {
     const plan = planReceipts(payments, await gw.load(companyId), await gw.list(companyId));
     expect(plan.newCustomers.map((c) => c.customerName)).toEqual(['Sunrise Export']);
     expect(plan.receipts[0]?.allocations).toEqual([{ kind: 'advance', amount: 35000000n }]);
-    const ctx = { companyId, gw, bank: 'Yes Bank', log: () => {} };
+    const ctx = { companyId, gw, bank: ['Yes Bank'], log: () => {} };
     const posted = await postReceipts(ctx, plan, await createCustomers(ctx, plan));
     expect(posted[0]?.customer).toBe('Sunrise Export');
+  });
+
+  it('puts each payment into the ledger its Zoho "Deposit To" account maps to, and stops on an account nobody mapped', async () => {
+    const { gw, companyId } = await booksWithInvoices();
+    const payments = groupPayments([
+      pay({ paymentId: 'Y', amount: '500.000', invoiceNumber: '25-26/1', applied: '500.00' }),
+      pay({ paymentId: 'C', paymentNumber: '25-26/2', amount: '100.000', invoiceNumber: '25-26/2', applied: '100.00', depositTo: 'Petty Cash' }),
+    ]);
+    const plan = planReceipts(payments, await gw.load(companyId), await gw.list(companyId));
+    const masters = await createCustomers({ companyId, gw, bank: [], log: () => {} }, plan);
+    await expect(postReceipts({ companyId, gw, bank: ['Yes BAnk=Yes Bank'], log: () => {} }, plan, masters)).rejects.toThrow('"Petty Cash"');
+    await postReceipts({ companyId, gw, bank: ['Yes Bank', 'Petty Cash=Cash'], log: () => {} }, plan, masters);
+    const intoName = async (zoho: string) => {
+      const m = await gw.load(companyId);
+      const v = (await gw.list(companyId)).find((x) => (x.content as unknown as { narration?: string }).narration?.startsWith(`Zoho payment ${zoho}`));
+      return m.ledger((v?.content as unknown as { accountLedgerId: never }).accountLedgerId)?.name;
+    };
+    expect(await intoName('25-26/1')).toBe('Yes Bank');
+    expect(await intoName('25-26/2')).toBe('Cash');
   });
 });

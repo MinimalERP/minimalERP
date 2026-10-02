@@ -66,7 +66,7 @@ description) is posted as a description line, like a service, not as a stock ite
 pnpm --filter @minimalerp/migrate-zoho receipts -- --csv 1.csv [--csv 2.csv] --company <uuid> --actor <uuid> --bank "Yes Bank" [--commit]
 ```
 
-Zoho's "Payments Received" export (all fields): one Receipt per payment, into the bank ledger `--bank` names, each settling the
+Zoho's "Payments Received" export (all fields): one Receipt per payment, into the bank or cash ledger `--bank` names for Zoho's "Deposit To" account (`--bank "Yes Bank 5491"` for all, or `--bank "Petty Cash=Cash"` per account; a plain one is the rest's), keeping Zoho's payment number, reference and notes in its narration, each settling the
 invoices Zoho applied it to — for the amount applied plus the TDS the customer withheld (to TDS Receivable). An unused amount goes on
 account (a Customer Advance: as an advance). The invoices must already be in the books: a payment naming one that is not, or settling
 more than is open on it, stops the run before anything is written. A customer the books do not have is created. Re-running skips what
