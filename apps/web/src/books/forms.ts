@@ -10,6 +10,7 @@ import {
   USER_BASE_KINDS,
   formatMoney,
   masterRecordName,
+  type StockItem,
 } from '@minimalerp/domain';
 import type { EntityDoc } from '@minimalerp/command';
 import { entityDocsOf } from './entities';
@@ -298,7 +299,7 @@ export const FORMS: Readonly<Record<MasterKind, FormSpec>> = {
       }),
     ],
     fromRecord: (record, values) => {
-      const item = record as import('@minimalerp/domain').StockItem;
+      const item = record as StockItem;
       return { ...values, __mainDrawingId: item.mainDrawingId ?? '', __mainDrawingFile: item.mainDrawingFile ? JSON.stringify(item.mainDrawingFile) : '', __mainDrawingItemId: item.mainDrawingItemId ?? '', __details: JSON.stringify(item.details ?? []) };
     },
     toData: (values, data) => {
@@ -354,6 +355,22 @@ export const FORMS: Readonly<Record<MasterKind, FormSpec>> = {
       text('suffix', 'Suffix'),
       { key: 'width', label: 'Number width', type: 'integer', defaultValue: '4' },
       { key: 'startAt', label: 'Start at', type: 'integer', defaultValue: '1' },
+    ],
+  },
+  financialYear: {
+    kind: 'financialYear',
+    noun: 'Financial Year',
+    nameField: 'label',
+    fields: [
+      {
+        key: 'start',
+        label: 'Starts on',
+        type: 'date',
+        required: true,
+        hint: 'Right before your first year (to bring in an earlier year’s books) or right after your last. The dates cannot change later.',
+      },
+      { key: 'end', label: 'Ends on', type: 'date', hint: 'Blank: one year from the start, less a day' },
+      text('label', 'Label', { placeholder: '2025-26', hint: 'Blank: from the dates, like 2025-26' }),
     ],
   },
   company: {

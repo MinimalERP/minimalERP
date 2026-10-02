@@ -233,6 +233,28 @@ export function masterContract(label: string, makeWorld: MakeMasterWorld): void 
       });
     });
 
+    describe('financial years', () => {
+      it('an EARLIER year can be added, with its numbering series, and vouchers then post into it', async () => {
+        mustOk(await run('create', 'financialYear', id('fy'), { start: '2023-04-01' }));
+        const m = await masters();
+        expect(m.financialYears.map((y) => y.label)).toEqual(['2023-24', '2024-25']);
+        expect(m.series.filter((s) => s.financialYearId === id('fy'))).toHaveLength(m.voucherTypes.length);
+        mustOk(await run('create', 'ledger', id('bank'), { name: 'HDFC Bank', groupId: group('bank-accounts') }));
+        // an opening balance is dated the first day of its year: here, the added one
+        const posted = await w.backend.post({
+          companyId: w.companyId,
+          draft: { id: id('v'), voucherTypeId: w.uuid('type:opening'), date: '2023-04-01', ledgerId: id('bank'), side: 'debit', amount: '500', offsetLedgerId: w.uuid('ledger:opening-difference') },
+        });
+        expect(mustOk(posted).voucher.financialYearId).toBe(id('fy'));
+      });
+
+      it('a year that would leave a gap or overlap is refused, and nothing is written', async () => {
+        expect(codesOf(await run('create', 'financialYear', id('fy'), { start: '2022-04-01' }))).toEqual([IssueCode.OutOfRange]);
+        expect(codesOf(await run('create', 'financialYear', id('fy'), { start: '2024-10-01' }))).toEqual([IssueCode.OutOfRange]);
+        expect((await masters()).financialYears).toHaveLength(1);
+      });
+    });
+
     describe('a party and its ledgers', () => {
       const partyLedgers = async (partyId: string) => (await masters()).ledgers.filter((l) => l.partyId === partyId);
       const nameOf = async (ledgerId: string) => (await masters()).ledgers.find((l) => l.id === ledgerId)?.name;

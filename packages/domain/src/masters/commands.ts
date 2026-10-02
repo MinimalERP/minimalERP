@@ -1,9 +1,9 @@
 import { MAIL_KINDS, type MailTemplates } from './mailTemplates';
 import { z } from 'zod';
-import { parseLocalDate } from '../dates';
+import { type FinancialYear, type LocalDate, parseLocalDate } from '../dates';
 import { formatMoney } from '../money';
 import { type Issue, type Result, IssueCode, fail, failWith, issue, ok } from '../errors';
-import type { GroupId } from '../ids';
+import { type GroupId, deterministicUuid } from '../ids';
 import { GST_REGISTRATIONS, moneySchema } from '../vouchers/drafts';
 import { draftToJson, jsonEqual } from '../wire';
 import { type AccountGroup, GroupTree } from './groups';
@@ -60,10 +60,11 @@ export type MasterKind =
   | 'gstRate'
   | 'voucherType'
   | 'numberingSeries'
+  | 'financialYear'
   | 'company';
 
 export const MASTER_KINDS: readonly MasterKind[] = [
-  'group', 'ledger', 'party', 'unit', 'stockGroup', 'stockItem', 'warehouse', 'gstRate', 'voucherType', 'numberingSeries', 'company',
+  'group', 'ledger', 'party', 'unit', 'stockGroup', 'stockItem', 'warehouse', 'gstRate', 'voucherType', 'numberingSeries', 'financialYear', 'company',
 ];
 
 export const MASTER_LABELS: Readonly<Record<MasterKind, string>> = {
@@ -77,6 +78,7 @@ export const MASTER_LABELS: Readonly<Record<MasterKind, string>> = {
   gstRate: 'GST Rate',
   voucherType: 'Voucher Type',
   numberingSeries: 'Numbering Series',
+  financialYear: 'Financial Year',
   company: 'Company',
 };
 
@@ -91,6 +93,7 @@ export type MasterRecord =
   | GstRate
   | VoucherType
   | NumberingSeries
+  | FinancialYear
   | Company;
 
 /** Facts about how existing data USES masters — supplied by the adapter, since only it can see the books. */
@@ -845,6 +848,89 @@ const seriesDef = define({
   put: (m, s) => m.with({ series: replaceOrAppend(m.series, s) }),
 });
 
+/** `date` moved by whole days (UTC arithmetic, so no time zone can shift it). */
+function shiftDays(date: string, days: number): LocalDate {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10) as LocalDate;
+}
+
+/** One year from `start`, minus a day: 2025-04-01 → 2026-03-31. */
+function yearEndFrom(start: string): LocalDate {
+  const d = new Date(`${start}T00:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() + 1);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10) as LocalDate;
+}
+
+const two = (year: number) => String(year % 100).padStart(2, '0');
+
+/** How a year reads in a label ("2025-26") and in a voucher prefix ("25-26"); a calendar year reads "2025" and "25". The same convention as `seedCompany`. */
+export function financialYearNames(start: string, end: string): { label: string; short: string } {
+  const startYear = Number(start.slice(0, 4));
+  const endYear = Number(end.slice(0, 4));
+  return endYear === startYear
+    ? { label: `${startYear}`, short: two(startYear) }
+    : { label: `${startYear}-${two(endYear)}`, short: `${two(startYear)}-${two(endYear)}` };
+}
+
+/**
+ * A financial year. A company starts with one (onboarding); more are added here — the next year, or an EARLIER one, to bring in the
+ * books of a year before the company began (say, a previous year's invoices from another system). A year must sit right next to the
+ * years already there, so there is never a gap or an overlap, and its dates are fixed once made: only its label can change. A year is
+ * never deactivated. Creating one also gives every voucher type its numbering series for that year (see `withYearSeries`).
+ */
+const financialYearDef = define({
+  kind: 'financialYear',
+  schema: z.object({ start: z.string().trim(), end: z.string().trim().optional(), label: optionalText(20) }),
+  find: (m, yid) => m.financialYears.find((y) => y.id === yid),
+  isActive: () => true,
+  withActive: (y) => y,
+  canDeactivate: () => [issue(IssueCode.UnsupportedOperation, 'A financial year cannot be deactivated')],
+  validate(f, c, existing) {
+    const start = parseLocalDate(f.start);
+    if (start === undefined) return [issue(IssueCode.SchemaInvalid, 'Enter a valid date (YYYY-MM-DD)', 'start')];
+    const endText = f.end === undefined || f.end === '' ? yearEndFrom(start) : f.end;
+    const end = parseLocalDate(endText);
+    if (end === undefined) return [issue(IssueCode.SchemaInvalid, 'Enter a valid date (YYYY-MM-DD)', 'end')];
+    if (end < start) return [issue(IssueCode.OutOfRange, 'The year must end on or after the day it starts', 'end')];
+    if (end > yearEndFrom(start)) return [issue(IssueCode.OutOfRange, 'A financial year is at most one year long', 'end')];
+    const label = f.label ?? financialYearNames(start, end).label;
+    const taken = c.masters.financialYears.find((y) => y.id !== existing?.id && nameKey(y.label) === nameKey(label));
+    const labelProblems = taken ? [issue(IssueCode.NameTaken, `Another financial year is already called ${taken.label}`, 'label')] : [];
+    if (existing) {
+      return existing.start === start && existing.end === end ? labelProblems : [issue(IssueCode.InUse, 'A financial year’s dates cannot change: only its label can', 'start')];
+    }
+    const years = c.masters.financialYears;
+    const clash = years.find((y) => start <= y.end && end >= y.start);
+    if (clash) return [issue(IssueCode.OutOfRange, `${start} to ${end} overlaps ${clash.label} (${clash.start} to ${clash.end})`, 'start')];
+    if (years.length === 0) return labelProblems;
+    const first = years.reduce((a, y) => (y.start < a.start ? y : a));
+    const last = years.reduce((a, y) => (y.end > a.end ? y : a));
+    if (end === shiftDays(first.start, -1) || start === shiftDays(last.end, 1)) return labelProblems;
+    return [
+      issue(
+        IssueCode.OutOfRange,
+        `A new year must come right before ${first.label} (end on ${shiftDays(first.start, -1)}) or right after ${last.label} (start on ${shiftDays(last.end, 1)})`,
+        'start',
+      ),
+    ];
+  },
+  build: (yid, f, c, existing) => {
+    const start = parseLocalDate(f.start) as LocalDate;
+    const end = f.end === undefined || f.end === '' ? yearEndFrom(start) : (parseLocalDate(f.end) as LocalDate);
+    return {
+      id: yid as FinancialYear['id'],
+      companyId: c.masters.company.id,
+      label: f.label ?? financialYearNames(start, end).label,
+      start,
+      end,
+      ...(existing?.lockedThrough !== undefined ? { lockedThrough: existing.lockedThrough } : {}),
+    };
+  },
+  put: (m, y) => m.with({ financialYears: replaceOrAppend(m.financialYears, y).sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0)) }),
+});
+
 const companyDef = define({
   kind: 'company',
   schema: z.object({
@@ -921,6 +1007,7 @@ const DEFS: Readonly<Record<MasterKind, MasterDef>> = {
   gstRate: gstRateDef,
   voucherType: voucherTypeDef,
   numberingSeries: seriesDef,
+  financialYear: financialYearDef,
   company: companyDef,
 };
 
@@ -940,6 +1027,7 @@ export const masterRecordToJson = (record: MasterRecord): Record<string, unknown
 export function masterRecordName(r: MasterRecord): string {
   if ('symbol' in r) return r.symbol; // a unit is identified by its symbol
   if ('name' in r) return r.name;
+  if ('label' in r) return r.label; // a financial year
   return `${r.prefix}…`; // a numbering series
 }
 
@@ -1111,8 +1199,57 @@ function withPartyLedgers(first: Prepared, usage: MasterUsage): Result<PreparedM
 export function prepareMasterCommand(input: unknown, masters: Masters, usage: MasterUsage = NO_USAGE): Result<PreparedMaster> {
   const first = prepareOne(input, masters, usage, false);
   if (!first.ok) return first;
-  if (first.value.change.kind !== 'party') return ok({ ...first.value, changes: [first.value.change] });
-  return withPartyLedgers(first.value, usage);
+  if (first.value.change.kind === 'party') return withPartyLedgers(first.value, usage);
+  if (first.value.change.kind === 'financialYear') return withYearSeries(first.value, usage);
+  return ok({ ...first.value, changes: [first.value.change] });
+}
+
+/** The id of the numbering series a new financial year gives a voucher type — derived, so making the year twice is a safe replay. */
+export const yearSeriesId = (yearId: string, voucherTypeId: string): string => deterministicUuid(`fy-series|${yearId}|${voucherTypeId}`);
+
+/**
+ * A new financial year brings a numbering series for every active voucher type, in the same step, so a voucher can be entered in it
+ * at once. Each copies the type's series from the nearest year it has one in — prefix (with that year's "26-27" swapped for this
+ * one's), suffix and width — and starts at 1. A type with no series anywhere gets "<TYPE>/<yy-yy>/".
+ */
+function withYearSeries(first: Prepared, usage: MasterUsage): Result<PreparedMaster> {
+  const changes: MasterChange[] = [first.change];
+  let masters = first.masters;
+  if (first.change.replayed || first.change.op !== 'create') return ok({ change: first.change, changes, masters });
+  const year = first.change.after as FinancialYear;
+  const { short } = financialYearNames(year.start, year.end);
+  const distance = (y: FinancialYear | undefined) => (y === undefined ? Number.POSITIVE_INFINITY : Math.abs(Date.parse(y.start) - Date.parse(year.start)));
+
+  for (const type of masters.voucherTypes.filter((t) => t.isActive !== false)) {
+    if (masters.series.some((s) => s.voucherTypeId === type.id && s.financialYearId === year.id)) continue;
+    const model = masters.series
+      .filter((s) => s.voucherTypeId === type.id)
+      .map((s) => ({ s, y: masters.financialYear(s.financialYearId) }))
+      .sort((a, b) => distance(a.y) - distance(b.y))[0];
+    const modelShort = model?.y ? financialYearNames(model.y.start, model.y.end).short : undefined;
+    const prefix = model
+      ? modelShort !== undefined && model.s.prefix.includes(modelShort)
+        ? model.s.prefix.replace(modelShort, short)
+        : model.s.prefix
+      : `${type.name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase()}/${short}/`;
+    const r = prepareOne(
+      {
+        op: 'create',
+        kind: 'numberingSeries',
+        id: yearSeriesId(year.id, type.id),
+        data: { voucherTypeId: type.id, financialYearId: year.id, prefix: prefix.slice(0, 20), suffix: model?.s.suffix ?? '', width: model?.s.width ?? 4, startAt: 1 },
+      },
+      masters,
+      usage,
+      false,
+    );
+    if (!r.ok) return failWith(r.issues.map((i) => issue(i.code, `${type.name} numbering: ${i.message}`, 'start')));
+    if (!r.value.change.replayed) {
+      changes.push(r.value.change);
+      masters = r.value.masters;
+    }
+  }
+  return ok({ change: first.change, changes, masters });
 }
 
 /** Looks up any master by kind and id. */
@@ -1147,6 +1284,8 @@ export function listMasters(masters: Masters, kind: MasterKind): readonly Master
       return masters.voucherTypes;
     case 'numberingSeries':
       return masters.series;
+    case 'financialYear':
+      return masters.financialYears;
     case 'company':
       return [masters.company];
   }

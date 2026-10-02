@@ -178,6 +178,10 @@ export function summaryOf(kind: MasterKind, masters: Masters, record: unknown): 
     const year = masters.financialYears.find((y) => y.id === r.financialYearId)?.label ?? '?';
     return { title: `${type} — ${year}`, subtitle: `${String(r.prefix ?? '')}0001${String(r.suffix ?? '')}`, inactive: false };
   }
+  if (kind === 'financialYear') {
+    const locked = typeof r.lockedThrough === 'string' ? ` · locked through ${r.lockedThrough}` : '';
+    return { title: String(r.label ?? ''), subtitle: `${String(r.start)} → ${String(r.end)}${locked}`, inactive: false };
+  }
   if (kind === 'company') return { title: masters.company.name, subtitle: masters.company.gstin ?? '', inactive: false };
   const d = describe(kind, masters, r);
   const extra = kind === 'party' && typeof r.creditLimit === 'bigint' ? ` · limit ${formatMoney(r.creditLimit as never)}` : '';

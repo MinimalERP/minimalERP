@@ -21,6 +21,7 @@ import {
 } from '@minimalerp/domain';
 import pg from 'pg';
 import { type ZohoInvoice, type ZohoLine, groupByInvoice, invoiceFilterOf, parseZohoCsv } from './csv';
+import { lineGstRateOf } from './stage';
 
 /**
  * Posts Zoho Books invoices DIRECTLY as Sales Invoices, one by one in Zoho's own number order, so that each gets the SAME number in
@@ -83,6 +84,8 @@ const unitOf = (l: ZohoLine): string => (l.usageUnit === '' ? 'Nos' : l.usageUni
 const tidy = (s: string): string => s.replace(/\s+/g, ' ').trim();
 const lower = (s: string | undefined): string => tidy(s ?? '').toLowerCase();
 const partKey = (code: string): string => canonicalId(code).replace(/[^A-Z0-9]/g, '');
+/** The line's GST rate as Zoho charged it (CGST + SGST, or IGST): "18", "5", … and "0" for an untaxed line. */
+export const gstRateOf = (l: ZohoLine): string => lineGstRateOf(l) ?? '0';
 
 /**
  * The part number leading a Zoho item name, and the rest. "[14188-42]PLT,ORIF" → 14188-42; "14188-4 PLT,ORIF" → 14188-4;
@@ -234,7 +237,7 @@ export async function createMasters(ctx: Context, plan: Plan): Promise<Masters> 
 
   let masters = await gw.load(companyId);
   for (const it of plan.items.filter((x) => !x.existing)) {
-    const row = resolveItemRow({ name: it.name, code: it.code ?? '', alias: '', group: '', unit: unitOf(it.zoho), hsn: it.zoho.hsn, gstRate: '18', itemType: '' }, masters);
+    const row = resolveItemRow({ name: it.name, code: it.code ?? '', alias: '', group: '', unit: unitOf(it.zoho), hsn: it.zoho.hsn, gstRate: gstRateOf(it.zoho), itemType: '' }, masters);
     if (!row.ok) throw new Error(`Item "${it.name}": ${row.errors.join('; ')}`);
     await run('create', 'stockItem', newId('stockItem', it.key), row.data);
   }
@@ -333,7 +336,7 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
     const party = findParty(masters, z);
     if (!party) throw new Error(`${inv.invoiceNumber}: customer "${z.customerName}" is not in the books`);
     const lines = inv.rows.map((l) => {
-      const gst = { gstRate: '18', ...(l.hsn ? { hsn: l.hsn } : {}) };
+      const gst = { gstRate: gstRateOf(l), ...(l.hsn ? { hsn: l.hsn } : {}) };
       if (isService(l)) return { description: (l.itemDesc || l.itemName).slice(0, 200), ...(l.usageUnit ? { unit: l.usageUnit } : {}), qty: l.quantity, rate: l.itemPrice, ...gst };
       const it = planned.get(keyOf(l));
       const item = it ? findItem(masters, it.key, it.name, ctx.same) : undefined;

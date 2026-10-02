@@ -29,7 +29,14 @@ const CREATES: readonly Create[] = [
   { kind: 'warehouse', id: 'master.create.warehouse', keywords: ['godown', 'location'] },
 ];
 
-const LISTS: readonly MasterKind[] = ['ledger', 'group', 'party', 'stockItem', 'stockGroup', 'unit', 'warehouse', 'gstRate', 'voucherType', 'numberingSeries'];
+const LISTS: readonly MasterKind[] = ['ledger', 'group', 'party', 'stockItem', 'stockGroup', 'unit', 'warehouse', 'gstRate', 'voucherType', 'numberingSeries', 'financialYear'];
+
+/** The lists that are company settings rather than masters: their own command ids, kept off the Masters menu. */
+const SETTINGS_LISTS: Partial<Record<MasterKind, { readonly id: string; readonly keywords: readonly string[] }>> = {
+  voucherType: { id: 'settings.voucherTypes', keywords: ['configure vouchers'] },
+  numberingSeries: { id: 'settings.numbering', keywords: ['voucher numbers'] },
+  financialYear: { id: 'settings.financialYears', keywords: ['fy', 'previous year', 'new year', 'books'] },
+};
 
 const NEEDS_COMPANY = (app: AppContext) => app.books.current !== undefined;
 
@@ -43,11 +50,11 @@ const createCommands: Command<AppContext>[] = CREATES.map(({ kind, id, keywords 
 }));
 
 const listCommands: Command<AppContext>[] = LISTS.map((kind) => ({
-  id: kind === 'voucherType' ? 'settings.voucherTypes' : kind === 'numberingSeries' ? 'settings.numbering' : `master.list.${kind}`,
+  id: SETTINGS_LISTS[kind]?.id ?? `master.list.${kind}`,
   title: PLURALS[kind],
-  category: kind === 'voucherType' || kind === 'numberingSeries' ? 'Settings' : 'Masters',
+  category: SETTINGS_LISTS[kind] ? 'Settings' : 'Masters',
   description: `Find, display or alter ${PLURALS[kind].toLowerCase()}`,
-  keywords: kind === 'voucherType' ? ['configure vouchers'] : kind === 'numberingSeries' ? ['voucher numbers'] : ['display', 'alter', 'browse'],
+  keywords: SETTINGS_LISTS[kind]?.keywords ?? ['display', 'alter', 'browse'],
   run: (app) => (app.books.current ? app.navigate({ type: 'master-list', kind }) : app.navigate({ type: 'company-new' })),
 }));
 
@@ -234,7 +241,7 @@ const entry = (section: string, commandId: string, order: number): MenuEntry => 
 // The Masters menu lists each kind once (Ledgers, Groups…); creating is Alt+C inside a list. The "Create Ledger"-style commands
 // still exist for Go To and shortcuts, they just do not crowd the menu.
 const menu: MenuEntry[] = [
-  ...LISTS.filter((k) => k !== 'voucherType' && k !== 'numberingSeries').map((k, i) => entry('masters', `master.list.${k}`, i + 1)),
+  ...LISTS.filter((k) => SETTINGS_LISTS[k] === undefined).map((k, i) => entry('masters', `master.list.${k}`, i + 1)),
   entry('utilities', 'settings.company', 5),
   entry('utilities', 'company.user', 5.5),
   entry('utilities', 'company.gmail', 5.6),
@@ -242,6 +249,7 @@ const menu: MenuEntry[] = [
   entry('utilities', 'settings.printLayouts', 6.5),
   entry('utilities', 'settings.voucherTypes', 7),
   entry('utilities', 'settings.numbering', 8),
+  entry('utilities', 'settings.financialYears', 8.5),
   entry('utilities', 'company.create', 2),
   entry('utilities', 'company.switch', 1),
   entry('utilities', 'company.loadDemo', 3),
