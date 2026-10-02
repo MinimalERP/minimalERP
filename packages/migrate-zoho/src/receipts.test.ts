@@ -81,6 +81,17 @@ describe('Zoho payments as Receipts', () => {
     ]);
   });
 
+  it('takes the customer from the invoices it settles, whatever name Zoho gives the payment: no second customer is made', async () => {
+    const { gw, companyId } = await booksWithInvoices();
+    const payments = groupPayments([pay({ customerName: 'ACME LIMITED', amount: '1180.000', invoiceNumber: '25-26/1', applied: '1180.00' })]);
+    const plan = planReceipts(payments, await gw.load(companyId), await gw.list(companyId));
+    expect(plan.newCustomers).toEqual([]);
+    const ctx = { companyId, gw, bank: 'Yes Bank', log: () => {} };
+    const posted = await postReceipts(ctx, plan, await createCustomers(ctx, plan));
+    expect(posted[0]?.customer).toBe('Acme Ltd');
+    expect((await gw.load(companyId)).parties).toHaveLength(1);
+  });
+
   it('creates a customer the books do not have, for an advance', async () => {
     const { gw, companyId } = await booksWithInvoices();
     const payments = groupPayments([pay({ paymentId: 'S', customerName: 'Sunrise Export', type: 'Customer Advance', amount: '350000.000', unused: '350000.000' })]);

@@ -130,6 +130,8 @@ export interface PlannedAllocation {
 export interface PlannedReceipt {
   readonly payment: ZohoPayment;
   readonly customer: string;
+  /** The customer in the books, when known before posting (by GSTIN, name, or the invoices the payment settles). */
+  readonly partyId?: string;
   /** What the bank received: Zoho's Amount. */
   readonly received: bigint;
   readonly allocations: readonly PlannedAllocation[];
@@ -166,7 +168,11 @@ export function planReceipts(payments: readonly ZohoPayment[], masters: Masters,
     // already in the books (an earlier run): what it settled is in the open bills below, not to be counted again
     const done = posted.has(receiptIdOf(masters.company.id, payment.id));
     const where = `Zoho payment ${head.paymentNumber} (${head.date}, ${head.customerName})`;
-    const party = findParty(masters, head);
+    // the customer is the one whose invoices the payment settles (Zoho's "…PRIVATE LIMITED" may be the books' "…Pvt Ltd"), else by
+    // GSTIN or name; only a payment that names no invoice of a customer the books have makes a new one
+    const invoiceParty = payment.rows.map((r) => (r.invoiceNumber ? invoiceFor(r.invoiceNumber) : undefined)).find((v) => v !== undefined);
+    const fromInvoice = invoiceParty ? masters.party((invoiceParty.content as unknown as { partyId: string }).partyId as never) : undefined;
+    const party = fromInvoice ?? findParty(masters, head);
     if (!party && !newCustomers.has(lower(head.customerName))) newCustomers.set(lower(head.customerName), head);
     if (paise(head.bankCharges) !== 0n) problems.push(`${where}: has bank charges, which this import does not post`);
 
@@ -195,7 +201,7 @@ export function planReceipts(payments: readonly ZohoPayment[], masters: Masters,
       problems.push(`${where}: Zoho's amount ${formatMoney(received as never)} is not the ${formatMoney((applied + unused) as never)} it was applied as`);
     }
     if (allocations.length === 0) problems.push(`${where}: settles nothing`);
-    receipts.push({ payment, customer: party?.name ?? head.customerName, received, allocations });
+    receipts.push({ payment, customer: party?.name ?? head.customerName, ...(party ? { partyId: party.id } : {}), received, allocations });
   }
 
   // nothing may settle more of an invoice than is still open on it (receipts already in the books included)
@@ -270,7 +276,7 @@ export async function postReceipts(ctx: Context, plan: ReceiptPlan, masters: Mas
       out.push({ zoho: head.paymentNumber, number: done.number, date: done.date, customer: r.customer, received: formatMoney(r.received as never), skipped: true });
       continue;
     }
-    const party = findParty(masters, head);
+    const party = r.partyId ? masters.party(r.partyId as never) : findParty(masters, head);
     if (!party) throw new Error(`Zoho payment ${head.paymentNumber}: customer "${head.customerName}" is not in the books`);
     const amount = r.allocations.reduce((t, a) => t + a.amount, 0n);
     const narration = [`Zoho payment ${head.paymentNumber}`, head.reference, head.description].filter((s) => s !== '').join(' · ').slice(0, 500);
