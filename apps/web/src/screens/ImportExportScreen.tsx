@@ -17,8 +17,9 @@ import { useCommandHandler, useFrameState, useServices, useSubscriptions } from 
 import type { ScreenRef } from '../shell/router';
 import { downloadText } from '../ui/download';
 import { Kbd } from '../ui/Kbd';
-import { formatAmount, formatDate, parseDateInput, todayText } from '../vouchers/format';
+import { formatAmount, formatDate, todayText } from '../vouchers/format';
 import { FieldsDialog, MultiSelectDialog } from './ReportDialogs';
+import { periodFields, readPeriod } from '../reports/periodDialog';
 
 const SCOPE = 'screen:import-export';
 
@@ -67,6 +68,7 @@ export function ImportExportScreen({ frame }: { frame: Frame<ScreenRef> }) {
   // nothing ticked means all three kinds, the same as the reports' voucher-type filter
   const [types, setTypes] = useFrameState<IntakeKind[]>(frame, 'types', []);
   const [dialog, setDialog] = useState<'period' | 'types' | undefined>(undefined);
+  const periodDialogFields = books ? periodFields(books.masters, period, false) : [];
   const vouchers = kind === 'vouchers';
   const statement = kind === 'bank-statement';
   useCommandHandler(SCOPE, 'voucher.changeDate', () => (books && vouchers ? (setDialog('period'), true) : false));
@@ -250,24 +252,17 @@ export function ImportExportScreen({ frame }: { frame: Frame<ScreenRef> }) {
           )}
         </>
       )}
-      {dialog === 'period' && (
+      {dialog === 'period' && books && (
         <FieldsDialog
           title="Export period"
-          fields={[
-            { key: 'from', label: 'From', value: formatDate(period.from), hint: 'a date like 1-4-24' },
-            { key: 'to', label: 'To', value: formatDate(period.to) },
-          ]}
-          validate={(v) => {
-            const errs: Record<string, string> = {};
-            const from = parseDateInput(v['from'] ?? '', dateCtx);
-            const to = parseDateInput(v['to'] ?? '', dateCtx);
-            if (!from) errs['from'] = 'That is not a date';
-            if (!to) errs['to'] = 'That is not a date';
-            if (from && to && from > to) errs['to'] = 'The end is before the start';
-            return errs;
-          }}
+          fields={periodDialogFields}
+          initial={periodDialogFields[1]?.key}
+          validate={(v) => readPeriod(books.masters, v, periodDialogFields, period, false, dateCtx).errors}
           onDone={(v) => {
-            if (v) setPeriod({ from: parseDateInput(v['from'] ?? '', dateCtx) ?? period.from, to: parseDateInput(v['to'] ?? '', dateCtx) ?? period.to });
+            const chosen = v ? readPeriod(books.masters, v, periodDialogFields, period, false, dateCtx).period : undefined;
+            if (chosen) {
+              setPeriod(chosen);
+            }
             setDialog(undefined);
           }}
         />

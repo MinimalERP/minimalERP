@@ -101,11 +101,13 @@ export function FieldsDialog(props: {
   onDone: (values: Record<string, string> | undefined) => void;
   /** Only Enter moves on, and Enter on the last field applies: Ctrl+A does nothing here (a form inside a voucher, where Ctrl+A saves the voucher). */
   enterOnly?: boolean;
+  /** The field the cursor starts on (default: the first) — the Period dialog starts on From, with the Financial year one ↑ above. */
+  initial?: string | undefined;
 }) {
   useScope(SCOPE, 'overlay', true);
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(props.fields.map((f) => [f.key, f.value])));
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [at, setAt] = useState(0);
+  const [at, setAt] = useState(() => Math.max(0, props.fields.findIndex((f) => f.key === props.initial)));
   const root = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = root.current?.querySelector<HTMLInputElement>(`[data-rf="${props.fields[at]?.key}"]`);

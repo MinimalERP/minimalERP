@@ -560,6 +560,19 @@ test.describe('the Day Book', () => {
     await expect(dialog).toHaveCount(0);
     await expect(app.getByTestId('report-empty')).toContainText('Nothing in this period');
   });
+
+  test('F2 then ↑ chooses a financial year instead; one the company does not have is refused', async ({ app }) => {
+    await openDayBook(app);
+    await app.keyboard.press('F2');
+    const dialog = app.getByTestId('report-dialog');
+    await expect(dialog).toContainText('Financial year');
+    await app.keyboard.press('ArrowUp');
+    await app.keyboard.type('19-20');
+    await app.keyboard.press('Control+a');
+    await expect(dialog).toContainText('not one of this company’s financial years');
+    await app.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+  });
 });
 
 test.describe('the Ledger report', () => {
