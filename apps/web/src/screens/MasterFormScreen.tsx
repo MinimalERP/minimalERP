@@ -1,6 +1,6 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
 import { type Issue, type MasterKind, type MasterRecord, findMaster, isMasterActive, partyLedgerId } from '@minimalerp/domain';
-import type { ItemFile, StockItemDetail } from '@minimalerp/domain';
+import type { ItemFile, StockItem, StockItemDetail } from '@minimalerp/domain';
 import { Fragment } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import {
@@ -18,7 +18,7 @@ import {
 } from '../books/forms';
 import { hasStockLedger, ledgersOfRecord } from '../books/entities';
 import { addDays } from '../vouchers/format';
-import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
+import { useCommandHandler, useFrameState, useScope, useServices, useSubscriptions } from '../shell/hooks';
 import { Only } from '../shell/Only';
 import { WindowClose } from '../shell/WindowClose';
 import { useLeaveGuard } from '../shell/useLeaveGuard';
@@ -54,7 +54,7 @@ function isPdf(file: ItemFile): boolean {
   return file.mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 }
 
-function itemMainDrawing(item: import('@minimalerp/domain').StockItem): ItemFile | undefined {
+function itemMainDrawing(item: StockItem): ItemFile | undefined {
   return item.mainDrawingFile ?? (item.mainDrawingId ? item.details?.flatMap((row) => row.files).find((file) => file.id === item.mainDrawingId) : undefined);
 }
 
@@ -743,19 +743,28 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
         )}
       </form>
 
-      {pdfViewerFile && (
-        <div class="item-pdf-backdrop" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) setPdfViewerFile(undefined); }} onKeyDown={(e) => { if (e.key === 'Escape') setPdfViewerFile(undefined); }}>
-          <section class="item-pdf-viewer" role="dialog" aria-modal="true" aria-label={`PDF viewer: ${pdfViewerFile.name}`}>
-            <header class="item-pdf-viewer-head">
-              <strong>{pdfViewerFile.name}</strong>
-              <a class="button" href={itemFileUrl(pdfViewerFile)} download={pdfViewerFile.name}>Download</a>
-              <button type="button" class="button" autoFocus onClick={() => setPdfViewerFile(undefined)}>Close</button>
-            </header>
-            <iframe title={`PDF preview: ${pdfViewerFile.name}`} src={itemFileUrl(pdfViewerFile)} />
-          </section>
-        </div>
-      )}
+      {pdfViewerFile && <ItemPdfViewer file={pdfViewerFile} onClose={() => setPdfViewerFile(undefined)} />}
 
     </section>
+  );
+}
+
+const PDF_VIEWER_SCOPE = 'overlay:item-pdf';
+
+/** An item's PDF, shown over the form. Esc (app.back, through the keyboard scope like every other overlay) or a click outside closes it. */
+function ItemPdfViewer({ file, onClose }: { readonly file: ItemFile; readonly onClose: () => void }) {
+  useScope(PDF_VIEWER_SCOPE, 'overlay', true);
+  useCommandHandler(PDF_VIEWER_SCOPE, 'app.back', () => (onClose(), true));
+  return (
+    <div class="item-pdf-backdrop" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <section class="item-pdf-viewer" role="dialog" aria-modal="true" aria-label={`PDF viewer: ${file.name}`}>
+        <header class="item-pdf-viewer-head">
+          <strong>{file.name}</strong>
+          <a class="button" href={itemFileUrl(file)} download={file.name}>Download</a>
+          <button type="button" class="button" autoFocus onClick={onClose}>Close</button>
+        </header>
+        <iframe title={`PDF preview: ${file.name}`} src={itemFileUrl(file)} />
+      </section>
+    </div>
   );
 }

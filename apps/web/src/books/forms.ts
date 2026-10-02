@@ -10,6 +10,7 @@ import {
   USER_BASE_KINDS,
   formatMoney,
   masterRecordName,
+  type StockItem,
 } from '@minimalerp/domain';
 import type { EntityDoc } from '@minimalerp/command';
 import { entityDocsOf } from './entities';
@@ -298,7 +299,7 @@ export const FORMS: Readonly<Record<MasterKind, FormSpec>> = {
       }),
     ],
     fromRecord: (record, values) => {
-      const item = record as import('@minimalerp/domain').StockItem;
+      const item = record as StockItem;
       return { ...values, __mainDrawingId: item.mainDrawingId ?? '', __mainDrawingFile: item.mainDrawingFile ? JSON.stringify(item.mainDrawingFile) : '', __mainDrawingItemId: item.mainDrawingItemId ?? '', __details: JSON.stringify(item.details ?? []) };
     },
     toData: (values, data) => {
