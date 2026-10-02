@@ -116,4 +116,32 @@ describe('a previous year’s Zoho invoices, rehearsed in memory', () => {
     expect(again.filter((p) => p.skipped)).toHaveLength(2);
     expect((await gw.list(companyId)).filter((v) => cancelledIds.has(v.id) && v.status === 'cancelled')).toHaveLength(2);
   });
+
+  it('cancels an invoice Zoho has as Void, and a second run adds neither invoices nor stock', async () => {
+    let masters = seedCompany({ name: 'Works', fyStart: localDate('2025-04-01'), newId, gstin: gstin('27AABCD1234E1Z'), stateCode: '27' });
+    masters = masters.with({ company: { ...masters.company, chargeGst: true } });
+    const companyId = masters.company.id as CompanyId;
+    const gw = new MemoryBackend(masters);
+    const salesGroup = masters.groups.all.find((g) => g.reservedKey === 'sales-accounts');
+    expect((await gw.execute({ companyId, command: { op: 'create', kind: 'ledger', id: newId('ledger:sales'), data: { name: 'Sales', groupId: salesGroup?.id } } })).ok).toBe(true);
+
+    const one = (n: string, status = 'Closed'): ZohoInvoice => ({ invoiceNumber: n, rows: [line({ invoiceId: n, invoiceNumber: n, invoiceStatus: status, subtotal: '200.00', total: '236.00' })] });
+    const invoices = [one('25-26/001'), one('25-26/002', 'Void'), one('25-26/003')];
+    const ctx = { companyId, gw, same: new Map<string, string>(), log: () => {} };
+    const run = async () => {
+      const plan = planOf(invoices, await gw.load(companyId));
+      const after = await createMasters(ctx, plan);
+      await postStock(ctx, plan, after);
+      return { plan, posted: await postInvoices(ctx, plan, after) };
+    };
+
+    const first = await run();
+    expect(first.plan.voided).toEqual([2]);
+    expect(first.posted.map((p) => [p.zoho, p.cancelled === true])).toEqual([['25-26/001', false], ['25-26/002', true], ['25-26/003', false]]);
+    const stockAfterFirst = (await gw.stockMovements({ companyId })).length;
+
+    const second = await run();
+    expect(second.posted.filter((p) => !p.skipped)).toEqual([]);
+    expect((await gw.stockMovements({ companyId })).length).toBe(stockAfterFirst);
+  });
 });

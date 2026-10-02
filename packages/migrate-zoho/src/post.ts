@@ -165,28 +165,39 @@ interface Plan {
   readonly parties: readonly { readonly zoho: ZohoLine; readonly existing: Party | undefined }[];
   readonly items: readonly PlannedItem[];
   readonly problems: readonly string[];
-  /** Zoho numbers missing between the first and last invoice — posted as cancelled placeholders. */
+  /** Zoho numbers missing between the first and last invoice, and those voided in Zoho — posted as cancelled placeholders. */
   readonly gaps: readonly number[];
+  /** Of `gaps`, the ones Zoho has as Void (the rest are missing from the export). */
+  readonly voided: readonly number[];
 }
 
-export function planOf(invoices: readonly ZohoInvoice[], masters: Masters, same: ReadonlyMap<string, string> = new Map()): Plan {
+export function planOf(all: readonly ZohoInvoice[], masters: Masters, same: ReadonlyMap<string, string> = new Map()): Plan {
   const problems: string[] = [];
+  // an invoice voided in Zoho is not a sale: its number becomes a cancelled placeholder like a missing one, and nothing of it is posted
+  const isVoid = (i: ZohoInvoice) => lower(i.rows[0]?.invoiceStatus) === 'void';
+  const voided = all.filter(isVoid).map((i) => seqOf(i.invoiceNumber));
+  const invoices = all.filter((i) => !isVoid(i));
   const lines = invoices.flatMap((i) => i.rows);
 
   // a number missing from the run (deleted or voided in Zoho) becomes a cancelled placeholder; the same number twice is a problem
-  const seqs = invoices.map((i) => seqOf(i.invoiceNumber)).sort((a, b) => a - b);
-  const gaps: number[] = [];
+  const seqs = all.map((i) => seqOf(i.invoiceNumber)).sort((a, b) => a - b);
+  const gaps: number[] = [...voided];
   seqs.forEach((n, i) => {
     const before = seqs[i - 1];
     if (i === 0 || before === undefined) return;
     if (n === before) problems.push(`Zoho number ${n} appears on two invoices`);
     for (let g = before + 1; g < n; g++) gaps.push(g);
   });
+  gaps.sort((a, b) => a - b);
 
   const units = [...new Set(lines.filter((l) => !isService(l)).map(unitOf))].filter((u) => !masters.units.some((m) => lower(m.symbol) === lower(u)));
 
   const parties = new Map<string, { zoho: ZohoLine; existing: Party | undefined }>();
-  for (const l of lines) if (!parties.has(l.customerName)) parties.set(l.customerName, { zoho: l, existing: findParty(masters, l) });
+  // a customer is made from a row that carries its GSTIN when any does (Zoho has some customers' early invoices without one)
+  for (const l of lines) {
+    const seen = parties.get(l.customerName);
+    if (!seen || (!seen.zoho.gstin && l.gstin)) parties.set(l.customerName, { zoho: l, existing: findParty(masters, l) });
+  }
 
   const items = new Map<string, PlannedItem>();
   for (const l of lines) {
@@ -202,7 +213,7 @@ export function planOf(invoices: readonly ZohoInvoice[], masters: Masters, same:
     const name = code ? `${code} - ${description}` : tidy(l.itemName);
     items.set(key, { key, zoho: l, code, name, zohoNames: new Set([tidy(l.itemName)]), qty: Number(l.quantity), existing: findItem(masters, key, name, same) });
   }
-  return { invoices, units, parties: [...parties.values()], items: [...items.values()], problems, gaps };
+  return { invoices, units, parties: [...parties.values()], items: [...items.values()], problems, gaps, voided };
 }
 
 export interface Context {
@@ -262,8 +273,19 @@ function mainGodown(masters: Masters) {
   return main;
 }
 
+/** The id an invoice is posted under: derived from Zoho's own Invoice ID, so a re-run finds it. */
+const invoiceIdOf = (companyId: string, inv: ZohoInvoice): VoucherId =>
+  deterministicUuid(`zoho-invoice-post|${companyId}|${inv.rows[0]?.invoiceId || inv.invoiceNumber}`) as VoucherId;
+
 export async function postStock(ctx: Context, plan: Plan, masters: Masters): Promise<void> {
   const { companyId, gw } = ctx;
+  // stock comes in before the first invoice goes out: once any invoice of this batch is in the books, a re-run must not add it again
+  for (const inv of plan.invoices) {
+    if (await gw.get(companyId, invoiceIdOf(companyId, inv))) {
+      ctx.log('Stock for this batch is already in (its invoices are being posted): not added again');
+      return;
+    }
+  }
   const opening = masters.voucherTypes.find((t) => t.baseKind === 'stockOpening');
   const journal = masters.voucherTypes.find((t) => t.baseKind === 'stockJournal');
   const firstDate = plan.invoices.map((i) => i.rows[0]?.invoiceDate ?? '').sort()[0] ?? '';
@@ -292,7 +314,7 @@ export async function postStock(ctx: Context, plan: Plan, masters: Masters): Pro
     const r = await gw.post({
       companyId,
       draft: {
-        id: deterministicUuid(`zoho-migrate|${companyId}|stock-in`),
+        id: deterministicUuid(`zoho-migrate|${companyId}|stock-in|${plan.invoices[0]?.invoiceNumber}|${plan.invoices.at(-1)?.invoiceNumber}`),
         voucherTypeId: journal.id,
         date: fy.start,
         narration: `Zoho migration: stock sold on Zoho invoices ${plan.invoices[0]?.invoiceNumber} to ${plan.invoices.at(-1)?.invoiceNumber}, rate 0`.slice(0, 200),
@@ -330,8 +352,8 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
     const z = inv.rows[0] as ZohoLine;
     const before = prevSeq;
     prevSeq = seqOf(inv.invoiceNumber);
-    const id = deterministicUuid(`zoho-invoice-post|${companyId}|${z.invoiceId || inv.invoiceNumber}`);
-    const done = await gw.get(companyId, id as VoucherId);
+    const id = invoiceIdOf(companyId, inv);
+    const done = await gw.get(companyId, id);
     if (done) {
       if (seqOf(done.number) !== seqOf(inv.invoiceNumber)) throw new Error(`${inv.invoiceNumber} was posted earlier as ${done.number}: stopping`);
       out.push({ zoho: inv.invoiceNumber, number: done.number, date: done.date, party: z.customerName, total: '', skipped: true });
@@ -360,6 +382,7 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
       const gap = next.value.nextValue;
       const zohoNumber = inv.invoiceNumber.replace(/\d+\s*$/, (d) => String(gap).padStart(d.trim().length, '0'));
       const date = out.at(-1)?.date ?? z.invoiceDate;
+      const why = plan.voided.includes(gap) ? 'voided in Zoho Books' : 'deleted in Zoho Books (missing from the export)';
       const placeholder = await gw.post({
         companyId,
         draft: {
@@ -368,10 +391,10 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
           date,
           partyId: party.id,
           partyDetails: partyDetailsOf(party, z),
-          lines: [{ description: `Cancelled in Zoho Books (${zohoNumber})`, qty: '1', rate: '1', gstRate: '0' }],
+          lines: [{ description: `Cancelled: ${zohoNumber} ${why}`.slice(0, 200), qty: '1', rate: '1', gstRate: '0' }],
           salesLedgerId: ledger.id,
           dueDate: date,
-          narration: `Zoho ${zohoNumber} was deleted or voided in Zoho Books: the number is kept here, cancelled`,
+          narration: `Zoho ${zohoNumber} was ${why}: the number is kept here, cancelled`,
         },
       });
       if (!placeholder.ok) throw failed(`Placeholder for ${zohoNumber}`, placeholder);
@@ -380,7 +403,7 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
       const cancelled = await gw.cancel({ companyId, voucherId: v.id, expectedVersion: v.version });
       if (!cancelled.ok) throw failed(`Cancelling ${v.number}`, cancelled);
       out.push({ zoho: zohoNumber, number: v.number, date, party: party.name, total: '0.00', cancelled: true });
-      ctx.log(`${zohoNumber}\t${date}\tCANCELLED (missing in Zoho)`);
+      ctx.log(`${zohoNumber}\t${date}\tCANCELLED (${why})`);
       next = await gw.seriesStatus(companyId, series.id);
     }
     if (!next.ok || next.value.nextValue !== expected) {
@@ -453,7 +476,10 @@ async function main(): Promise<void> {
     console.log(`Stock items: ${plan.items.length} parts — ${known.length} already in the books, ${plan.items.length - known.length} new`);
     for (const k of known) console.log(`  existing: ${[...k.zohoNames].join(' | ')}  →  "${k.existing?.name}"  (+${k.qty} in)`);
     for (const p of plan.problems) console.log(`PROBLEM: ${p}`);
-    if (plan.gaps.length > 0) console.log(`Missing in Zoho, will be posted as CANCELLED: ${plan.gaps.join(', ')}`);
+    if (plan.gaps.length > 0) {
+      const missing = plan.gaps.filter((g) => !plan.voided.includes(g));
+      console.log(`Will be posted as CANCELLED — missing in Zoho: ${missing.join(', ') || 'none'}; voided in Zoho: ${plan.voided.join(', ') || 'none'}`);
+    }
     Object.assign(report, {
       units: plan.units,
       parties: plan.parties.map((p) => ({ zoho: p.zoho.customerName, existing: p.existing?.name })),
