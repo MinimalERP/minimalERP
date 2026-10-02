@@ -78,4 +78,42 @@ describe('a previous year’s Zoho invoices, rehearsed in memory', () => {
     expect(posted[0]).toMatchObject({ zoho: '25-26/001', date: '2025-06-10', total: '341.00' });
     expect(posted[0]?.number).toMatch(/25-26\/0*1$/);
   });
+
+  it('posts a Zoho number missing from the export (deleted or voided in Zoho) as a CANCELLED invoice, so every number is kept', async () => {
+    let masters = seedCompany({ name: 'Works', fyStart: localDate('2025-04-01'), newId, gstin: gstin('27AABCD1234E1Z'), stateCode: '27' });
+    masters = masters.with({ company: { ...masters.company, chargeGst: true } });
+    const companyId = masters.company.id as CompanyId;
+    const gw = new MemoryBackend(masters);
+    const salesGroup = masters.groups.all.find((g) => g.reservedKey === 'sales-accounts');
+    expect((await gw.execute({ companyId, command: { op: 'create', kind: 'ledger', id: newId('ledger:sales'), data: { name: 'Sales', groupId: salesGroup?.id } } })).ok).toBe(true);
+
+    const one = (n: string, date: string): ZohoInvoice => ({ invoiceNumber: n, rows: [line({ invoiceId: n, invoiceNumber: n, invoiceDate: date, subtotal: '200.00', total: '236.00' })] });
+    const invoices = [one('25-26/001', '2025-06-10'), one('25-26/004', '2025-06-20')];
+    const ctx = { companyId, gw, same: new Map<string, string>(), log: () => {} };
+    const plan = planOf(invoices, await gw.load(companyId));
+    expect(plan.problems).toEqual([]);
+    expect(plan.gaps).toEqual([2, 3]);
+    const after = await createMasters(ctx, plan);
+    await postStock(ctx, plan, after);
+    const posted = await postInvoices(ctx, plan, after);
+
+    expect(posted.map((p) => [p.zoho, p.cancelled === true])).toEqual([
+      ['25-26/001', false],
+      ['25-26/002', true],
+      ['25-26/003', true],
+      ['25-26/004', false],
+    ]);
+    const sales = (await gw.list(companyId)).filter((v) => v.content.voucherTypeId === after.voucherTypes.find((t) => t.baseKind === 'sales')?.id);
+    expect(sales.map((v) => [v.number.slice(-1), v.status])).toEqual([['1', 'posted'], ['2', 'cancelled'], ['3', 'cancelled'], ['4', 'posted']]);
+    // the placeholders are dated like the invoice before them and count for nothing: the books hold the two real invoices only
+    expect(posted[1]?.date).toBe('2025-06-10');
+    const lines = await gw.lines({ companyId });
+    const cancelledIds = new Set(sales.filter((v) => v.status === 'cancelled').map((v) => v.id));
+    expect(lines.some((l) => cancelledIds.has(l.voucherId))).toBe(false);
+
+    // a re-run changes nothing
+    const again = await postInvoices(ctx, plan, after);
+    expect(again.filter((p) => p.skipped)).toHaveLength(2);
+    expect((await gw.list(companyId)).filter((v) => cancelledIds.has(v.id) && v.status === 'cancelled')).toHaveLength(2);
+  });
 });
