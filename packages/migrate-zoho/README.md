@@ -43,3 +43,12 @@ pnpm --filter @minimalerp/migrate-zoho stage -- \
 - It does not try to make totals match Zoho's `Round Off` column by adjusting a line's rate — minimalERP's
   own Round Off feature (rounding the posted total to the nearest rupee) accounts for it once the invoice is
   accepted.
+
+## A previous financial year
+
+Invoices dated before the company's first financial year need that year first: **Settings → Financial Years → create**, starting the
+day after the earlier year begins (e.g. `2025-04-01` for 2025-26). The year brings a numbering series for every voucher type; set the
+2025-26 Sales series' prefix to match Zoho's numbering, and if Zoho's first invoice is not number 1, move the series to it (Alt+N). Then
+run `post` without `--commit` (a rehearsal that writes nothing), read `zoho-post-report.json`, and run it again with `--commit`.
+
+`post` takes each line's GST rate from Zoho's CGST/SGST/IGST columns, and stops on any invoice whose total does not match Zoho's.

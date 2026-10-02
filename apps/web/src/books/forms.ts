@@ -356,6 +356,22 @@ export const FORMS: Readonly<Record<MasterKind, FormSpec>> = {
       { key: 'startAt', label: 'Start at', type: 'integer', defaultValue: '1' },
     ],
   },
+  financialYear: {
+    kind: 'financialYear',
+    noun: 'Financial Year',
+    nameField: 'label',
+    fields: [
+      {
+        key: 'start',
+        label: 'Starts on',
+        type: 'date',
+        required: true,
+        hint: 'Right before your first year (to bring in an earlier year’s books) or right after your last. The dates cannot change later.',
+      },
+      { key: 'end', label: 'Ends on', type: 'date', hint: 'Blank: one year from the start, less a day' },
+      text('label', 'Label', { placeholder: '2025-26', hint: 'Blank: from the dates, like 2025-26' }),
+    ],
+  },
   company: {
     kind: 'company',
     noun: 'Company',

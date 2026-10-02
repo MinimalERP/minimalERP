@@ -18,7 +18,7 @@ const num = (s: string): number => {
 };
 
 /** One line's GST rate as a single percentage (Zoho splits it into CGST+SGST or IGST) — "" (untaxed) when all three are 0. */
-function lineGstRateOf(l: ZohoLine): string | undefined {
+export function lineGstRateOf(l: ZohoLine): string | undefined {
   const rate = num(l.cgstRate) + num(l.sgstRate) || num(l.igstRate);
   return rate > 0 ? canonicalPercent(String(rate)) : undefined;
 }

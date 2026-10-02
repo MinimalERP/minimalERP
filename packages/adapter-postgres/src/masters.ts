@@ -1,5 +1,6 @@
 import {
   type AccountGroup,
+  type FinancialYear,
   type GstRate,
   type Ledger,
   type NumberingSeries,
@@ -37,6 +38,7 @@ export const MASTER_TABLES: Readonly<Record<MasterKind, string>> = {
   gstRate: 'gst_rates',
   voucherType: 'voucher_types',
   numberingSeries: 'numbering_series',
+  financialYear: 'financial_years',
   company: 'companies',
 };
 
@@ -168,6 +170,10 @@ export function masterRecordToRow(kind: MasterKind, record: MasterRecord): Row {
         width: s.width,
         start_at: s.startAt,
       };
+    }
+    case 'financialYear': {
+      const y = record as FinancialYear;
+      return { id: y.id, company_id: y.companyId, label: y.label, start_date: y.start, end_date: y.end, locked_through: nul(y.lockedThrough) };
     }
     case 'company': {
       const c = record as Masters['company'];

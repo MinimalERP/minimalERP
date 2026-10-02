@@ -678,6 +678,7 @@ export const PLURALS: Readonly<Record<MasterKind, string>> = {
   gstRate: 'GST Rates',
   voucherType: 'Voucher Types',
   numberingSeries: 'Numbering Series',
+  financialYear: 'Financial Years',
   company: 'Company',
 };
 

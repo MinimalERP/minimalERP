@@ -514,3 +514,50 @@ describe('lookups', () => {
     expect(findMaster(m, 'ledger', 'nope')).toBeUndefined();
   });
 });
+
+describe('financial years', () => {
+  const m = fresh(); // 2024-25
+  const sales = m.voucherTypes.find((t) => t.baseKind === 'sales');
+  const salesSeriesOf = (masters: Masters, yearId: string) => masters.series.find((s) => s.voucherTypeId === sales?.id && s.financialYearId === yearId);
+
+  it('adds the year BEFORE the first one, with a numbering series for every voucher type in the same change', () => {
+    const r = prepareMasterCommand({ op: 'create', kind: 'financialYear', id: newId('fy:2023-24'), data: { start: '2023-04-01' } }, m);
+    if (!r.ok) throw new Error(r.issues[0]?.message);
+    const year = r.value.masters.financialYear(newId('fy:2023-24') as never);
+    expect(year).toMatchObject({ label: '2023-24', start: '2023-04-01', end: '2024-03-31' });
+    expect(r.value.masters.financialYears.map((y) => y.label)).toEqual(['2023-24', '2024-25']); // kept in date order
+    expect(r.value.changes.map((c) => c.kind)).toEqual(['financialYear', ...m.voucherTypes.map(() => 'numberingSeries')]);
+    // the prefix follows the year: SAL/24-25/ → SAL/23-24/; numbering starts again at 1
+    expect(salesSeriesOf(r.value.masters, newId('fy:2023-24'))).toMatchObject({ prefix: 'SAL/23-24/', width: 4, startAt: 1 });
+    expect(r.value.masters.financialYearOn(localDate('2023-11-15'))?.label).toBe('2023-24');
+  });
+
+  it('adds the year after the last one', () => {
+    const s = create(m, 'financialYear', newId('fy:2025-26'), { start: '2025-04-01' });
+    expect(s.ok).toBe(true);
+    expect(salesSeriesOf(s.masters, newId('fy:2025-26'))?.prefix).toBe('SAL/25-26/');
+  });
+
+  it('is a safe replay when made twice', () => {
+    const once = create(m, 'financialYear', newId('fy:2023-24'), { start: '2023-04-01' });
+    const twice = create(once.masters, 'financialYear', newId('fy:2023-24'), { start: '2023-04-01' });
+    expect(twice).toMatchObject({ ok: true, replayed: true });
+    expect(twice.masters.series).toHaveLength(once.masters.series.length);
+  });
+
+  it('refuses an overlap, a gap, a year longer than a year, and a taken label', () => {
+    expect(create(m, 'financialYear', newId('x'), { start: '2024-10-01' }).codes).toEqual([IssueCode.OutOfRange]);
+    expect(create(m, 'financialYear', newId('x'), { start: '2022-04-01' }).codes).toEqual([IssueCode.OutOfRange]);
+    expect(create(m, 'financialYear', newId('x'), { start: '2023-04-01', end: '2024-04-30' }).codes).toEqual([IssueCode.OutOfRange]);
+    expect(create(m, 'financialYear', newId('x'), { start: '2023-04-01', label: '2024-25' }).codes).toEqual([IssueCode.NameTaken]);
+    expect(create(m, 'financialYear', newId('x'), { start: 'soon' }).codes).toEqual([IssueCode.SchemaInvalid]);
+  });
+
+  it('may be relabelled but never moved or deactivated', () => {
+    const year = m.financialYears[0];
+    if (!year) throw new Error('no year');
+    expect(alter(m, 'financialYear', year.id, { start: year.start, label: 'FY 2024-25' }).masters.financialYears[0]?.label).toBe('FY 2024-25');
+    expect(alter(m, 'financialYear', year.id, { start: '2024-05-01' }).codes).toEqual([IssueCode.InUse]);
+    expect(setActive(m, 'financialYear', year.id, false).codes).toEqual([IssueCode.UnsupportedOperation]);
+  });
+});
