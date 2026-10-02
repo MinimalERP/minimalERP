@@ -117,3 +117,82 @@ export function invoiceFilterOf(spec: string | undefined): ((invoiceNumber: stri
   );
   return (invoiceNumber) => exact.has(invoiceNumber);
 }
+
+/**
+ * Zoho Books' "Customer Payments" export: one row per INVOICE a payment was applied to (a payment applied to nothing, or with money
+ * left over, has a row with no invoice), every header field of the payment repeated on each row. Zoho has renamed some of these
+ * columns between versions, so each is read under any of the names it has gone by.
+ */
+export interface ZohoPaymentRow {
+  readonly paymentId: string;
+  readonly paymentNumber: string;
+  readonly date: string;
+  readonly customerName: string;
+  readonly gstin: string;
+  /** What the customer paid, before Zoho's bank charges. */
+  readonly amount: string;
+  /** Of `amount`, what was not applied to any invoice: an advance. */
+  readonly unusedAmount: string;
+  readonly bankCharges: string;
+  readonly mode: string;
+  readonly reference: string;
+  readonly description: string;
+  /** The Zoho account the money went into ("HDFC Bank", "Petty Cash", "Undeposited Funds", …). */
+  readonly depositTo: string;
+  /** Zoho's id for this one application of the payment to an invoice: the same row read twice is dropped. */
+  readonly invoicePaymentId: string;
+  readonly invoiceNumber: string;
+  readonly appliedAmount: string;
+  /** TDS the customer deducted from this invoice. */
+  readonly tds: string;
+}
+
+export interface ZohoPayment {
+  readonly paymentNumber: string;
+  readonly rows: readonly ZohoPaymentRow[];
+}
+
+const anyCol = (r: Record<string, string>, ...names: string[]): string => names.map((n) => col(r, n)).find((v) => v !== '') ?? '';
+
+export function parseZohoPaymentsCsv(csvText: string): ZohoPaymentRow[] {
+  return parseCsvRecords(csvText).map((r) => ({
+    paymentId: anyCol(r, 'CustomerPayment ID', 'Customer Payment ID', 'Payment ID'),
+    paymentNumber: anyCol(r, 'Payment Number', 'Payment#'),
+    date: anyCol(r, 'Date', 'Payment Date'),
+    customerName: anyCol(r, 'Customer Name'),
+    gstin: anyCol(r, 'GST Identification Number (GSTIN)'),
+    amount: anyCol(r, 'Amount', 'Payment Amount'),
+    unusedAmount: anyCol(r, 'Unused Amount'),
+    bankCharges: anyCol(r, 'Bank Charges'),
+    mode: anyCol(r, 'Mode', 'Payment Mode'),
+    reference: anyCol(r, 'Reference Number', 'Reference#'),
+    description: anyCol(r, 'Description', 'Notes'),
+    depositTo: anyCol(r, 'Deposit To', 'Paid Through'),
+    invoicePaymentId: anyCol(r, 'InvoicePayment ID', 'Invoice Payment ID'),
+    invoiceNumber: anyCol(r, 'Invoice Number', 'Invoice#'),
+    appliedAmount: anyCol(r, 'Amount Applied to Invoice', 'Applied Amount', 'Invoice Payment Applied Amount'),
+    tds: anyCol(r, 'Withholding Tax Amount', 'TDS Amount', 'Tax Deducted'),
+  }));
+}
+
+/** Rows of one payment (by Zoho's payment ID, else its number) become one payment, in the file's order. A row seen before (the same
+ *  invoice payment, in two overlapping exports) is read once. */
+export function groupByPayment(rows: readonly ZohoPaymentRow[]): ZohoPayment[] {
+  const order: string[] = [];
+  const byKey = new Map<string, ZohoPaymentRow[]>();
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const key = r.paymentId || r.paymentNumber;
+    if (key === '') continue;
+    if (r.invoicePaymentId !== '') {
+      if (seen.has(`${key}|${r.invoicePaymentId}`)) continue;
+      seen.add(`${key}|${r.invoicePaymentId}`);
+    }
+    if (!byKey.has(key)) order.push(key);
+    byKey.set(key, [...(byKey.get(key) ?? []), r]);
+  }
+  return order.map((key) => {
+    const rows = byKey.get(key) as ZohoPaymentRow[];
+    return { paymentNumber: rows[0]?.paymentNumber || key, rows };
+  });
+}

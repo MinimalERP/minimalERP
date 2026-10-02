@@ -59,3 +59,25 @@ The rehearsal lists them ("Missing in Zoho, will be posted as CANCELLED: …") b
 it in the other (24-25/170), and only a single run sees that it is neither missing nor duplicated. A fraction of a whole-number unit
 ("18.50 Nos" of scrap) is posted as a description line, like a service. A line with no item name (only a
 description) is posted as a description line, like a service, not as a stock item.
+
+## Customer payments
+
+Once the invoices are in, `payments` posts Zoho's **Customer Payments** export (Sales → Payments Received → Export) as Receipts, each
+set against the invoices it paid in Zoho, so Outstanding shows the same open invoices Zoho does:
+
+```
+DATABASE_URL=... pnpm --filter @minimalerp/migrate-zoho payments -- \
+  --csv Customer_Payment.csv [--csv Customer_Payment1.csv] --company <uuid> --actor <uuid> \
+  [--deposit "Yes BAnk=Yes Bank"] [--only "25-26/1..25-26/45"] [--commit]
+```
+
+- The customer is found by GSTIN, else its exact name. The bank is the cash/bank ledger named like Zoho's "Deposit To" (case
+  ignored); `--deposit` maps a Zoho account onto a ledger with another name.
+- Each invoice a payment was applied to must be an open bill of that customer: Zoho's `25-26/001` is the books' `25-26/001`, or the
+  same number under the series' own prefix (`SAL/25-26/0001`). A payment may not settle more of a bill than is pending.
+- TDS the customer deducted (Withholding Tax Amount) settles the bill too and goes to TDS Receivable; the bank gets Zoho's Amount.
+  Money Zoho left unapplied (Unused Amount, a Customer Advance) is posted on account.
+- Bank charges are not posted (a receipt only credits the customer): they are listed, to be journaled by hand.
+- Receipts are numbered by the Receipt series, in date order; the Zoho payment number, mode and reference are in the narration.
+- Without `--commit` it checks every payment against the books and rehearses the posting, writing nothing; problems are listed in
+  `zoho-payments-report.json`. A re-run skips the payments already posted.
