@@ -40,7 +40,7 @@ import { lineGstRateOf } from './stage';
  * Without --commit it rehearses everything against an in-memory copy of the company and writes nothing to the database.
  * Every id is deterministic, so a re-run skips what is already there and carries on where it stopped.
  *
- *   pnpm --filter @minimalerp/migrate-zoho post -- --csv Invoice.csv --company <uuid> --actor <uuid> --only "26-27/002..26-27/145"
+ *   pnpm --filter @minimalerp/migrate-zoho post -- --csv Invoice.csv [--csv Invoice1.csv] --company <uuid> --actor <uuid> --only "26-27/002..26-27/145"
  *     [--same "15213=EC15213"] [--commit]
  *
  * --same maps a Zoho part number onto an item already in the books under another code. DATABASE_URL carries the connection string.
@@ -50,7 +50,8 @@ import { lineGstRateOf } from './stage';
 export type Gateway = Pick<PostgresBackend, 'post' | 'cancel' | 'execute' | 'load' | 'get' | 'seriesStatus'>;
 
 interface Args {
-  readonly csv: string;
+  /** One or more exports (--csv given once per file): the halves of one year are read together, so their numbers are checked as one run. */
+  readonly csv: readonly string[];
   readonly company: string;
   readonly actor: string;
   readonly dbUrl: string;
@@ -65,11 +66,11 @@ function parseArgs(argv: readonly string[]): Args {
     const i = argv.indexOf(flag);
     return i === -1 ? undefined : argv[i + 1];
   };
-  const csv = get('--csv');
+  const csv = argv.flatMap((a, i) => (a === '--csv' && argv[i + 1] !== undefined ? [argv[i + 1] as string] : []));
   const company = get('--company');
   const actor = get('--actor');
   const dbUrl = process.env['DATABASE_URL'];
-  if (!csv || !company || !actor || !dbUrl) throw new Error('Usage: DATABASE_URL=... post --csv <path> --company <uuid> --actor <uuid> [--only <range>] [--same a=b,…] [--commit] [--out <path>]');
+  if (csv.length === 0 || !company || !actor || !dbUrl) throw new Error('Usage: DATABASE_URL=... post --csv <path> [--csv <path> …] --company <uuid> --actor <uuid> [--only <range>] [--same a=b,…] [--commit] [--out <path>]');
   const same = new Map(
     (get('--same') ?? '')
       .split(',')
@@ -82,8 +83,12 @@ function parseArgs(argv: readonly string[]): Args {
 
 // compared by sequence, not text: Zoho wrote one number unpadded ("26-27/97" for 26-27/097)
 const seqOf = (n: string): number => Number(/(\d+)\s*$/.exec(n)?.[1] ?? Number.NaN);
-/** A line that is not a stock item: a service (SAC 99…), or a line Zoho has only a description for (no item name) — posted as a description line. */
-const isService = (l: ZohoLine): boolean => l.hsn.startsWith('99') || l.itemName.trim() === '';
+/**
+ * A line that is not a stock item, posted as a description line: a service (SAC 99…), a line Zoho has only a description for (no item
+ * name), or a fraction of a whole-number unit ("18.50 Nos" of scrap sold by weight), which no counted item can hold.
+ */
+const isService = (l: ZohoLine): boolean =>
+  l.hsn.startsWith('99') || l.itemName.trim() === '' || (!Number.isInteger(Number(l.quantity)) && ['', 'nos'].includes(l.usageUnit.trim().toLowerCase()));
 const unitOf = (l: ZohoLine): string => (l.usageUnit === '' ? 'Nos' : l.usageUnit);
 const tidy = (s: string): string => s.replace(/\s+/g, ' ').trim();
 const lower = (s: string | undefined): string => tidy(s ?? '').toLowerCase();
@@ -473,7 +478,8 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const companyId = args.company as CompanyId;
   const filter = invoiceFilterOf(args.only);
-  const all = groupByInvoice(parseZohoCsv(readFileSync(args.csv, 'utf8')));
+  // the files are one run: an invoice numbered in one half but dated in the other (Zoho's 24-25/170) is neither a gap nor a duplicate
+  const all = groupByInvoice(args.csv.flatMap((file) => parseZohoCsv(readFileSync(file, 'utf8'))));
   const invoices = filter ? all.filter((i) => filter(i.invoiceNumber)) : all;
 
   const pool = new pg.Pool({ connectionString: args.dbUrl });
