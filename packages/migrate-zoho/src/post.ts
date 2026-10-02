@@ -33,21 +33,25 @@ import { lineGstRateOf } from './stage';
  *   2. stock for exactly what these invoices sell, at rate 0 (a sale may never take stock below zero): an Opening Stock voucher per new
  *      item, and one Stock Journal "in" for the items already in the books, so their stock today stays what it is;
  *   3. the invoices: before each, the Sales series' next number must BE the Zoho number; after, the posted number must match. Else it stops.
+ *      A Zoho number that is missing from the export (deleted or voided in Zoho) is posted as a ₹1 placeholder and CANCELLED at once,
+ *      so the register keeps every number, the cancelled ones marked as such, and the books are untouched (a cancelled voucher counts
+ *      for nothing).
  *
  * Without --commit it rehearses everything against an in-memory copy of the company and writes nothing to the database.
  * Every id is deterministic, so a re-run skips what is already there and carries on where it stopped.
  *
- *   pnpm --filter @minimalerp/migrate-zoho post -- --csv Invoice.csv --company <uuid> --actor <uuid> --only "26-27/002..26-27/145"
+ *   pnpm --filter @minimalerp/migrate-zoho post -- --csv Invoice.csv [--csv Invoice1.csv] --company <uuid> --actor <uuid> --only "26-27/002..26-27/145"
  *     [--same "15213=EC15213"] [--commit]
  *
  * --same maps a Zoho part number onto an item already in the books under another code. DATABASE_URL carries the connection string.
  * Never commit it, the CSV, or the report.
  */
 
-export type Gateway = Pick<PostgresBackend, 'post' | 'execute' | 'load' | 'get' | 'seriesStatus'>;
+export type Gateway = Pick<PostgresBackend, 'post' | 'cancel' | 'execute' | 'load' | 'get' | 'seriesStatus'>;
 
 interface Args {
-  readonly csv: string;
+  /** One or more exports (--csv given once per file): the halves of one year are read together, so their numbers are checked as one run. */
+  readonly csv: readonly string[];
   readonly company: string;
   readonly actor: string;
   readonly dbUrl: string;
@@ -62,11 +66,11 @@ function parseArgs(argv: readonly string[]): Args {
     const i = argv.indexOf(flag);
     return i === -1 ? undefined : argv[i + 1];
   };
-  const csv = get('--csv');
+  const csv = argv.flatMap((a, i) => (a === '--csv' && argv[i + 1] !== undefined ? [argv[i + 1] as string] : []));
   const company = get('--company');
   const actor = get('--actor');
   const dbUrl = process.env['DATABASE_URL'];
-  if (!csv || !company || !actor || !dbUrl) throw new Error('Usage: DATABASE_URL=... post --csv <path> --company <uuid> --actor <uuid> [--only <range>] [--same a=b,…] [--commit] [--out <path>]');
+  if (csv.length === 0 || !company || !actor || !dbUrl) throw new Error('Usage: DATABASE_URL=... post --csv <path> [--csv <path> …] --company <uuid> --actor <uuid> [--only <range>] [--same a=b,…] [--commit] [--out <path>]');
   const same = new Map(
     (get('--same') ?? '')
       .split(',')
@@ -79,7 +83,12 @@ function parseArgs(argv: readonly string[]): Args {
 
 // compared by sequence, not text: Zoho wrote one number unpadded ("26-27/97" for 26-27/097)
 const seqOf = (n: string): number => Number(/(\d+)\s*$/.exec(n)?.[1] ?? Number.NaN);
-const isService = (l: ZohoLine): boolean => l.hsn.startsWith('99');
+/**
+ * A line that is not a stock item, posted as a description line: a service (SAC 99…), a line Zoho has only a description for (no item
+ * name), or a fraction of a whole-number unit ("18.50 Nos" of scrap sold by weight), which no counted item can hold.
+ */
+const isService = (l: ZohoLine): boolean =>
+  l.hsn.startsWith('99') || l.itemName.trim() === '' || (!Number.isInteger(Number(l.quantity)) && ['', 'nos'].includes(l.usageUnit.trim().toLowerCase()));
 const unitOf = (l: ZohoLine): string => (l.usageUnit === '' ? 'Nos' : l.usageUnit);
 const tidy = (s: string): string => s.replace(/\s+/g, ' ').trim();
 const lower = (s: string | undefined): string => tidy(s ?? '').toLowerCase();
@@ -161,22 +170,42 @@ interface Plan {
   readonly parties: readonly { readonly zoho: ZohoLine; readonly existing: Party | undefined }[];
   readonly items: readonly PlannedItem[];
   readonly problems: readonly string[];
+  /** Zoho numbers missing between the first and last invoice, and those voided in Zoho — posted as cancelled placeholders. */
+  readonly gaps: readonly number[];
+  /** Of `gaps`, the ones Zoho has as Void (the rest are missing from the export). */
+  readonly voided: readonly number[];
+  /** The voided invoices themselves, by number: posted with their own customer and lines, then cancelled. */
+  readonly voidInvoices: ReadonlyMap<number, ZohoInvoice>;
 }
 
-export function planOf(invoices: readonly ZohoInvoice[], masters: Masters, same: ReadonlyMap<string, string> = new Map()): Plan {
+export function planOf(all: readonly ZohoInvoice[], masters: Masters, same: ReadonlyMap<string, string> = new Map()): Plan {
   const problems: string[] = [];
+  // an invoice voided in Zoho is not a sale: its number becomes a cancelled placeholder like a missing one, and nothing of it is posted
+  const isVoid = (i: ZohoInvoice) => lower(i.rows[0]?.invoiceStatus) === 'void';
+  const voidInvoices = new Map(all.filter(isVoid).map((i) => [seqOf(i.invoiceNumber), i] as const));
+  const voided = [...voidInvoices.keys()];
+  const invoices = all.filter((i) => !isVoid(i));
   const lines = invoices.flatMap((i) => i.rows);
 
-  // numbers must run without a gap; a gap is reported, never papered over here
-  const seqs = invoices.map((i) => seqOf(i.invoiceNumber)).sort((a, b) => a - b);
+  // a number missing from the run (deleted or voided in Zoho) becomes a cancelled placeholder; the same number twice is a problem
+  const seqs = all.map((i) => seqOf(i.invoiceNumber)).sort((a, b) => a - b);
+  const gaps: number[] = [...voided];
   seqs.forEach((n, i) => {
-    if (i > 0 && n !== (seqs[i - 1] as number) + 1) problems.push(`Zoho numbers jump from ${seqs[i - 1]} to ${n}`);
+    const before = seqs[i - 1];
+    if (i === 0 || before === undefined) return;
+    if (n === before) problems.push(`Zoho number ${n} appears on two invoices`);
+    for (let g = before + 1; g < n; g++) gaps.push(g);
   });
+  gaps.sort((a, b) => a - b);
 
   const units = [...new Set(lines.filter((l) => !isService(l)).map(unitOf))].filter((u) => !masters.units.some((m) => lower(m.symbol) === lower(u)));
 
   const parties = new Map<string, { zoho: ZohoLine; existing: Party | undefined }>();
-  for (const l of lines) if (!parties.has(l.customerName)) parties.set(l.customerName, { zoho: l, existing: findParty(masters, l) });
+  // a customer is made from a row that carries its GSTIN when any does (Zoho has some customers' early invoices without one)
+  for (const l of [...lines, ...[...voidInvoices.values()].flatMap((i) => i.rows)]) {
+    const seen = parties.get(l.customerName);
+    if (!seen || (!seen.zoho.gstin && l.gstin)) parties.set(l.customerName, { zoho: l, existing: findParty(masters, l) });
+  }
 
   const items = new Map<string, PlannedItem>();
   for (const l of lines) {
@@ -192,7 +221,7 @@ export function planOf(invoices: readonly ZohoInvoice[], masters: Masters, same:
     const name = code ? `${code} - ${description}` : tidy(l.itemName);
     items.set(key, { key, zoho: l, code, name, zohoNames: new Set([tidy(l.itemName)]), qty: Number(l.quantity), existing: findItem(masters, key, name, same) });
   }
-  return { invoices, units, parties: [...parties.values()], items: [...items.values()], problems };
+  return { invoices, units, parties: [...parties.values()], items: [...items.values()], problems, gaps, voided, voidInvoices };
 }
 
 export interface Context {
@@ -252,8 +281,19 @@ function mainGodown(masters: Masters) {
   return main;
 }
 
+/** The id an invoice is posted under: derived from Zoho's own Invoice ID, so a re-run finds it. */
+const invoiceIdOf = (companyId: string, inv: ZohoInvoice): VoucherId =>
+  deterministicUuid(`zoho-invoice-post|${companyId}|${inv.rows[0]?.invoiceId || inv.invoiceNumber}`) as VoucherId;
+
 export async function postStock(ctx: Context, plan: Plan, masters: Masters): Promise<void> {
   const { companyId, gw } = ctx;
+  // stock comes in before the first invoice goes out: once any invoice of this batch is in the books, a re-run must not add it again
+  for (const inv of plan.invoices) {
+    if (await gw.get(companyId, invoiceIdOf(companyId, inv))) {
+      ctx.log('Stock for this batch is already in (its invoices are being posted): not added again');
+      return;
+    }
+  }
   const opening = masters.voucherTypes.find((t) => t.baseKind === 'stockOpening');
   const journal = masters.voucherTypes.find((t) => t.baseKind === 'stockJournal');
   const firstDate = plan.invoices.map((i) => i.rows[0]?.invoiceDate ?? '').sort()[0] ?? '';
@@ -282,7 +322,7 @@ export async function postStock(ctx: Context, plan: Plan, masters: Masters): Pro
     const r = await gw.post({
       companyId,
       draft: {
-        id: deterministicUuid(`zoho-migrate|${companyId}|stock-in`),
+        id: deterministicUuid(`zoho-migrate|${companyId}|stock-in|${plan.invoices[0]?.invoiceNumber}|${plan.invoices.at(-1)?.invoiceNumber}`),
         voucherTypeId: journal.id,
         date: fy.start,
         narration: `Zoho migration: stock sold on Zoho invoices ${plan.invoices[0]?.invoiceNumber} to ${plan.invoices.at(-1)?.invoiceNumber}, rate 0`.slice(0, 200),
@@ -301,6 +341,7 @@ interface Posted {
   readonly party: string;
   readonly total: string;
   readonly skipped?: true;
+  readonly cancelled?: true;
 }
 
 export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): Promise<Posted[]> {
@@ -314,10 +355,13 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
   const planned = new Map(plan.items.map((i) => [i.key, i]));
   const out: Posted[] = [];
 
+  let prevSeq = 0; // the Zoho number of the invoice before this one: the gaps since then are this invoice's to fill
   for (const inv of [...plan.invoices].sort((a, b) => seqOf(a.invoiceNumber) - seqOf(b.invoiceNumber))) {
     const z = inv.rows[0] as ZohoLine;
-    const id = deterministicUuid(`zoho-invoice-post|${companyId}|${z.invoiceId || inv.invoiceNumber}`);
-    const done = await gw.get(companyId, id as VoucherId);
+    const before = prevSeq;
+    prevSeq = seqOf(inv.invoiceNumber);
+    const id = invoiceIdOf(companyId, inv);
+    const done = await gw.get(companyId, id);
     if (done) {
       if (seqOf(done.number) !== seqOf(inv.invoiceNumber)) throw new Error(`${inv.invoiceNumber} was posted earlier as ${done.number}: stopping`);
       out.push({ zoho: inv.invoiceNumber, number: done.number, date: done.date, party: z.customerName, total: '', skipped: true });
@@ -327,14 +371,71 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
     const fy = masters.financialYears.find((y) => z.invoiceDate >= y.start && z.invoiceDate <= y.end);
     const series = fy ? masters.seriesFor(type.id, fy.id) : undefined;
     if (!series) throw new Error(`No Sales numbering series for ${z.invoiceDate}`);
-    const next = await gw.seriesStatus(companyId, series.id);
     const expected = seqOf(inv.invoiceNumber);
+    const party = findParty(masters, z);
+    if (!party) throw new Error(`${inv.invoiceNumber}: customer "${z.customerName}" is not in the books`);
+
+    // the numbers Zoho skipped before this one: each a cancelled placeholder, dated like the invoice before it. A placeholder an
+    // earlier run posted but did not get to cancel is cancelled now.
+    const gapId = (gap: number) => deterministicUuid(`zoho-invoice-gap|${companyId}|${series.id}|${gap}`) as VoucherId;
+    for (const gap of plan.gaps.filter((g) => g < expected && g > before)) {
+      const left = await gw.get(companyId, gapId(gap));
+      if (left?.status === 'posted') {
+        const cancelled = await gw.cancel({ companyId, voucherId: left.id, expectedVersion: left.version });
+        if (!cancelled.ok) throw failed(`Cancelling ${left.number}`, cancelled);
+      }
+    }
+    let next = await gw.seriesStatus(companyId, series.id);
+    while (next.ok && next.value.nextValue < expected && plan.gaps.includes(next.value.nextValue)) {
+      const gap = next.value.nextValue;
+      const zohoNumber = inv.invoiceNumber.replace(/\d+\s*$/, (d) => String(gap).padStart(d.trim().length, '0'));
+      const voidInv = plan.voidInvoices.get(gap);
+      const why = voidInv ? 'voided in Zoho Books' : 'deleted in Zoho Books (missing from the export)';
+      // a voided invoice keeps what it said — its customer, date and lines, as description lines (no stock moves) — a missing one is ₹1
+      const vz = voidInv?.rows[0];
+      const vParty = vz ? findParty(masters, vz) : undefined;
+      if (vz && !vParty) throw new Error(`${zohoNumber}: customer "${vz.customerName}" is not in the books`);
+      const date = vz?.invoiceDate ?? out.at(-1)?.date ?? z.invoiceDate;
+      const lines = voidInv
+        ? voidInv.rows.map((l) => ({
+            description: tidy([l.itemName, l.itemDesc].filter((t) => t !== '').join(' — ') || 'Item').slice(0, 200),
+            ...(l.usageUnit ? { unit: l.usageUnit } : {}),
+            qty: l.quantity,
+            rate: l.itemPrice,
+            gstRate: gstRateOf(l),
+            ...(l.hsn ? { hsn: l.hsn } : {}),
+          }))
+        : [{ description: `Cancelled: ${zohoNumber} ${why}`.slice(0, 200), qty: '1', rate: '1', gstRate: '0' }];
+      const onParty = vParty ?? party;
+      const onDetails = vParty && vz ? partyDetailsOf(vParty, vz) : partyDetailsOf(party, z);
+      const placeholder = await gw.post({
+        companyId,
+        draft: {
+          id: gapId(gap),
+          voucherTypeId: type.id,
+          date,
+          partyId: onParty.id,
+          ...(vz?.purchaseOrder ? { reference: vz.purchaseOrder } : {}),
+          partyDetails: onDetails,
+          lines,
+          salesLedgerId: ledger.id,
+          dueDate: vz?.dueDate || date,
+          ...(voidInv ? (() => { const h = deriveGstHeader(masters, 'sales', { partyId: onParty.id, partyDetails: onDetails, lines }); return h ? { gst: h } : {}; })() : {}),
+          narration: `Zoho ${zohoNumber} was ${why}: the number is kept here, cancelled`,
+        },
+      });
+      if (!placeholder.ok) throw failed(`Placeholder for ${zohoNumber}`, placeholder);
+      const v = placeholder.value.voucher;
+      if (seqOf(v.number) !== gap) throw new Error(`The placeholder for ${zohoNumber} was numbered ${v.number}: stopping`);
+      const cancelled = await gw.cancel({ companyId, voucherId: v.id, expectedVersion: v.version });
+      if (!cancelled.ok) throw failed(`Cancelling ${v.number}`, cancelled);
+      out.push({ zoho: zohoNumber, number: v.number, date, party: onParty.name, total: '0.00', cancelled: true });
+      ctx.log(`${zohoNumber}\t${date}\tCANCELLED (${why})`);
+      next = await gw.seriesStatus(companyId, series.id);
+    }
     if (!next.ok || next.value.nextValue !== expected) {
       throw new Error(`${inv.invoiceNumber}: the Sales series would give number ${next.ok ? next.value.nextValue : '?'}, not ${expected}. Stopping before posting it.`);
     }
-
-    const party = findParty(masters, z);
-    if (!party) throw new Error(`${inv.invoiceNumber}: customer "${z.customerName}" is not in the books`);
     const lines = inv.rows.map((l) => {
       const gst = { gstRate: gstRateOf(l), ...(l.hsn ? { hsn: l.hsn } : {}) };
       if (isService(l)) return { description: (l.itemDesc || l.itemName).slice(0, 200), ...(l.usageUnit ? { unit: l.usageUnit } : {}), qty: l.quantity, rate: l.itemPrice, ...gst };
@@ -377,7 +478,8 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const companyId = args.company as CompanyId;
   const filter = invoiceFilterOf(args.only);
-  const all = groupByInvoice(parseZohoCsv(readFileSync(args.csv, 'utf8')));
+  // the files are one run: an invoice numbered in one half but dated in the other (Zoho's 24-25/170) is neither a gap nor a duplicate
+  const all = groupByInvoice(args.csv.flatMap((file) => parseZohoCsv(readFileSync(file, 'utf8'))));
   const invoices = filter ? all.filter((i) => filter(i.invoiceNumber)) : all;
 
   const pool = new pg.Pool({ connectionString: args.dbUrl });
@@ -402,11 +504,16 @@ async function main(): Promise<void> {
     console.log(`Stock items: ${plan.items.length} parts — ${known.length} already in the books, ${plan.items.length - known.length} new`);
     for (const k of known) console.log(`  existing: ${[...k.zohoNames].join(' | ')}  →  "${k.existing?.name}"  (+${k.qty} in)`);
     for (const p of plan.problems) console.log(`PROBLEM: ${p}`);
+    if (plan.gaps.length > 0) {
+      const missing = plan.gaps.filter((g) => !plan.voided.includes(g));
+      console.log(`Will be posted as CANCELLED — missing in Zoho: ${missing.join(', ') || 'none'}; voided in Zoho: ${plan.voided.join(', ') || 'none'}`);
+    }
     Object.assign(report, {
       units: plan.units,
       parties: plan.parties.map((p) => ({ zoho: p.zoho.customerName, existing: p.existing?.name })),
       items: plan.items.map((i) => ({ name: i.name, code: i.code, qty: i.qty, zohoNames: [...i.zohoNames], existing: i.existing?.name })),
       problems: plan.problems,
+      gaps: plan.gaps,
     });
     if (plan.problems.length > 0) throw new Error('Fix the problems above first');
 
@@ -425,7 +532,7 @@ async function main(): Promise<void> {
     await postStock(ctx, plan, after);
     const posted = await postInvoices(ctx, plan, after);
     report['posted'] = posted;
-    console.log(`\n${args.commit ? 'POSTED' : 'Dry run OK — would post'} ${posted.filter((p) => !p.skipped).length} invoices (${posted[0]?.number} … ${posted.at(-1)?.number})${args.commit ? '' : '. Nothing was written.'}`);
+    console.log(`\n${args.commit ? 'POSTED' : 'Dry run OK — would post'} ${posted.filter((p) => !p.skipped && !p.cancelled).length} invoices and ${posted.filter((p) => p.cancelled).length} cancelled (${posted[0]?.number} … ${posted.at(-1)?.number})${args.commit ? '' : '. Nothing was written.'}`);
   } catch (e) {
     report['error'] = e instanceof Error ? e.message : String(e);
     throw e;

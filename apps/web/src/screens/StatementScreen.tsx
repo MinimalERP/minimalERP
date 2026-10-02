@@ -4,8 +4,9 @@ import { useMemo, useState } from 'preact/hooks';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
 import type { ReportKind, ScreenRef } from '../shell/router';
 import { Kbd } from '../ui/Kbd';
-import { formatAmount, formatDate, parseDateInput, todayText } from '../vouchers/format';
+import { formatAmount, formatDate, todayText } from '../vouchers/format';
 import { FieldsDialog } from './ReportDialogs';
+import { periodFields, readPeriod } from '../reports/periodDialog';
 
 const SCOPE = 'screen:report';
 
@@ -30,6 +31,7 @@ export function StatementScreen({ frame, report }: { frame: Frame<ScreenRef>; re
   const today = todayText();
   const fy = masters.financialYears.find((y) => today >= y.start && today <= y.end) ?? masters.financialYears.at(-1);
   const [period, setPeriod] = useFrameState<{ from: string; to: string }>(frame, 'period', { from: fy?.start ?? '', to: isSheet && fy && today >= fy.start && today <= fy.end ? today : (fy?.end ?? '') });
+  const periodDialogFields = periodFields(masters, period, isSheet);
   const [pos, setPos] = useFrameState<Pos>(frame, 'pos', { side: 'left', row: 0 });
   const [asking, setAsking] = useState(false);
 
@@ -163,28 +165,13 @@ export function StatementScreen({ frame, report }: { frame: Frame<ScreenRef>; re
       {asking && (
         <FieldsDialog
           title={isSheet ? 'As on' : 'Period'}
-          fields={
-            isSheet
-              ? [{ key: 'to', label: 'As on', value: formatDate(period.to), hint: 'a date like 30-6-24' }]
-              : [
-                  { key: 'from', label: 'From', value: formatDate(period.from), hint: 'a date like 1-4-24' },
-                  { key: 'to', label: 'To', value: formatDate(period.to) },
-                ]
-          }
-          validate={(v) => {
-            const errs: Record<string, string> = {};
-            const ctx = { start: fy?.start ?? period.from, end: fy?.end ?? period.to, base: period.from };
-            const from = isSheet ? localDate(period.from) : parseDateInput(v['from'] ?? '', ctx);
-            const to = parseDateInput(v['to'] ?? '', ctx);
-            if (!from) errs['from'] = 'That is not a date';
-            if (!to) errs['to'] = 'That is not a date';
-            if (from && to && from > to) errs['to'] = 'The end is before the start';
-            return errs;
-          }}
+          fields={periodDialogFields}
+          initial={periodDialogFields[1]?.key}
+          validate={(v) => readPeriod(masters, v, periodDialogFields, period, isSheet, { start: fy?.start ?? period.from, end: fy?.end ?? period.to }).errors}
           onDone={(v) => {
-            if (v) {
-              const ctx = { start: fy?.start ?? period.from, end: fy?.end ?? period.to, base: period.from };
-              setPeriod({ from: isSheet ? period.from : (parseDateInput(v['from'] ?? '', ctx) ?? period.from), to: parseDateInput(v['to'] ?? '', ctx) ?? period.to });
+            const chosen = v ? readPeriod(masters, v, periodDialogFields, period, isSheet, { start: fy?.start ?? period.from, end: fy?.end ?? period.to }).period : undefined;
+            if (chosen) {
+              setPeriod(chosen);
               setPos({ side: 'left', row: 0 });
             }
             setAsking(false);

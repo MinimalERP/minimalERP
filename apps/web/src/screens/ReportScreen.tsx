@@ -48,6 +48,7 @@ import { MailWindow } from '../vouchers/MailDialog';
 import { ledgerReminder } from '../vouchers/reminders';
 import { docketProblem, invoiceDocFromBooks } from '../vouchers/invoicePrint';
 import { isItemDocKind } from '../vouchers/kinds';
+import { periodFields, readPeriod } from '../reports/periodDialog';
 
 const SCOPE = 'screen:report';
 
@@ -149,6 +150,7 @@ function ReportBody({
   const today = todayText();
   const asOnReport = gridUsesAsOnDate(report);
   const [period, setPeriod] = useFrameState<Period>(frame, 'period', { from: fy?.start ?? '', to: asOnReport && fy && today >= fy.start && today <= fy.end ? today : (fy?.end ?? '') });
+  const periodDialogFields = periodFields(masters, period, asOnReport);
   const [types, setTypes] = useFrameState<string[]>(frame, 'types', []);
   const [chosenLedger, setChosenLedger] = useFrameState<string | undefined>(frame, 'ledger', undefined);
   const [col, setCol] = useFrameState<number>(frame, 'col', 0);
@@ -758,28 +760,13 @@ function ReportBody({
       {dialog === 'period' && (
         <FieldsDialog
           title={asOnReport ? 'As on' : 'Period'}
-          fields={
-            asOnReport
-              ? [{ key: 'to', label: 'As on', value: formatDate(period.to), hint: 'a date like 30-6-24' }]
-              : [
-                  { key: 'from', label: 'From', value: formatDate(period.from), hint: 'a date like 1-4-24' },
-                  { key: 'to', label: 'To', value: formatDate(period.to) },
-                ]
-          }
-          validate={(v) => {
-            const errs: Record<string, string> = {};
-            const ctx = { start: fy?.start ?? period.from, end: fy?.end ?? period.to, base: period.from };
-            const from = asOnReport ? localDate(period.from) : parseDateInput(v['from'] ?? '', ctx);
-            const to = parseDateInput(v['to'] ?? '', ctx);
-            if (!from) errs['from'] = 'That is not a date';
-            if (!to) errs['to'] = 'That is not a date';
-            if (from && to && from > to) errs['to'] = 'The end is before the start';
-            return errs;
-          }}
+          fields={periodDialogFields}
+          initial={periodDialogFields[1]?.key}
+          validate={(v) => readPeriod(masters, v, periodDialogFields, period, asOnReport, { start: fy?.start ?? period.from, end: fy?.end ?? period.to }).errors}
           onDone={(v) => {
-            if (v) {
-              const ctx = { start: fy?.start ?? period.from, end: fy?.end ?? period.to, base: period.from };
-              setPeriod({ from: asOnReport ? period.from : (parseDateInput(v['from'] ?? '', ctx) ?? period.from), to: parseDateInput(v['to'] ?? '', ctx) ?? period.to });
+            const chosen = v ? readPeriod(masters, v, periodDialogFields, period, asOnReport, { start: fy?.start ?? period.from, end: fy?.end ?? period.to }).period : undefined;
+            if (chosen) {
+              setPeriod(chosen);
               setRow(0);
             }
             setDialog(undefined);

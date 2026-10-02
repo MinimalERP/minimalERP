@@ -52,3 +52,10 @@ day after the earlier year begins (e.g. `2025-04-01` for 2025-26). The year brin
 run `post` without `--commit` (a rehearsal that writes nothing), read `zoho-post-report.json`, and run it again with `--commit`.
 
 `post` takes each line's GST rate from Zoho's CGST/SGST/IGST columns, and stops on any invoice whose total does not match Zoho's.
+
+A Zoho number missing from the export (deleted or voided in Zoho) is posted as a ₹1 placeholder and cancelled at once, dated like the
+invoice before it: the Sales register keeps every number, the missing ones shown as cancelled, and they count for nothing in the books.
+The rehearsal lists them ("Missing in Zoho, will be posted as CANCELLED: …") before anything is written. The two halves of one year go in ONE run (`--csv Invoice.csv --csv Invoice1.csv`): Zoho sometimes numbers an invoice in one half but dates
+it in the other (24-25/170), and only a single run sees that it is neither missing nor duplicated. A fraction of a whole-number unit
+("18.50 Nos" of scrap) is posted as a description line, like a service. A line with no item name (only a
+description) is posted as a description line, like a service, not as a stock item.
