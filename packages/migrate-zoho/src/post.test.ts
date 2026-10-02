@@ -151,7 +151,7 @@ describe('a previous year’s Zoho invoices, rehearsed in memory', () => {
     expect((await gw.stockMovements({ companyId })).length).toBe(stockAfterFirst);
   });
 
-  it('posts an invoice whose Zoho number another invoice has (23--24/38 beside 23-24/38) after the last, as the next number', async () => {
+  it('posts an invoice whose Zoho number another invoice has (23--24/38 beside 23-24/38) under "Sales (Zoho number)", as Zoho numbered it', async () => {
     let masters = seedCompany({ name: 'Works', fyStart: localDate('2025-04-01'), newId, gstin: gstin('27AABCD1234E1Z'), stateCode: '27' });
     masters = masters.with({ company: { ...masters.company, chargeGst: true } });
     const companyId = masters.company.id as CompanyId;
@@ -169,7 +169,9 @@ describe('a previous year’s Zoho invoices, rehearsed in memory', () => {
     const after = await createMasters(ctx, plan);
     await postStock(ctx, plan, after);
     const posted = await postInvoices(ctx, plan, after);
-    expect(posted.map((p) => [p.zoho, p.number.slice(-1)])).toEqual([['25-26/1', '1'], ['25-26/2', '2'], ['25-26/3', '3'], ['25--26/2', '4']]);
+    expect(posted.map((p) => [p.zoho, p.number])).toEqual([['25-26/1', 'SAL/25-26/0001'], ['25-26/2', 'SAL/25-26/0002'], ['25-26/3', 'SAL/25-26/0003'], ['25--26/2', '25--26/0002']]);
+    const twin = (await gw.list(companyId)).find((v) => v.number === '25--26/0002');
+    expect((await gw.load(companyId)).voucherType(twin!.voucherTypeId)).toMatchObject({ name: 'Sales (Zoho number)', baseKind: 'sales' });
     expect((await postInvoices(ctx, plan, after)).filter((p) => !p.skipped)).toEqual([]);
   });
 });

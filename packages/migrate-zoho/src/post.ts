@@ -83,6 +83,8 @@ function parseArgs(argv: readonly string[]): Args {
 
 // compared by sequence, not text: Zoho wrote one number unpadded ("26-27/97" for 26-27/097)
 const seqOf = (n: string): number => Number(/(\d+)\s*$/.exec(n)?.[1] ?? Number.NaN);
+/** "23--24/" of "23--24/38". */
+const prefixOf = (n: string): string => n.replace(/\d+\s*$/, '');
 /**
  * A line that is not a stock item, posted as a description line: a service (SAC 99…), a line Zoho has only a description for (no item
  * name), or a fraction of a whole-number unit ("18.50 Nos" of scrap sold by weight), which no counted item can hold.
@@ -178,7 +180,9 @@ interface Plan {
   readonly voidInvoices: ReadonlyMap<number, ZohoInvoice>;
   /**
    * Invoices whose number another invoice already has (Zoho's "23--24/38" beside "23-24/38"): one series cannot hold a number twice, so
-   * each is posted after the last, as the next number, with its Zoho number in the narration. Also in `invoices`.
+   * each is posted under a second Sales voucher type, "Sales (Zoho number)", whose series carries Zoho's own prefix — 23--24/038. Where
+   * that cannot be (two such prefixes in one year), it is posted after the last invoice instead, its Zoho number in the narration.
+   * Also in `invoices`.
    */
   readonly renumbered: readonly ZohoInvoice[];
 }
@@ -193,7 +197,6 @@ export function planOf(all: readonly ZohoInvoice[], masters: Masters, same: Read
   const lines = invoices.flatMap((i) => i.rows);
 
   // the same number on two invoices: the one with the year's usual prefix keeps it, the other is renumbered at the end
-  const prefixOf = (n: string) => n.replace(/\d+\s*$/, '');
   const prefixes = new Map<string, number>();
   for (const i of all) prefixes.set(prefixOf(i.invoiceNumber), (prefixes.get(prefixOf(i.invoiceNumber)) ?? 0) + 1);
   const usual = [...prefixes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
@@ -362,6 +365,39 @@ interface Posted {
   readonly cancelled?: true;
 }
 
+/**
+ * The voucher type and series that give an invoice Zoho's own number when the main series cannot (its number is another invoice's):
+ * "Sales (Zoho number)", a Sales type like any other, with a series per year in Zoho's prefix, moved on to the number. Undefined when
+ * the year's series already has another prefix or is past that number.
+ */
+async function zohoNumberType(ctx: Context, inv: ZohoInvoice, fyId: string, width: number): Promise<string | undefined> {
+  const { companyId, gw } = ctx;
+  const prefix = prefixOf(inv.invoiceNumber);
+  const seq = seqOf(inv.invoiceNumber);
+  const typeId = deterministicUuid(`zoho-migrate|${companyId}|type|sales-zoho-number`);
+  let masters = await gw.load(companyId);
+  if (!masters.voucherType(typeId as never)) {
+    const r = await gw.execute({ companyId, command: { op: 'create', kind: 'voucherType', id: typeId, data: { name: 'Sales (Zoho number)', baseKind: 'sales' } } });
+    if (!r.ok) throw failed('Voucher type "Sales (Zoho number)"', r);
+    masters = await gw.load(companyId);
+  }
+  let series = masters.seriesFor(typeId as never, fyId as never);
+  if (!series) {
+    const id = deterministicUuid(`zoho-migrate|${companyId}|series|${typeId}|${fyId}`);
+    const r = await gw.execute({ companyId, command: { op: 'create', kind: 'numberingSeries', id, data: { voucherTypeId: typeId, financialYearId: fyId, prefix, width, startAt: seq } } });
+    if (!r.ok) throw failed(`Series ${prefix} for "Sales (Zoho number)"`, r);
+    series = (await gw.load(companyId)).seriesFor(typeId as never, fyId as never);
+  }
+  if (!series || series.prefix !== prefix) return undefined;
+  const next = await gw.seriesStatus(companyId, series.id);
+  if (!next.ok || next.value.nextValue > seq) return undefined;
+  if (next.value.nextValue < seq) {
+    const r = await gw.execute({ companyId, command: { op: 'advanceSeries', kind: 'numberingSeries', id: series.id, data: { nextValue: seq } } });
+    if (!r.ok) throw failed(`Moving the "Sales (Zoho number)" series to ${seq}`, r);
+  }
+  return typeId;
+}
+
 export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): Promise<Posted[]> {
   const { companyId, gw } = ctx;
   const type = masters.voucherTypes.find((t) => t.baseKind === 'sales');
@@ -466,6 +502,8 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
       return { itemId: item.id, warehouseId: godown.id, qty: l.quantity, rate: l.itemPrice, ...gst };
     });
     const partyDetails = partyDetailsOf(party, z);
+    // a number another invoice has: Zoho's own number under "Sales (Zoho number)", else the next number after the last
+    const ownType = again && fy ? await zohoNumberType(ctx, inv, fy.id, series.width) : undefined;
     const header = deriveGstHeader(masters, 'sales', { partyId: party.id, partyDetails, lines });
     const total = grandTotal(lines, header);
     const zohoTotal = parseMoney(z.total);
@@ -475,7 +513,7 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
       companyId,
       draft: {
         id,
-        voucherTypeId: type.id,
+        voucherTypeId: ownType ?? type.id,
         date: z.invoiceDate,
         partyId: party.id,
         ...(z.purchaseOrder ? { reference: z.purchaseOrder } : {}),
@@ -484,12 +522,14 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
         salesLedgerId: ledger.id,
         dueDate: z.dueDate || z.invoiceDate,
         ...(header ? { gst: header } : {}),
-        ...(again ? { narration: `Zoho ${inv.invoiceNumber}: its number is another invoice's, so it is numbered after the last` } : {}),
+        ...(again
+          ? { narration: ownType ? `Zoho ${inv.invoiceNumber}: its number is another invoice's, so it is under "Sales (Zoho number)"` : `Zoho ${inv.invoiceNumber}: its number is another invoice's, so it is numbered after the last` }
+          : {}),
       },
     });
     if (!r.ok) throw failed(`${inv.invoiceNumber} was refused`, r);
     const v: Voucher = r.value.voucher;
-    if (!again && seqOf(v.number) !== seqOf(inv.invoiceNumber)) throw new Error(`${inv.invoiceNumber} was posted as ${v.number}: stopping so nothing more goes out of step`);
+    if ((!again || ownType) && seqOf(v.number) !== seqOf(inv.invoiceNumber)) throw new Error(`${inv.invoiceNumber} was posted as ${v.number}: stopping so nothing more goes out of step`);
     out.push({ zoho: inv.invoiceNumber, number: v.number, date: v.date, party: party.name, total: formatMoney(total) });
     ctx.log(`${inv.invoiceNumber}\t${v.date}\t${formatMoney(total)}\t${party.name}`);
   }
@@ -526,7 +566,7 @@ async function main(): Promise<void> {
     console.log(`Stock items: ${plan.items.length} parts — ${known.length} already in the books, ${plan.items.length - known.length} new`);
     for (const k of known) console.log(`  existing: ${[...k.zohoNames].join(' | ')}  →  "${k.existing?.name}"  (+${k.qty} in)`);
     for (const p of plan.problems) console.log(`PROBLEM: ${p}`);
-    if (plan.renumbered.length > 0) console.log(`Numbered after the last (their Zoho number is another invoice's): ${plan.renumbered.map((i) => i.invoiceNumber).join(', ')}`);
+    if (plan.renumbered.length > 0) console.log(`Under "Sales (Zoho number)", as Zoho numbered them (their number is another invoice's): ${plan.renumbered.map((i) => i.invoiceNumber).join(', ')}`);
     if (plan.gaps.length > 0) {
       const missing = plan.gaps.filter((g) => !plan.voided.includes(g));
       console.log(`Will be posted as CANCELLED — missing in Zoho: ${missing.join(', ') || 'none'}; voided in Zoho: ${plan.voided.join(', ') || 'none'}`);
