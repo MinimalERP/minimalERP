@@ -15,3 +15,9 @@ supabase/functions/**/*.bundle.js
 # Playwright output
 test-results/
 playwright-report/
+
+# Zoho import: exports and run reports hold real customer and financial data — never commit them
+packages/migrate-zoho/*.json
+!packages/migrate-zoho/package.json
+!packages/migrate-zoho/tsconfig.json
+*.csv
