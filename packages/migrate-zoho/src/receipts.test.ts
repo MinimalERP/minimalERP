@@ -3,7 +3,7 @@ import { MemoryBackend } from '@minimalerp/adapter-memory';
 import { type CompanyId, customerLedgerOf, deterministicUuid, gstinCheckChar, localDate, openBills, seedCompany } from '@minimalerp/domain';
 import type { ZohoInvoice, ZohoLine } from './csv';
 import { createMasters, planOf, postInvoices, postStock } from './post';
-import { type ZohoPaymentRow, createCustomers, groupPayments, planReceipts, postReceipts } from './receipts';
+import { type ZohoPaymentRow, bankLookup, groupPayments, planReceipts, postReceipts } from './receipts';
 
 const newId = (name: string) => deterministicUuid(`zoho-receipts-test|${name}`);
 const gstin = (prefix: string) => prefix + gstinCheckChar(prefix);
@@ -38,6 +38,12 @@ async function booksWithInvoices() {
   return { gw, companyId, numbers: posted.map((p) => p.number) };
 }
 
+/** The plan, with every Zoho account going into the books' Yes Bank unless `bank` says otherwise. */
+const planFor = async (gw: MemoryBackend, companyId: CompanyId, payments: ReturnType<typeof groupPayments>, bank: readonly string[] = ['Yes Bank']) => {
+  const masters = await gw.load(companyId);
+  return planReceipts(payments, masters, await gw.list(companyId), bankLookup(masters, bank));
+};
+
 describe('Zoho payments as Receipts', () => {
   it('settles each invoice for what Zoho applied plus the TDS withheld, puts the unused part on account, and a re-run adds nothing', async () => {
     const { gw, companyId, numbers } = await booksWithInvoices();
@@ -49,9 +55,9 @@ describe('Zoho payments as Receipts', () => {
     ]);
     const ctx = { companyId, gw, bank: ['Yes Bank'], log: () => {} };
     const run = async () => {
-      const plan = planReceipts(payments, await gw.load(companyId), await gw.list(companyId));
+      const plan = await planFor(gw, companyId, payments);
       expect(plan.problems).toEqual([]);
-      return postReceipts(ctx, plan, await createCustomers(ctx, plan));
+      return postReceipts(ctx, plan, await gw.load(companyId));
     };
     expect((await run()).filter((p) => !p.skipped)).toHaveLength(1);
 
@@ -64,55 +70,52 @@ describe('Zoho payments as Receipts', () => {
     expect((await run()).filter((p) => !p.skipped)).toEqual([]);
   });
 
-  it('stops on an invoice that is not in the books, and on settling more than is open', async () => {
+  it('leaves out a payment for an invoice that is not in the books, and stops on settling more than is open', async () => {
     const { gw, companyId } = await booksWithInvoices();
-    const plan = planReceipts(
+    const plan = await planFor(
+      gw,
+      companyId,
       groupPayments([
         pay({ paymentId: 'A', amount: '100.000', invoiceNumber: '24-25/7', applied: '100.00' }),
         pay({ paymentId: 'B', amount: '5000.000', invoiceNumber: '25-26/001', applied: '5000.00' }),
       ]),
-      await gw.load(companyId),
-      await gw.list(companyId),
     );
-    expect(plan.problems).toEqual([
-      expect.stringContaining('invoice 24-25/7 is not in the books'),
-      expect.stringContaining('settles nothing'),
-      expect.stringContaining('only 1180.00 is open on it'),
-    ]);
+    expect(plan.skipped.map((x) => x.why)).toEqual(['invoice 24-25/7 not in the books']);
+    expect(plan.receipts).toHaveLength(1);
+    expect(plan.problems).toEqual([expect.stringContaining('only 1180.00 is open on it')]);
   });
 
   it('takes the customer from the invoices it settles, whatever name Zoho gives the payment: no second customer is made', async () => {
     const { gw, companyId } = await booksWithInvoices();
     const payments = groupPayments([pay({ customerName: 'ACME LIMITED', amount: '1180.000', invoiceNumber: '25-26/1', applied: '1180.00' })]);
-    const plan = planReceipts(payments, await gw.load(companyId), await gw.list(companyId));
-    expect(plan.newCustomers).toEqual([]);
+    const plan = await planFor(gw, companyId, payments);
+    expect(plan.skipped).toEqual([]);
     const ctx = { companyId, gw, bank: ['Yes Bank'], log: () => {} };
-    const posted = await postReceipts(ctx, plan, await createCustomers(ctx, plan));
+    const posted = await postReceipts(ctx, plan, await gw.load(companyId));
     expect(posted[0]?.customer).toBe('Acme Ltd');
     expect((await gw.load(companyId)).parties).toHaveLength(1);
   });
 
-  it('creates a customer the books do not have, for an advance', async () => {
+  it('creates nothing: a payment of a customer the books do not have is left out, to be entered by hand', async () => {
     const { gw, companyId } = await booksWithInvoices();
     const payments = groupPayments([pay({ paymentId: 'S', customerName: 'Sunrise Export', type: 'Customer Advance', amount: '350000.000', unused: '350000.000' })]);
-    const plan = planReceipts(payments, await gw.load(companyId), await gw.list(companyId));
-    expect(plan.newCustomers.map((c) => c.customerName)).toEqual(['Sunrise Export']);
-    expect(plan.receipts[0]?.allocations).toEqual([{ kind: 'advance', amount: 35000000n }]);
-    const ctx = { companyId, gw, bank: ['Yes Bank'], log: () => {} };
-    const posted = await postReceipts(ctx, plan, await createCustomers(ctx, plan));
-    expect(posted[0]?.customer).toBe('Sunrise Export');
+    const plan = await planFor(gw, companyId, payments);
+    expect(plan.receipts).toEqual([]);
+    expect(plan.skipped.map((x) => x.why)).toEqual(['customer "Sunrise Export" not in the books']);
+    expect((await gw.load(companyId)).parties).toHaveLength(1);
   });
 
-  it('puts each payment into the ledger its Zoho "Deposit To" account maps to, and stops on an account nobody mapped', async () => {
+  it('puts each payment into the ledger its Zoho "Deposit To" account maps to, and leaves out one whose account no --bank names', async () => {
     const { gw, companyId } = await booksWithInvoices();
     const payments = groupPayments([
       pay({ paymentId: 'Y', amount: '500.000', invoiceNumber: '25-26/1', applied: '500.00' }),
       pay({ paymentId: 'C', paymentNumber: '25-26/2', amount: '100.000', invoiceNumber: '25-26/2', applied: '100.00', depositTo: 'Petty Cash' }),
+      pay({ paymentId: 'U', paymentNumber: '25-26/3', amount: '50.000', invoiceNumber: '25-26/2', applied: '50.00', depositTo: 'Undeposited Funds' }),
     ]);
-    const plan = planReceipts(payments, await gw.load(companyId), await gw.list(companyId));
-    const masters = await createCustomers({ companyId, gw, bank: [], log: () => {} }, plan);
-    await expect(postReceipts({ companyId, gw, bank: ['Yes BAnk=Yes Bank'], log: () => {} }, plan, masters)).rejects.toThrow('"Petty Cash"');
-    await postReceipts({ companyId, gw, bank: ['Yes Bank', 'Petty Cash=Cash'], log: () => {} }, plan, masters);
+    const bank = ['Yes BAnk=Yes Bank', 'Petty Cash=Cash'];
+    const plan = await planFor(gw, companyId, payments, bank);
+    expect(plan.skipped.map((x) => x.why)).toEqual(['Zoho account "Undeposited Funds" has no --bank ledger']);
+    await postReceipts({ companyId, gw, bank, log: () => {} }, plan, await gw.load(companyId));
     const intoName = async (zoho: string) => {
       const m = await gw.load(companyId);
       const v = (await gw.list(companyId)).find((x) => (x.content as unknown as { narration?: string }).narration?.startsWith(`Zoho payment ${zoho}`));

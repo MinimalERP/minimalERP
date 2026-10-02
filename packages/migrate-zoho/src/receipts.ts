@@ -4,6 +4,7 @@ import { MemoryBackend } from '@minimalerp/adapter-memory';
 import { PostgresBackend } from '@minimalerp/adapter-postgres';
 import {
   type CompanyId,
+  type Ledger,
   type Masters,
   type Party,
   type Voucher,
@@ -15,7 +16,6 @@ import {
   openBills,
   parseCsvRecords,
   parseMoney,
-  resolvePartyRow,
 } from '@minimalerp/domain';
 import pg from 'pg';
 
@@ -29,7 +29,8 @@ import pg from 'pg';
  *      (`--bank "ICICI Bank Account=ICICI Bank" --bank "Petty Cash=Cash"`), a plain one being the rest's;
  *   2. per invoice applied: "against" that invoice for what it settled (Zoho's amount applied + the TDS withheld), the TDS going to
  *      TDS Receivable; what Zoho left unused goes on account (a Customer Advance: as an advance);
- *   3. a customer the books do not have yet is created (Customer role added to a supplier that is one).
+ *   3. nothing is created: a payment that does not match the books — an invoice they do not have (an earlier year's), a customer they
+ *      do not have, a Zoho account no --bank names — is left out and listed, to be entered by hand.
  *
  * Without --commit it rehearses against an in-memory copy and writes nothing. Every id derives from Zoho's CustomerPayment ID, so a
  * re-run skips what is already posted.
@@ -141,16 +142,22 @@ export interface PlannedReceipt {
 
 export interface ReceiptPlan {
   readonly receipts: readonly PlannedReceipt[];
-  /** Customers to create (no party in the books by GSTIN or name), and suppliers that need the Customer role. */
-  readonly newCustomers: readonly ZohoPaymentRow[];
   readonly problems: readonly string[];
+  /** Payments that do not match the books (an invoice, the customer or the bank account they lack): left out, for entering by hand. */
+  readonly skipped: readonly { readonly payment: ZohoPayment; readonly why: string }[];
 }
 
 /**
  * Each payment as the bills it settles. An invoice must be a posted Sales invoice of the same customer, and what this run settles on
  * it (with what earlier receipts already did) may not exceed it. The amounts must add up the way Zoho's do: Amount = applied + unused.
  */
-export function planReceipts(payments: readonly ZohoPayment[], masters: Masters, vouchers: readonly Voucher[]): ReceiptPlan {
+export function planReceipts(
+  payments: readonly ZohoPayment[],
+  masters: Masters,
+  vouchers: readonly Voucher[],
+  /** The ledger a Zoho "Deposit To" account goes into (see `bankLookup`); a payment whose account has none is left out. */
+  bankFor: (depositTo: string) => Ledger | undefined = () => undefined,
+): ReceiptPlan {
   const problems: string[] = [];
   const salesType = new Set(masters.voucherTypes.filter((t) => t.baseKind === 'sales').map((t) => t.id as string));
   const invoices = new Map<string, Voucher>();
@@ -161,21 +168,34 @@ export function planReceipts(payments: readonly ZohoPayment[], masters: Masters,
     const key = numberKey(zohoNumber);
     return invoices.get(key) ?? [...invoices.entries()].find(([k]) => k.endsWith(`/${key}`))?.[1];
   };
-  const newCustomers = new Map<string, ZohoPaymentRow>();
   const settledHere = new Map<string, bigint>();
   const receipts: PlannedReceipt[] = [];
+  const skipped: { payment: ZohoPayment; why: string }[] = [];
   const posted = new Set<string>(vouchers.map((v) => v.id));
   for (const payment of payments) {
     const head = payment.rows[0] as ZohoPaymentRow;
     // already in the books (an earlier run): what it settled is in the open bills below, not to be counted again
     const done = posted.has(receiptIdOf(masters.company.id, payment.id));
     const where = `Zoho payment ${head.paymentNumber} (${head.date}, ${head.customerName})`;
+    // a payment for an invoice the books do not have (say, an earlier year's) is left out whole, to be entered by hand
+    const missing = payment.rows.filter((r) => r.invoiceNumber !== '' && !invoiceFor(r.invoiceNumber)).map((r) => r.invoiceNumber);
+    if (missing.length > 0) {
+      skipped.push({ payment, why: `invoice${missing.length > 1 ? 's' : ''} ${missing.join(', ')} not in the books` });
+      continue;
+    }
     // the customer is the one whose invoices the payment settles (Zoho's "…PRIVATE LIMITED" may be the books' "…Pvt Ltd"), else by
-    // GSTIN or name; only a payment that names no invoice of a customer the books have makes a new one
+    // GSTIN or name; one the books do not have as a customer is left out, as is a Zoho account no --bank names
     const invoiceParty = payment.rows.map((r) => (r.invoiceNumber ? invoiceFor(r.invoiceNumber) : undefined)).find((v) => v !== undefined);
     const fromInvoice = invoiceParty ? masters.party((invoiceParty.content as unknown as { partyId: string }).partyId as never) : undefined;
     const party = fromInvoice ?? findParty(masters, head);
-    if (!party && !newCustomers.has(lower(head.customerName))) newCustomers.set(lower(head.customerName), head);
+    if (!party || !(party.roles ?? []).includes('customer')) {
+      skipped.push({ payment, why: `customer "${head.customerName}" not in the books` });
+      continue;
+    }
+    if (!bankFor(head.depositTo)) {
+      skipped.push({ payment, why: `Zoho account "${head.depositTo}" has no --bank ledger` });
+      continue;
+    }
     if (paise(head.bankCharges) !== 0n) problems.push(`${where}: has bank charges, which this import does not post`);
 
     const allocations: PlannedAllocation[] = [];
@@ -184,12 +204,8 @@ export function planReceipts(payments: readonly ZohoPayment[], masters: Masters,
       if (r.invoiceNumber === '') continue;
       const amount = paise(r.applied) + paise(r.tds);
       applied += paise(r.applied);
-      const inv = invoiceFor(r.invoiceNumber);
-      if (!inv) {
-        problems.push(`${where}: invoice ${r.invoiceNumber} is not in the books — import that year's invoices first`);
-        continue;
-      }
-      if (party && (inv.content as unknown as { partyId?: string }).partyId !== party.id) {
+      const inv = invoiceFor(r.invoiceNumber) as Voucher; // every one is there: a payment with a missing one was skipped above
+      if ((inv.content as unknown as { partyId?: string }).partyId !== party.id) {
         problems.push(`${where}: invoice ${r.invoiceNumber} is another customer's`);
         continue;
       }
@@ -203,7 +219,7 @@ export function planReceipts(payments: readonly ZohoPayment[], masters: Masters,
       problems.push(`${where}: Zoho's amount ${formatMoney(received as never)} is not the ${formatMoney((applied + unused) as never)} it was applied as`);
     }
     if (allocations.length === 0) problems.push(`${where}: settles nothing`);
-    receipts.push({ payment, customer: party?.name ?? head.customerName, ...(party ? { partyId: party.id } : {}), received, allocations });
+    receipts.push({ payment, customer: party.name, partyId: party.id, received, allocations });
   }
 
   // nothing may settle more of an invoice than is still open on it (receipts already in the books included)
@@ -213,7 +229,7 @@ export function planReceipts(payments: readonly ZohoPayment[], masters: Masters,
     const open = openBills(vouchers, masters, customerLedgerOf(partyId as never)).find((b) => b.ref === ref)?.pending ?? 0n;
     if (here > open) problems.push(`Invoice ${ref}: these payments settle ${formatMoney(here as never)} but only ${formatMoney(open as never)} is open on it`);
   }
-  return { receipts, newCustomers: [...newCustomers.values()], problems };
+  return { receipts, problems, skipped };
 }
 
 export interface Context {
@@ -227,30 +243,19 @@ export interface Context {
 const failed = (what: string, r: { ok: false; issues: readonly { message: string; path?: string | undefined }[] }): Error =>
   new Error(`${what}: ${r.issues.map((i) => `${i.message}${i.path ? ` (${i.path})` : ''}`).join('; ')}`);
 
-/** The customers the payments name that the books do not have, created; a supplier that is one gets the Customer role. */
-export async function createCustomers(ctx: Context, plan: ReceiptPlan): Promise<Masters> {
-  const { companyId, gw } = ctx;
-  let masters = await gw.load(companyId);
-  for (const z of plan.newCustomers) {
-    const existing = findParty(masters, z);
-    if (existing) {
-      if ((existing.roles ?? []).includes('customer')) continue;
-      const { id, companyId: _c, isActive: _a, creditLimit, ...rest } = existing as Party & { companyId?: unknown; isActive?: unknown };
-      const r = await gw.execute({ companyId, command: { op: 'alter', kind: 'party', id, data: { ...rest, ...(creditLimit !== undefined ? { creditLimit: formatMoney(creditLimit) } : {}), roles: [...(existing.roles ?? []), 'customer'] } } });
-      if (!r.ok) throw failed(`Customer role for "${existing.name}"`, r);
-      continue;
-    }
-    const row = resolvePartyRow({
-      name: z.customerName, gstin: z.gstin, pan: '', phone: '', email: '', address: '', stateCode: z.gstin ? z.gstin.slice(0, 2) : '', creditDays: '', creditLimit: '',
-      gstRegistration: z.gstin ? 'regular' : '', pincode: '', country: 'India', shippingLines: '', shippingStateCode: '', shippingPincode: '', shippingCountry: '', roles: 'customer',
-    });
-    if (!row.ok) throw new Error(`Customer "${z.customerName}": ${row.errors.join('; ')}`);
-    const r = await gw.execute({ companyId, command: { op: 'create', kind: 'party', id: deterministicUuid(`zoho-migrate|${companyId}|party|${z.customerName}`), data: row.data } });
-    if (!r.ok) throw failed(`Customer "${z.customerName}"`, r);
-    ctx.log(`Customer created: ${z.customerName}`);
-  }
-  masters = await gw.load(companyId);
-  return masters;
+/**
+ * The --bank values as a lookup from Zoho's "Deposit To" account to a bank or cash ledger: "<Zoho account>=<ledger>" for that account,
+ * a plain "<ledger>" for any other. A ledger named that the books do not have stops the run (a typing mistake, not a payment to leave out).
+ */
+export function bankLookup(masters: Masters, bank: readonly string[]): (depositTo: string) => Ledger | undefined {
+  const banks = masters.ledgers.filter((l) => l.isActive && masters.isCashOrBank(l.id));
+  const ledgerNamed = (name: string) => {
+    const l = banks.find((b) => lower(b.name) === lower(name));
+    if (!l) throw new Error(`No bank or cash ledger called "${name}". They are: ${banks.map((b) => b.name).join(', ')}`);
+    return l;
+  };
+  const pairs = bank.map((b) => b.split('=')).map((p) => (p.length > 1 ? { zoho: lower(p[0] as string), ledger: ledgerNamed(p.slice(1).join('=').trim()) } : { zoho: undefined, ledger: ledgerNamed(p[0] as string) }));
+  return (depositTo) => (pairs.find((p) => p.zoho === lower(depositTo)) ?? pairs.find((p) => p.zoho === undefined))?.ledger;
 }
 
 export interface PostedReceipt {
@@ -266,17 +271,7 @@ export async function postReceipts(ctx: Context, plan: ReceiptPlan, masters: Mas
   const { companyId, gw } = ctx;
   const type = masters.voucherTypes.find((t) => t.baseKind === 'receipt' && t.isActive !== false);
   if (!type) throw new Error('No Receipt voucher type');
-  const banks = masters.ledgers.filter((l) => l.isActive && masters.isCashOrBank(l.id));
-  const ledgerNamed = (name: string) => {
-    const l = banks.find((b) => lower(b.name) === lower(name));
-    if (!l) throw new Error(`No bank or cash ledger called "${name}". They are: ${banks.map((b) => b.name).join(', ')}`);
-    return l;
-  };
-  // Zoho's Deposit To account → the ledger; checked for every payment before the first is posted
-  const pairs = ctx.bank.map((b) => b.split('=')).map((p) => (p.length > 1 ? { zoho: lower(p[0] as string), ledger: ledgerNamed(p.slice(1).join('=').trim()) } : { zoho: undefined, ledger: ledgerNamed(p[0] as string) }));
-  const bankFor = (depositTo: string) => (pairs.find((p) => p.zoho === lower(depositTo)) ?? pairs.find((p) => p.zoho === undefined))?.ledger;
-  const unmapped = [...new Set(plan.receipts.map((r) => (r.payment.rows[0] as ZohoPaymentRow).depositTo).filter((d) => !bankFor(d)))];
-  if (unmapped.length > 0) throw new Error(`Which ledger did Zoho's ${unmapped.map((d) => `"${d}"`).join(', ')} go into? Add --bank "${unmapped[0]}=<ledger>"`);
+  const bankFor = bankLookup(masters, ctx.bank);
 
   const out: PostedReceipt[] = [];
   for (const r of plan.receipts) {
@@ -287,7 +282,7 @@ export async function postReceipts(ctx: Context, plan: ReceiptPlan, masters: Mas
       out.push({ zoho: head.paymentNumber, number: done.number, date: done.date, customer: r.customer, received: formatMoney(r.received as never), skipped: true });
       continue;
     }
-    const party = r.partyId ? masters.party(r.partyId as never) : findParty(masters, head);
+    const party = r.partyId ? masters.party(r.partyId as never) : undefined;
     if (!party) throw new Error(`Zoho payment ${head.paymentNumber}: customer "${head.customerName}" is not in the books`);
     const into = bankFor(head.depositTo);
     if (!into) throw new Error(`Zoho payment ${head.paymentNumber}: no ledger for "${head.depositTo}"`);
@@ -360,7 +355,7 @@ async function main(): Promise<void> {
   try {
     const masters = await db.load(companyId);
     const vouchers = await db.list(companyId);
-    const plan = planReceipts(payments, masters, vouchers);
+    const plan = planReceipts(payments, masters, vouchers, bankLookup(masters, args.bank));
     const first = payments[0]?.rows[0];
     const last = payments.at(-1)?.rows[0];
     console.log(`Company: ${masters.company.name}`);
@@ -369,7 +364,6 @@ async function main(): Promise<void> {
     for (const p of payments) accounts.set((p.rows[0] as ZohoPaymentRow).depositTo, (accounts.get((p.rows[0] as ZohoPaymentRow).depositTo) ?? 0) + 1);
     console.log(`Zoho's "Deposit To": ${[...accounts].map(([a, n]) => `${a} (${n})`).join('; ')}; --bank ${args.bank.map((b) => `"${b}"`).join(' ')}`);
     console.log(`Customers: ${[...new Set(plan.receipts.map((r) => r.customer))].join('; ')}`);
-    if (plan.newCustomers.length > 0) console.log(`Customers to create (or give the Customer role): ${plan.newCustomers.map((c) => c.customerName).join('; ')}`);
     const tds = plan.receipts.reduce((t, r) => t + r.allocations.reduce((s, a) => s + (a.tds ?? 0n), 0n), 0n);
     const received = plan.receipts.reduce((t, r) => t + r.received, 0n);
     console.log(`Received ${formatMoney(received as never)}; TDS deducted ${formatMoney(tds as never)}`);
@@ -377,6 +371,15 @@ async function main(): Promise<void> {
       const head = r.payment.rows[0] as ZohoPaymentRow;
       for (const a of r.allocations.filter((x) => x.kind !== 'against')) console.log(`  ${head.paymentNumber} ${r.customer}: ${formatMoney(a.amount as never)} ${a.kind === 'advance' ? 'as an advance' : 'on account'}`);
     }
+    if (plan.skipped.length > 0) {
+      console.log(`\nLEFT OUT — they do not match the books; enter these ${plan.skipped.length} by hand:`);
+      for (const { payment, why } of plan.skipped) {
+        const h = payment.rows[0] as ZohoPaymentRow;
+        console.log(`  ${h.paymentNumber}\t${h.date}\t${formatMoney(paise(h.amount) as never)}\t${h.customerName}\t— ${why}`);
+      }
+      console.log('');
+    }
+    report['skipped'] = plan.skipped.map(({ payment, why }) => ({ zoho: payment.rows[0]?.paymentNumber, date: payment.rows[0]?.date, amount: payment.rows[0]?.amount, customer: payment.rows[0]?.customerName, why }));
     for (const p of plan.problems) console.log(`PROBLEM: ${p}`);
     report['problems'] = plan.problems;
     if (plan.problems.length > 0) throw new Error('Fix the problems above first');
@@ -388,10 +391,9 @@ async function main(): Promise<void> {
       gw = new MemoryBackend(masters);
     }
     const ctx: Context = { companyId, gw, bank: args.bank, log: args.commit ? (l) => console.log(l) : () => {} };
-    const after = await createCustomers(ctx, plan);
-    const posted = await postReceipts(ctx, plan, after);
+    const posted = await postReceipts(ctx, plan, masters);
     report['posted'] = posted;
-    console.log(`\n${args.commit ? 'POSTED' : 'Dry run OK — would post'} ${posted.filter((p) => !p.skipped).length} receipts${args.commit ? '' : '. Nothing was written.'}`);
+    console.log(`\n${args.commit ? 'POSTED' : 'Dry run OK — would post'} ${posted.filter((p) => !p.skipped).length} receipts${plan.skipped.length ? `, leaving out ${plan.skipped.length}` : ''}${args.commit ? '' : '. Nothing was written.'}`);
   } catch (e) {
     report['error'] = e instanceof Error ? e.message : String(e);
     throw e;
