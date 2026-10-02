@@ -138,6 +138,12 @@ describe('a previous year’s Zoho invoices, rehearsed in memory', () => {
     const first = await run();
     expect(first.plan.voided).toEqual([2]);
     expect(first.posted.map((p) => [p.zoho, p.cancelled === true])).toEqual([['25-26/001', false], ['25-26/002', true], ['25-26/003', false]]);
+    // the voided invoice keeps what it said — its customer and its line, at its rate — and moves no stock
+    const voided = (await gw.list(companyId)).find((v) => v.status === 'cancelled');
+    const content = voided?.content as unknown as { partyId: string; lines: { description: string; qty: string; rate: string; itemId?: string }[] };
+    expect((await gw.load(companyId)).party(content.partyId as never)?.name).toBe('Acme Ltd');
+    expect(content.lines).toEqual([expect.objectContaining({ description: '14188-4 - PLT,ORIF', qty: '2.0000', rate: '100.0000', gstRate: '18' })]);
+    expect(content.lines[0]?.itemId).toBeUndefined();
     const stockAfterFirst = (await gw.stockMovements({ companyId })).length;
 
     const second = await run();

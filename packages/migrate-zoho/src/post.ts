@@ -169,13 +169,16 @@ interface Plan {
   readonly gaps: readonly number[];
   /** Of `gaps`, the ones Zoho has as Void (the rest are missing from the export). */
   readonly voided: readonly number[];
+  /** The voided invoices themselves, by number: posted with their own customer and lines, then cancelled. */
+  readonly voidInvoices: ReadonlyMap<number, ZohoInvoice>;
 }
 
 export function planOf(all: readonly ZohoInvoice[], masters: Masters, same: ReadonlyMap<string, string> = new Map()): Plan {
   const problems: string[] = [];
   // an invoice voided in Zoho is not a sale: its number becomes a cancelled placeholder like a missing one, and nothing of it is posted
   const isVoid = (i: ZohoInvoice) => lower(i.rows[0]?.invoiceStatus) === 'void';
-  const voided = all.filter(isVoid).map((i) => seqOf(i.invoiceNumber));
+  const voidInvoices = new Map(all.filter(isVoid).map((i) => [seqOf(i.invoiceNumber), i] as const));
+  const voided = [...voidInvoices.keys()];
   const invoices = all.filter((i) => !isVoid(i));
   const lines = invoices.flatMap((i) => i.rows);
 
@@ -194,7 +197,7 @@ export function planOf(all: readonly ZohoInvoice[], masters: Masters, same: Read
 
   const parties = new Map<string, { zoho: ZohoLine; existing: Party | undefined }>();
   // a customer is made from a row that carries its GSTIN when any does (Zoho has some customers' early invoices without one)
-  for (const l of lines) {
+  for (const l of [...lines, ...[...voidInvoices.values()].flatMap((i) => i.rows)]) {
     const seen = parties.get(l.customerName);
     if (!seen || (!seen.zoho.gstin && l.gstin)) parties.set(l.customerName, { zoho: l, existing: findParty(masters, l) });
   }
@@ -213,7 +216,7 @@ export function planOf(all: readonly ZohoInvoice[], masters: Masters, same: Read
     const name = code ? `${code} - ${description}` : tidy(l.itemName);
     items.set(key, { key, zoho: l, code, name, zohoNames: new Set([tidy(l.itemName)]), qty: Number(l.quantity), existing: findItem(masters, key, name, same) });
   }
-  return { invoices, units, parties: [...parties.values()], items: [...items.values()], problems, gaps, voided };
+  return { invoices, units, parties: [...parties.values()], items: [...items.values()], problems, gaps, voided, voidInvoices };
 }
 
 export interface Context {
@@ -381,19 +384,38 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
     while (next.ok && next.value.nextValue < expected && plan.gaps.includes(next.value.nextValue)) {
       const gap = next.value.nextValue;
       const zohoNumber = inv.invoiceNumber.replace(/\d+\s*$/, (d) => String(gap).padStart(d.trim().length, '0'));
-      const date = out.at(-1)?.date ?? z.invoiceDate;
-      const why = plan.voided.includes(gap) ? 'voided in Zoho Books' : 'deleted in Zoho Books (missing from the export)';
+      const voidInv = plan.voidInvoices.get(gap);
+      const why = voidInv ? 'voided in Zoho Books' : 'deleted in Zoho Books (missing from the export)';
+      // a voided invoice keeps what it said — its customer, date and lines, as description lines (no stock moves) — a missing one is ₹1
+      const vz = voidInv?.rows[0];
+      const vParty = vz ? findParty(masters, vz) : undefined;
+      if (vz && !vParty) throw new Error(`${zohoNumber}: customer "${vz.customerName}" is not in the books`);
+      const date = vz?.invoiceDate ?? out.at(-1)?.date ?? z.invoiceDate;
+      const lines = voidInv
+        ? voidInv.rows.map((l) => ({
+            description: tidy([l.itemName, l.itemDesc].filter((t) => t !== '').join(' — ') || 'Item').slice(0, 200),
+            ...(l.usageUnit ? { unit: l.usageUnit } : {}),
+            qty: l.quantity,
+            rate: l.itemPrice,
+            gstRate: gstRateOf(l),
+            ...(l.hsn ? { hsn: l.hsn } : {}),
+          }))
+        : [{ description: `Cancelled: ${zohoNumber} ${why}`.slice(0, 200), qty: '1', rate: '1', gstRate: '0' }];
+      const onParty = vParty ?? party;
+      const onDetails = vParty && vz ? partyDetailsOf(vParty, vz) : partyDetailsOf(party, z);
       const placeholder = await gw.post({
         companyId,
         draft: {
           id: gapId(gap),
           voucherTypeId: type.id,
           date,
-          partyId: party.id,
-          partyDetails: partyDetailsOf(party, z),
-          lines: [{ description: `Cancelled: ${zohoNumber} ${why}`.slice(0, 200), qty: '1', rate: '1', gstRate: '0' }],
+          partyId: onParty.id,
+          ...(vz?.purchaseOrder ? { reference: vz.purchaseOrder } : {}),
+          partyDetails: onDetails,
+          lines,
           salesLedgerId: ledger.id,
-          dueDate: date,
+          dueDate: vz?.dueDate || date,
+          ...(voidInv ? (() => { const h = deriveGstHeader(masters, 'sales', { partyId: onParty.id, partyDetails: onDetails, lines }); return h ? { gst: h } : {}; })() : {}),
           narration: `Zoho ${zohoNumber} was ${why}: the number is kept here, cancelled`,
         },
       });
@@ -402,7 +424,7 @@ export async function postInvoices(ctx: Context, plan: Plan, masters: Masters): 
       if (seqOf(v.number) !== gap) throw new Error(`The placeholder for ${zohoNumber} was numbered ${v.number}: stopping`);
       const cancelled = await gw.cancel({ companyId, voucherId: v.id, expectedVersion: v.version });
       if (!cancelled.ok) throw failed(`Cancelling ${v.number}`, cancelled);
-      out.push({ zoho: zohoNumber, number: v.number, date, party: party.name, total: '0.00', cancelled: true });
+      out.push({ zoho: zohoNumber, number: v.number, date, party: onParty.name, total: '0.00', cancelled: true });
       ctx.log(`${zohoNumber}\t${date}\tCANCELLED (${why})`);
       next = await gw.seriesStatus(companyId, series.id);
     }
