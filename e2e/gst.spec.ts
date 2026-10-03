@@ -184,6 +184,20 @@ test.describe('the GST reports', () => {
     await expect(app.getByTestId('gst-period')).toContainText('Jan 2027');
     await expect(app.getByTestId('report-empty')).toBeVisible();
   });
+
+  test('F2 takes a quarter (Q1…Q4) for a quarterly return, and exports it for the quarter’s last month', async ({ app }) => {
+    await openReport(app, 'GSTR-1');
+    await app.keyboard.press('F2');
+    await expect(app.getByRole('dialog')).toBeVisible();
+    await app.keyboard.press('Enter'); // the year as it is
+    await app.keyboard.type('q3'); // the month field's text is selected: typing replaces it
+    await app.keyboard.press('Enter');
+    await expect(app.getByTestId('gst-period')).toContainText(/Oct–Dec \d{4} \(Q3\)/);
+    await expect(app.getByTestId('gst-ready')).toBeVisible();
+    const download = app.waitForEvent('download');
+    await app.keyboard.press('Alt+b');
+    expect((await download).suggestedFilename()).toMatch(/^GSTR1_27AABCD1234E1Z.*_12\d{4}\.json$/); // filed for December, the quarter's last month
+  });
 });
 
 test.describe('TDS deducted by a customer, on the Receipt', () => {

@@ -356,9 +356,13 @@ export interface Gstr1Export {
   readonly hsnCsv: string;
 }
 
-/** The GSTR-1 of a month as structured data. It says nothing the invoices do not: what is missing stays missing (see `gstr1Validation`). */
-export function gstr1Export({ masters, invoices, period }: { masters: Masters; invoices: readonly GstInvoice[]; period: { from: LocalDate } }): Gstr1Export {
-  const fp = `${period.from.slice(5, 7)}${period.from.slice(0, 4)}`;
+/**
+ * The GSTR-1 of a month — or of a quarter (QRMP) — as structured data. It says nothing the invoices do not: what is missing stays missing (see
+ * `gstr1Validation`). The return period `fp` is the period's LAST month (MMYYYY): a quarterly return is filed for its last month, "062024" for Apr–Jun.
+ */
+export function gstr1Export({ masters, invoices, period }: { masters: Masters; invoices: readonly GstInvoice[]; period: { from: LocalDate; to?: LocalDate | undefined } }): Gstr1Export {
+  const last = period.to ?? period.from;
+  const fp = `${last.slice(5, 7)}${last.slice(0, 4)}`;
   const sectionOf = (i: GstInvoice) => gstr1Section(i);
   const items = (inv: GstInvoice) => inv.slabs.map((s, n) => ({ num: n + 1, itm_det: tax(s, s.rate) }));
 

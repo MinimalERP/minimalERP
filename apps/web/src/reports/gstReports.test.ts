@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { BooksHost, type LocalBackend } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { createLocalFactory, memoryStore } from '../books/local';
-import { defaultPeriod, findFinancialYear, gstr1Columns, gstr3bColumns, hsnColumns, monthPeriod, parseMonth, periodInYear, periodOfYm, yearOf } from './gstReports';
+import { defaultPeriod, findFinancialYear, gstr1Columns, gstr3bColumns, hsnColumns, monthPeriod, parseMonth, parseQuarter, periodInYear, periodOfYm, quarterInYear, quarterPeriod, yearOf } from './gstReports';
 
 async function demoMasters() {
   const host = new BooksHost(createLocalFactory({ makeBackend: (masters) => new MemoryBackend(masters) as unknown as LocalBackend, store: memoryStore(), newIdSeed: () => 'seed-1' }));
@@ -140,5 +140,23 @@ describe('the GSTR-3B columns', () => {
       expect(c.sortable, c.id).toBe(false);
       expect(c.filterable, c.id).toBe(false);
     }
+  });
+});
+
+describe('a quarterly return (QRMP)', () => {
+  it('is a quarter of the April–March year, addressed YYYY-Qn', () => {
+    expect(quarterPeriod(2026, 1)).toEqual({ from: '2026-04-01', to: '2026-06-30', ym: '2026-Q1', label: 'Apr–Jun 2026 (Q1)', quarter: 1 });
+    expect(quarterPeriod(2026, 3)).toMatchObject({ from: '2026-10-01', to: '2026-12-31' });
+    expect(quarterPeriod(2026, 4)).toMatchObject({ from: '2027-01-01', to: '2027-03-31', label: 'Jan–Mar 2027 (Q4)' });
+    expect(periodOfYm('2026-Q2')).toEqual(quarterPeriod(2026, 2));
+    expect(periodOfYm('2026-Q5')).toBeUndefined();
+  });
+
+  it('reads "Q1"…"Q4", and finds the quarter inside a financial year', () => {
+    expect(['q1', 'Q2', ' q 3 ', 'Q4'].map(parseQuarter)).toEqual([1, 2, 3, 4]);
+    expect(['q0', 'q5', 'quarter', '1'].map(parseQuarter)).toEqual([undefined, undefined, undefined, undefined]);
+    const fy = { start: '2026-04-01', end: '2027-03-31' } as never;
+    expect(quarterInYear(fy, 4)?.ym).toBe('2026-Q4');
+    expect(quarterInYear({ start: '2026-04-01', end: '2026-12-31' } as never, 4)).toBeUndefined();
   });
 });

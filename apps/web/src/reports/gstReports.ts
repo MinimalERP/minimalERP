@@ -14,8 +14,10 @@ export interface GstPeriod {
   readonly to: LocalDate;
   /** `YYYY-MM`: the period's address. */
   readonly ym: string;
-  /** "Apr 2026". */
+  /** "Apr 2026" — or, for a quarter, "Apr–Jun 2026 (Q1)". */
   readonly label: string;
+  /** A quarterly return (QRMP): which quarter of the financial year, 1 (Apr–Jun) to 4 (Jan–Mar). Absent for a month. */
+  readonly quarter?: number;
 }
 
 const two = (n: number): string => String(n).padStart(2, '0');
@@ -25,8 +27,34 @@ export function monthPeriod(year: number, month: number): GstPeriod {
   return { from: localDate(`${year}-${two(month)}-01`), to: localDate(`${year}-${two(month)}-${two(last)}`), ym: `${year}-${two(month)}`, label: `${MONTHS[month - 1]} ${year}` };
 }
 
-/** `2026-04` → April 2026, or undefined when it is not a month. */
+/**
+ * A quarter of the GST year, which runs April to March: Q1 of 2026 is Apr–Jun 2026, Q4 is Jan–Mar 2027. Its address is `2026-Q1` (the year the
+ * financial year starts in).
+ */
+export function quarterPeriod(startYear: number, quarter: number): GstPeriod {
+  const first = 4 + 3 * (quarter - 1);
+  const at = (month: number) => (month > 12 ? monthPeriod(startYear + 1, month - 12) : monthPeriod(startYear, month));
+  const a = at(first);
+  const c = at(first + 2);
+  return { from: a.from, to: c.to, ym: `${startYear}-Q${quarter}`, label: `${a.label.slice(0, 3)}–${c.label} (Q${quarter})`, quarter };
+}
+
+/** "q1", "Q 3" → 1, 3; anything else → undefined. */
+export function parseQuarter(text: string): number | undefined {
+  const m = /^q\s*([1-4])$/i.exec(text.trim());
+  return m ? Number(m[1]) : undefined;
+}
+
+/** A quarter INSIDE a financial year (one that starts in April). */
+export function quarterInYear(fy: FinancialYear, quarter: number): GstPeriod | undefined {
+  const p = quarterPeriod(Number(fy.start.slice(0, 4)), quarter);
+  return p.from >= fy.start && p.to <= fy.end ? p : undefined;
+}
+
+/** `2026-04` → April 2026, `2026-Q1` → Apr–Jun 2026, or undefined when it is neither. */
 export function periodOfYm(ym: string | undefined): GstPeriod | undefined {
+  const q = /^(\d{4})-Q([1-4])$/.exec(ym ?? '');
+  if (q) return quarterPeriod(Number(q[1]), Number(q[2]));
   const m = /^(\d{4})-(\d{2})$/.exec(ym ?? '');
   if (!m) return undefined;
   const month = Number(m[2]);

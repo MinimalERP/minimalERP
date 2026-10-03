@@ -575,6 +575,19 @@ describe('GSTR-1', () => {
     expect(ex.invoicesCsv.split('\n')[0]).toBe('Invoice no,Date,Customer,GSTIN,Place of supply,Type,Rate %,Taxable value,CGST,SGST,IGST,Invoice value');
     expect(ex.hsnCsv.split('\n')).toHaveLength(1 + 2);
   });
+
+  it('a quarterly return (QRMP) holds the quarter’s invoices and is filed for its last month', () => {
+    const { e } = books();
+    const quarter = { from: D('2024-04-01'), to: D('2024-06-30') };
+    const ex = gstr1Export({ masters: e.masters, invoices: gstInvoices({ vouchers: e.vouchers, masters: e.masters, side: 'sales', range: quarter }), period: quarter });
+    const j = ex.json as { fp: string; b2b: { inv: { inum: string }[] }[] };
+    expect(j.fp).toBe('062024');
+    // every month's B2B invoices, in the one return
+    const month = (from: string, to: string) => gstr1Export({ masters: e.masters, invoices: gstInvoices({ vouchers: e.vouchers, masters: e.masters, side: 'sales', range: { from: D(from), to: D(to) } }), period: { from: D(from) } }).json as typeof j;
+    const months = [month('2024-04-01', '2024-04-30'), month('2024-05-01', '2024-05-31'), month('2024-06-01', '2024-06-30')];
+    expect(months[1]?.fp).toBe('052024');
+    expect(j.b2b.flatMap((b) => b.inv.map((i) => i.inum)).sort()).toEqual(months.flatMap((m) => m.b2b.flatMap((b) => b.inv.map((i) => i.inum))).sort());
+  });
 });
 
 describe('GSTR-3B', () => {

@@ -20,7 +20,7 @@ import {
   type SystemLedgerKey,
 } from '@minimalerp/domain';
 import { useMemo, useState } from 'preact/hooks';
-import { defaultPeriod, findFinancialYear, gstr1Columns, gstr3bColumns, hsnColumns, parseMonth, periodInYear, periodOfYm, yearOf, type GstPeriod } from '../reports/gstReports';
+import { defaultPeriod, findFinancialYear, gstr1Columns, gstr3bColumns, hsnColumns, parseMonth, parseQuarter, periodInYear, periodOfYm, quarterInYear, yearOf, type GstPeriod } from '../reports/gstReports';
 import { Only } from '../shell/Only';
 import { useCommandHandler, useFrameState, useListNavigation, useServices, useSubscriptions } from '../shell/hooks';
 import type { ReportKind, ScreenRef } from '../shell/router';
@@ -121,7 +121,8 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
   useCommandHandler(SCOPE, 'voucher.changeDate', () => (setAsking(true), true));
 
   // ---- the export: structured data for a later portal integration, only when nothing the return needs is missing ----
-  const stem = `GSTR1_${masters.company.gstin ?? 'GSTIN'}_${period.ym.slice(5, 7)}${period.ym.slice(0, 4)}`;
+  // named for the return period: a month, or a quarter's last month (as the portal files a quarterly return)
+  const stem = `GSTR1_${masters.company.gstin ?? 'GSTIN'}_${period.to.slice(5, 7)}${period.to.slice(0, 4)}`;
   const blocked = (): boolean => {
     if (errors.length === 0) return false;
     setNotice({ tone: 'error', text: `Nothing was exported: ${errors.length} thing${errors.length === 1 ? '' : 's'} to fix first (listed above). Warnings do not block.` });
@@ -309,22 +310,25 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
           title="Period"
           fields={[
             { key: 'fy', label: 'Financial year', value: year?.label ?? masters.financialYears.at(-1)?.label ?? '', hint: `like ${masters.financialYears.at(-1)?.label ?? '26-27'}` },
-            { key: 'month', label: 'Month', value: period.label.slice(0, 3), hint: 'Apr, or 4' },
+            { key: 'month', label: 'Month or quarter', value: period.quarter ? `Q${period.quarter}` : period.label.slice(0, 3), hint: 'Apr, or 4 — or Q1 (Apr–Jun) … Q4 (Jan–Mar) for a quarterly return' },
           ]}
           validate={(v) => {
             const errs: Record<string, string> = {};
             const fy = findFinancialYear(masters, v['fy'] ?? '');
-            const m = parseMonth(v['month'] ?? '');
+            const text = v['month'] ?? '';
+            const q = parseQuarter(text);
+            const m = parseMonth(text);
             if (!fy) errs['fy'] = 'That is not one of this company’s financial years';
-            if (m === undefined) errs['month'] = 'That is not a month';
-            else if (fy && !periodInYear(fy, m)) errs['month'] = `${(v['month'] ?? '').trim()} is not in ${fy.label}`;
+            if (q === undefined && m === undefined) errs['month'] = 'That is not a month or a quarter (Q1 to Q4)';
+            else if (fy && !(q !== undefined ? quarterInYear(fy, q) : periodInYear(fy, m as number))) errs['month'] = `${text.trim()} is not in ${fy.label}`;
             return errs;
           }}
           onDone={(v) => {
             if (v) {
               const fy = findFinancialYear(masters, v['fy'] ?? '');
+              const q = parseQuarter(v['month'] ?? '');
               const m = parseMonth(v['month'] ?? '');
-              const p = fy && m !== undefined ? periodInYear(fy, m) : undefined;
+              const p = !fy ? undefined : q !== undefined ? quarterInYear(fy, q) : m !== undefined ? periodInYear(fy, m) : undefined;
               if (p) {
                 setPeriod(p);
                 setRow(0);
