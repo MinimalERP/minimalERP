@@ -16,7 +16,7 @@ import { trialBalance } from '../reports/trialBalance';
 import { openBills } from '../vouchers/allocations';
 import { deriveGstHeader } from '../vouchers/kinds/gstDoc';
 import { gstinCheckChar } from '../masters/rules';
-import { gstInvoices, gstReconciliation, gstTotals, gstr1Export, gstr1Rows, gstr1Section, gstr1Validation, gstr3b, hsnRows } from '../reports/gst';
+import { gstInvoices, gstReconciliation, gstTotals, gstr1Documents, gstr1Export, gstr1Rows, gstr1Section, gstr1Validation, gstr3b, hsnRows } from '../reports/gst';
 import { defaultVoucherKinds } from '../vouchers/registry';
 import type { Voucher } from '../vouchers/voucher';
 import { OrderBook } from '../orders/orderBook';
@@ -561,7 +561,7 @@ describe('GSTR-1', () => {
   it('exports structured data: b2b by GSTIN, b2cl by place of supply, b2cs summarised, an HSN table — and CSV of the same rows', () => {
     const { e } = books();
     const ex = gstr1Export({ masters: e.masters, invoices: invoicesOf(e, 'sales'), period: MAY });
-    const j = ex.json as { gstin: string; fp: string; b2b: { ctin: string; inv: { inum: string; idt: string; val: number; pos: string; itms: { itm_det: { rt: number; txval: number; camt: number; samt: number; iamt: number } }[] }[] }[]; b2cl: { pos: string; inv: { val: number }[] }[]; b2cs: { sply_ty: string; pos: string; rt: number; txval: number; iamt: number }[]; hsn: { data: { hsn_sc: string; uqc: string }[] } };
+    const j = ex.json as { gstin: string; fp: string; b2b: { ctin: string; inv: { inum: string; idt: string; val: number; pos: string; itms: { itm_det: { rt: number; txval: number; camt: number; samt: number; iamt: number } }[] }[] }[]; b2cl: { pos: string; inv: { val: number }[] }[]; b2cs: { sply_ty: string; pos: string; rt: number; txval: number; iamt: number }[]; version: string; hash: string; hsn: Record<string, { hsn_sc: string; uqc: string; rt: number; desc: string; val?: number }[]> };
     expect(j.gstin).toBe('27AABCD1234E1Z' + gstinCheckChar('27AABCD1234E1Z'));
     expect(j.fp).toBe('052024');
     expect(j.b2b).toHaveLength(1);
@@ -570,10 +570,38 @@ describe('GSTR-1', () => {
     expect(j.b2b[0]?.inv[0]?.itms.map((i) => [i.itm_det.rt, i.itm_det.txval, i.itm_det.camt, i.itm_det.samt])).toEqual([[5, 1000, 25, 25], [18, 1000, 90, 90]]);
     expect(j.b2cl).toEqual([{ pos: '07', inv: [expect.objectContaining({ val: 354000 })] }]);
     expect(j.b2cs).toEqual([expect.objectContaining({ sply_ty: 'INTER', pos: '07', rt: 5, txval: 400, iamt: 20 })]);
-    expect(j.hsn.data.map((h) => [h.hsn_sc, h.uqc])).toEqual([['7318', 'NOS'], ['7318', 'NOS']]);
+    expect(j.version).toBe('GST3.2.4'); // what the offline tool (Release V3.2.4) stamps, so the portal places the file
+    expect(j.hash).toBe('hash');
+    // Table 12 split as the portal takes it: B2B and B2C, each row with its rate, and no "val"
+    expect(Object.keys(j.hsn)).toEqual(['hsn_b2b', 'hsn_b2c']);
+    expect(j.hsn['hsn_b2b']?.map((h) => [h.hsn_sc, h.uqc, h.rt])).toEqual([['7318', 'NOS', 5], ['7318', 'NOS', 18]]);
+    expect(j.hsn['hsn_b2c']?.map((h) => [h.hsn_sc, h.rt])).toEqual([['7318', 5], ['7318', 18]]);
+    expect(j.hsn['hsn_b2b']?.[0]?.val).toBeUndefined();
+    expect(j.hsn['hsn_b2b']?.[0]?.desc).not.toBe('');
     expect(ex.invoicesCsv.split('\n')).toHaveLength(1 + 4);
     expect(ex.invoicesCsv.split('\n')[0]).toBe('Invoice no,Date,Customer,GSTIN,Place of supply,Type,Rate %,Taxable value,CGST,SGST,IGST,Invoice value');
     expect(ex.hsnCsv.split('\n')).toHaveLength(1 + 2);
+  });
+
+  it('writes only what the offline tool writes: the sections that hold something, and the invoice value as the invoice rounded it', () => {
+    const { e } = books();
+    const june = gstr1Export({ masters: e.masters, invoices: invoicesOf(e, 'sales', JUNE), period: JUNE }).json;
+    expect(Object.keys(june)).toEqual(['gstin', 'fp', 'gt', 'cur_gt', 'version', 'hash', 'b2b', 'hsn']); // no empty b2cl / b2cs, no Table 13 without documents
+    const odd = e.must(e.sale(e.acme, [['1', '100.40', '18']], { date: '2024-06-20', dueDate: '2024-07-20' })); // 100.40 + CGST 9.04 + SGST 9.04 = 118.48 → the invoice says 118
+    const [inv] = gstInvoices({ vouchers: e.vouchers, masters: e.masters, side: 'sales', range: { from: D('2024-06-20'), to: D('2024-06-20') } });
+    expect(inv?.voucherId).toBe(odd.id);
+    expect(formatMoney(inv?.billed as never)).toBe('118.00');
+    expect(formatMoney(inv?.value as never)).toBe('118.48');
+  });
+
+  it('Table 13 counts each series’ invoices of the period — a cancelled one in the total and as cancelled', () => {
+    const { e, b2cs } = books();
+    expect(e.cancel(b2cs).ok).toBe(true);
+    const docs = gstr1Documents({ vouchers: e.vouchers, masters: e.masters, range: MAY });
+    const may = e.vouchers.filter((v) => v.date >= MAY.from && v.date <= MAY.to && e.masters.voucherType(v.voucherTypeId)?.baseKind === 'sales').map((v) => v.number).sort();
+    expect(docs).toEqual([{ from: may[0], to: may.at(-1), total: 3, cancelled: 1 }]);
+    const j = gstr1Export({ masters: e.masters, invoices: invoicesOf(e, 'sales'), period: MAY, documents: docs }).json as { doc_issue: unknown };
+    expect(j.doc_issue).toEqual({ doc_det: [{ doc_num: 1, docs: [{ num: 1, from: docs[0]?.from, to: docs[0]?.to, totnum: 3, cancel: 1, net_issue: 2 }] }] });
   });
 
   it('a quarterly return (QRMP) holds the quarter’s invoices and is filed for its last month', () => {
@@ -586,7 +614,7 @@ describe('GSTR-1', () => {
     const month = (from: string, to: string) => gstr1Export({ masters: e.masters, invoices: gstInvoices({ vouchers: e.vouchers, masters: e.masters, side: 'sales', range: { from: D(from), to: D(to) } }), period: { from: D(from) } }).json as typeof j;
     const months = [month('2024-04-01', '2024-04-30'), month('2024-05-01', '2024-05-31'), month('2024-06-01', '2024-06-30')];
     expect(months[1]?.fp).toBe('052024');
-    expect(j.b2b.flatMap((b) => b.inv.map((i) => i.inum)).sort()).toEqual(months.flatMap((m) => m.b2b.flatMap((b) => b.inv.map((i) => i.inum))).sort());
+    expect(j.b2b.flatMap((b) => b.inv.map((i) => i.inum)).sort()).toEqual(months.flatMap((m) => (m.b2b ?? []).flatMap((b) => b.inv.map((i) => i.inum))).sort());
   });
 });
 

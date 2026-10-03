@@ -11,6 +11,7 @@ import {
   gstInvoices,
   gstReconciliation,
   gstTotals,
+  gstr1Documents,
   gstr1Export,
   gstr1Rows,
   gstr1Validation,
@@ -130,14 +131,14 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
   };
   const exportJson = (): boolean => {
     if (blocked()) return true;
-    const ex = gstr1Export({ masters, invoices, period });
+    const ex = gstr1Export({ masters, invoices, period, documents: gstr1Documents({ vouchers: books.vouchers, masters, range }) });
     downloadText(`${stem}.json`, JSON.stringify(ex.json, null, 2), 'application/json');
     setNotice({ tone: 'ok', text: `${stem}.json saved: ${invoices.length} invoice${invoices.length === 1 ? '' : 's'}, ${hsn.length} HSN line${hsn.length === 1 ? '' : 's'}.` });
     return true;
   };
   const exportCsv = (): boolean => {
     if (blocked()) return true;
-    const ex = gstr1Export({ masters, invoices, period });
+    const ex = gstr1Export({ masters, invoices, period, documents: gstr1Documents({ vouchers: books.vouchers, masters, range }) });
     const name = view === 'hsn' ? `${stem}_hsn.csv` : `${stem}_invoices.csv`;
     downloadText(name, view === 'hsn' ? ex.hsnCsv : ex.invoicesCsv, 'text/csv');
     setNotice({ tone: 'ok', text: `${name} saved.` });

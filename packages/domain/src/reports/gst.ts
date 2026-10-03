@@ -10,7 +10,7 @@ import type { JournalLine } from '../posting/plan';
 import { type Qty, parseQty } from '../stock/quantity';
 import { type PartyDetails } from '../vouchers/drafts';
 import { lineValue } from '../vouchers/kinds/documents';
-import { breakdownOf, gstOfContent, lineGstRate } from '../vouchers/kinds/gstDoc';
+import { breakdownOf, grandTotalParts, gstOfContent, lineGstRate } from '../vouchers/kinds/gstDoc';
 import type { Voucher } from '../vouchers/voucher';
 
 /**
@@ -60,6 +60,8 @@ export interface GstInvoice {
   readonly tax: Money;
   /** The invoice total: the items plus the tax. */
   readonly value: Money;
+  /** What the invoice was made out for: the total rounded as the invoice rounds it (Round Off) — the invoice value GSTR-1 reports. */
+  readonly billed: Money;
   readonly lines: readonly GstLineFact[];
   /** Lines (1-based) that name no GST rate at all. */
   readonly unrated: readonly number[];
@@ -141,6 +143,7 @@ export function gstInvoices({ vouchers, masters, side, range }: { vouchers: read
       igst: b.igst,
       tax: b.tax,
       value: money(b.taxable + b.tax),
+      billed: grandTotalParts(c.lines, header).rounded,
       lines: facts.map(({ ...f }) => f),
       unrated: c.lines.flatMap((l, i) => (lineGstRate(l) === undefined ? [i + 1] : [])),
     });
@@ -237,15 +240,17 @@ export interface HsnRow {
   readonly value: Money;
   /** The invoice lines behind the row (voucher and line), for tracing it back. */
   readonly invoices: number;
+  /** What the goods are: the first line's item name (or one-time text) under this HSN. */
+  readonly description: string;
 }
 
 /** The HSN-wise summary: per HSN, unit and rate — read from the invoice lines' own HSN (a snapshot of the item's at the time), so it adds up to the invoices. */
 export function hsnRows(invoices: readonly GstInvoice[]): HsnRow[] {
-  const by = new Map<string, { hsn: string; uqc: string; rate: string; qty: bigint; taxable: bigint; cgst: bigint; sgst: bigint; igst: bigint; vouchers: Set<string> }>();
+  const by = new Map<string, { hsn: string; uqc: string; rate: string; description: string; qty: bigint; taxable: bigint; cgst: bigint; sgst: bigint; igst: bigint; vouchers: Set<string> }>();
   for (const inv of invoices) {
     for (const l of inv.lines) {
       const key = `${l.hsn}|${l.uqc}|${l.rate}`;
-      const row = by.get(key) ?? { hsn: l.hsn, uqc: l.uqc, rate: l.rate, qty: 0n, taxable: 0n, cgst: 0n, sgst: 0n, igst: 0n, vouchers: new Set<string>() };
+      const row = by.get(key) ?? { hsn: l.hsn, uqc: l.uqc, rate: l.rate, description: l.description, qty: 0n, taxable: 0n, cgst: 0n, sgst: 0n, igst: 0n, vouchers: new Set<string>() };
       row.qty += l.qty;
       row.taxable += l.taxable;
       row.cgst += l.cgst;
@@ -269,6 +274,7 @@ export function hsnRows(invoices: readonly GstInvoice[]): HsnRow[] {
       igst: money(r.igst),
       value: money(r.taxable + r.cgst + r.sgst + r.igst),
       invoices: r.vouchers.size,
+      description: r.description,
     }))
     .sort((a, b) => (a.hsn !== b.hsn ? (a.hsn < b.hsn ? -1 : 1) : Number(percentHundredths(a.rate) - percentHundredths(b.rate))));
 }
@@ -349,6 +355,38 @@ const amt = (m: Money): number => Number(formatMoney(m));
 const ddmmyyyy = (d: string): string => `${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}`;
 const tax = (s: { taxable: Money; cgst: Money; sgst: Money; igst: Money }, rate: string) => ({ rt: Number(rate), txval: amt(s.taxable), iamt: amt(s.igst), camt: amt(s.cgst), samt: amt(s.sgst), csamt: 0 });
 
+/**
+ * The release of the GST offline tool whose JSON the export follows (Help › About in the tool: "Release V3.2.4" → GST3.2.4). The portal refuses a
+ * file it cannot place against a current template; when a newer tool changes the format, this is the line to change with it.
+ */
+export const GSTR1_TOOL_VERSION = 'GST3.2.4';
+
+/** One row of Table 13 (documents issued): a numbering series' invoices in the period, cancelled ones included. */
+export interface Gstr1DocumentRow {
+  readonly from: string;
+  readonly to: string;
+  readonly total: number;
+  readonly cancelled: number;
+}
+
+const seqOf = (n: string): number => Number(/(\d+)\s*$/.exec(n)?.[1] ?? 0);
+
+/** Table 13: the Sales invoices dated in the period — posted or cancelled — per numbering series (voucher type and year), lowest to highest number. */
+export function gstr1Documents({ vouchers, masters, range }: { vouchers: readonly Voucher[]; masters: Masters; range: DateRange }): Gstr1DocumentRow[] {
+  const by = new Map<string, Voucher[]>();
+  for (const v of vouchers) {
+    if (!inRange(v.date, range) || masters.voucherType(v.voucherTypeId)?.baseKind !== 'sales') continue;
+    const key = `${v.voucherTypeId}|${v.financialYearId}`;
+    by.set(key, [...(by.get(key) ?? []), v]);
+  }
+  return [...by.values()]
+    .map((vs) => {
+      const sorted = [...vs].sort((a, b) => seqOf(a.number) - seqOf(b.number) || (a.number < b.number ? -1 : a.number > b.number ? 1 : 0));
+      return { from: (sorted[0] as Voucher).number, to: (sorted.at(-1) as Voucher).number, total: vs.length, cancelled: vs.filter((v) => v.status === 'cancelled').length };
+    })
+    .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+}
+
 export interface Gstr1Export {
   /** The structured return, in the shape the GST offline tool reads (b2b / b2cl / b2cs / hsn), ready for a later portal integration. */
   readonly json: Record<string, unknown>;
@@ -360,7 +398,18 @@ export interface Gstr1Export {
  * The GSTR-1 of a month — or of a quarter (QRMP) — as structured data. It says nothing the invoices do not: what is missing stays missing (see
  * `gstr1Validation`). The return period `fp` is the period's LAST month (MMYYYY): a quarterly return is filed for its last month, "062024" for Apr–Jun.
  */
-export function gstr1Export({ masters, invoices, period }: { masters: Masters; invoices: readonly GstInvoice[]; period: { from: LocalDate; to?: LocalDate | undefined } }): Gstr1Export {
+export function gstr1Export({
+  masters,
+  invoices,
+  period,
+  documents = [],
+}: {
+  masters: Masters;
+  invoices: readonly GstInvoice[];
+  period: { from: LocalDate; to?: LocalDate | undefined };
+  /** Table 13 (see `gstr1Documents`): left out of the file when empty. */
+  documents?: readonly Gstr1DocumentRow[];
+}): Gstr1Export {
   const last = period.to ?? period.from;
   const fp = `${last.slice(5, 7)}${last.slice(0, 4)}`;
   const sectionOf = (i: GstInvoice) => gstr1Section(i);
@@ -370,12 +419,12 @@ export function gstr1Export({ masters, invoices, period }: { masters: Masters; i
   for (const inv of invoices.filter((i) => sectionOf(i) === 'B2B')) b2bBy.set(inv.gstin, [...(b2bBy.get(inv.gstin) ?? []), inv]);
   const b2b = [...b2bBy.entries()].map(([ctin, invs]) => ({
     ctin,
-    inv: invs.map((i) => ({ inum: i.number, idt: ddmmyyyy(i.date), val: amt(i.value), pos: i.placeOfSupply, rchrg: 'N', inv_typ: 'R', itms: items(i) })),
+    inv: invs.map((i) => ({ inum: i.number, idt: ddmmyyyy(i.date), val: amt(i.billed), pos: i.placeOfSupply, rchrg: 'N', inv_typ: 'R', itms: items(i) })),
   }));
 
   const b2clBy = new Map<string, GstInvoice[]>();
   for (const inv of invoices.filter((i) => sectionOf(i) === 'B2CL')) b2clBy.set(inv.placeOfSupply, [...(b2clBy.get(inv.placeOfSupply) ?? []), inv]);
-  const b2cl = [...b2clBy.entries()].map(([pos, invs]) => ({ pos, inv: invs.map((i) => ({ inum: i.number, idt: ddmmyyyy(i.date), val: amt(i.value), itms: items(i) })) }));
+  const b2cl = [...b2clBy.entries()].map(([pos, invs]) => ({ pos, inv: invs.map((i) => ({ inum: i.number, idt: ddmmyyyy(i.date), val: amt(i.billed), itms: items(i) })) }));
 
   // B2CS is a summary: by place of supply, rate and whether within the state
   const b2cs = new Map<string, { sply_ty: string; pos: string; rate: string; taxable: bigint; cgst: bigint; sgst: bigint; igst: bigint }>();
@@ -392,7 +441,24 @@ export function gstr1Export({ masters, invoices, period }: { masters: Masters; i
   }
   const b2csRows = [...b2cs.values()].map((r) => ({ sply_ty: r.sply_ty, typ: 'OE', pos: r.pos, ...tax({ taxable: money(r.taxable), cgst: money(r.cgst), sgst: money(r.sgst), igst: money(r.igst) }, r.rate) }));
 
-  const hsn = hsnRows(invoices).map((h, n) => ({ num: n + 1, hsn_sc: h.hsn, uqc: h.uqc, qty: Number(h.qty) / 10_000, val: amt(h.value), txval: amt(h.taxable), iamt: amt(h.igst), camt: amt(h.cgst), samt: amt(h.sgst), csamt: 0 }));
+  // Table 12, split as the portal takes it: what went to registered buyers (B2B), and everything else (B2C)
+  const hsnTable = (of: readonly GstInvoice[]) =>
+    hsnRows(of).map((h, n) => ({
+      num: n + 1,
+      hsn_sc: h.hsn,
+      desc: h.description.slice(0, 30),
+      uqc: h.uqc,
+      qty: Number(h.qty) / 10_000,
+      rt: Number(h.rate),
+      txval: amt(h.taxable),
+      iamt: amt(h.igst),
+      camt: amt(h.cgst),
+      samt: amt(h.sgst),
+      csamt: 0,
+    }));
+  const hsnB2b = hsnTable(invoices.filter((i) => sectionOf(i) === 'B2B'));
+  const hsnB2c = hsnTable(invoices.filter((i) => sectionOf(i) !== 'B2B'));
+  const docs = documents.map((d, n) => ({ num: n + 1, from: d.from, to: d.to, totnum: d.total, cancel: d.cancelled, net_issue: d.total - d.cancelled }));
 
   const invoicesCsv = csvOf([
     ['Invoice no', 'Date', 'Customer', 'GSTIN', 'Place of supply', 'Type', 'Rate %', 'Taxable value', 'CGST', 'SGST', 'IGST', 'Invoice value'],
@@ -403,7 +469,14 @@ export function gstr1Export({ masters, invoices, period }: { masters: Masters; i
     ...hsnRows(invoices).map((h) => [h.hsn, h.uqc, h.rate, Number(h.qty) / 10_000, formatMoney(h.taxable), formatMoney(h.cgst), formatMoney(h.sgst), formatMoney(h.igst), formatMoney(h.value)]),
   ]);
 
-  return { json: { gstin: masters.company.gstin ?? '', fp, b2b, b2cl, b2cs: b2csRows, hsn: { data: hsn } }, invoicesCsv, hsnCsv };
+  // the offline tool's file: only the sections that hold something
+  const json: Record<string, unknown> = { gstin: masters.company.gstin ?? '', fp, gt: 0, cur_gt: 0, version: GSTR1_TOOL_VERSION, hash: 'hash' };
+  if (b2b.length > 0) json['b2b'] = b2b;
+  if (b2cl.length > 0) json['b2cl'] = b2cl;
+  if (b2csRows.length > 0) json['b2cs'] = b2csRows;
+  if (hsnB2b.length > 0 || hsnB2c.length > 0) json['hsn'] = { hsn_b2b: hsnB2b, hsn_b2c: hsnB2c };
+  if (docs.length > 0) json['doc_issue'] = { doc_det: [{ doc_num: 1, docs }] };
+  return { json, invoicesCsv, hsnCsv };
 }
 
 // ---- GSTR-3B -------------------------------------------------------------------------------------------------------------
