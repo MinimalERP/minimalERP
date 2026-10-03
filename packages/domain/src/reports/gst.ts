@@ -67,7 +67,38 @@ export interface GstInvoice {
   readonly unrated: readonly number[];
 }
 
-const UQC: Readonly<Record<string, string>> = { Nos: 'NOS', Kg: 'KGS', Ltr: 'LTR', Mtr: 'MTR', Box: 'BOX' };
+/** The unit codes (UQC) GST accepts; anything outside this list is refused by the portal. */
+const GST_UQCS = new Set(
+  'BAG BAL BDL BKL BOU BOX BTL BUN CAN CBM CCM CMS CTN DOZ DRM GGK GMS GRS GYD KGS KLR KME LTR MLT MTR MTS NOS OTH PAC PCS PRS QTL ROL SET SQF SQM SQY TBS TGM THD TON TUB UGS UNT YDS'.split(' '),
+);
+/** How companies name their units, as the GST code they mean. */
+const UQC_SYNONYMS: Readonly<Record<string, string>> = {
+  KG: 'KGS', KGS: 'KGS', KILOGRAM: 'KGS', KILOGRAMS: 'KGS', KILO: 'KGS',
+  NO: 'NOS', NOS: 'NOS', NUMBER: 'NOS', NUMBERS: 'NOS',
+  PC: 'PCS', PCS: 'PCS', PIECE: 'PCS', PIECES: 'PCS',
+  G: 'GMS', GM: 'GMS', GMS: 'GMS', GRAM: 'GMS', GRAMS: 'GMS',
+  L: 'LTR', LT: 'LTR', LTRS: 'LTR', LITRE: 'LTR', LITRES: 'LTR', LITER: 'LTR', LITERS: 'LTR',
+  ML: 'MLT',
+  M: 'MTR', MTRS: 'MTR', METER: 'MTR', METERS: 'MTR', METRE: 'MTR', METRES: 'MTR',
+  MT: 'MTS', TONNE: 'MTS', TONNES: 'MTS',
+  SQMTR: 'SQM', SQMT: 'SQM', SQFT: 'SQF',
+  DOZEN: 'DOZ', PAIR: 'PRS', PAIRS: 'PRS', BOXES: 'BOX', SETS: 'SET', ROLL: 'ROL', ROLLS: 'ROL', UNIT: 'UNT', UNITS: 'UNT',
+};
+
+/** A SAC — every service code starts 99 (no goods' HSN does). */
+export const isSacCode = (hsn: string | undefined): boolean => /^99\d*$/.test((hsn ?? '').trim());
+
+/**
+ * The GST unit code (UQC) of a line: NA for a service (a SAC carries no quantity in the HSN summary), the unit's own code when it is one GST
+ * accepts, the code a common name means ("Kg" → KGS, "Pcs" → PCS), otherwise OTH.
+ */
+export function uqcOf(unit: string | undefined, hsn: string | undefined): string {
+  if (isSacCode(hsn)) return 'NA';
+  const u = (unit ?? '').toUpperCase().replace(/[\s.]/g, '');
+  if (u === '') return 'OTH';
+  if (GST_UQCS.has(u)) return u;
+  return UQC_SYNONYMS[u] ?? 'OTH';
+}
 
 interface Content {
   partyId?: string;
@@ -104,7 +135,7 @@ export function gstInvoices({ vouchers, masters, side, range }: { vouchers: read
         description: item?.name ?? l.description ?? '',
         hsn: (l.hsn ?? item?.hsn ?? '').trim(),
         // a one-time line without a unit: GST's code for "others"
-        uqc: unit ? (UQC[unit] ?? unit.toUpperCase()) : l.itemId === undefined ? 'OTH' : '',
+        uqc: uqcOf(unit, l.hsn ?? item?.hsn),
         qty: (parseQty(l.qty) ?? 0n) as Qty,
         rate: canonicalPercent(lineGstRate(l)),
         taxable: lineValue(l),
@@ -448,7 +479,7 @@ export function gstr1Export({
       hsn_sc: h.hsn,
       desc: h.description.slice(0, 30),
       uqc: h.uqc,
-      qty: Number(h.qty) / 10_000,
+      qty: h.uqc === 'NA' ? 0 : Number(h.qty) / 10_000, // a service has no quantity
       rt: Number(h.rate),
       txval: amt(h.taxable),
       iamt: amt(h.igst),

@@ -16,7 +16,7 @@ import { trialBalance } from '../reports/trialBalance';
 import { openBills } from '../vouchers/allocations';
 import { deriveGstHeader } from '../vouchers/kinds/gstDoc';
 import { gstinCheckChar } from '../masters/rules';
-import { gstInvoices, gstReconciliation, gstTotals, gstr1Documents, gstr1Export, gstr1Rows, gstr1Section, gstr1Validation, gstr3b, hsnRows } from '../reports/gst';
+import { gstInvoices, gstReconciliation, gstTotals, gstr1Documents, gstr1Export, uqcOf, gstr1Rows, gstr1Section, gstr1Validation, gstr3b, hsnRows } from '../reports/gst';
 import { defaultVoucherKinds } from '../vouchers/registry';
 import type { Voucher } from '../vouchers/voucher';
 import { OrderBook } from '../orders/orderBook';
@@ -602,6 +602,32 @@ describe('GSTR-1', () => {
     expect(docs).toEqual([{ from: may[0], to: may.at(-1), total: 3, cancelled: 1 }]);
     const j = gstr1Export({ masters: e.masters, invoices: invoicesOf(e, 'sales'), period: MAY, documents: docs }).json as { doc_issue: unknown };
     expect(j.doc_issue).toEqual({ doc_det: [{ doc_num: 1, docs: [{ num: 1, from: docs[0]?.from, to: docs[0]?.to, totnum: 3, cancel: 1, net_issue: 2 }] }] });
+  });
+
+  it('gives every HSN row a unit code GST accepts: NA for a service, KGS for "KG", OTH for an unknown unit', () => {
+    expect(uqcOf('Kg', '8487')).toBe('KGS');
+    expect(uqcOf('KG', '8487')).toBe('KGS');
+    expect(uqcOf('kgs.', '8487')).toBe('KGS');
+    expect(uqcOf('Nos', '84879000')).toBe('NOS');
+    expect(uqcOf('Pcs', '8487')).toBe('PCS');
+    expect(uqcOf('SET', '8487')).toBe('SET');
+    expect(uqcOf('Box', '8487')).toBe('BOX');
+    expect(uqcOf('xyz', '8487')).toBe('OTH');
+    expect(uqcOf(undefined, '8487')).toBe('OTH');
+    // services (SAC 99…) carry no unit in GSTR-1, whatever the invoice line said
+    expect(uqcOf('Nos', '998898')).toBe('NA');
+    expect(uqcOf('KG', '998898')).toBe('NA');
+    expect(uqcOf(undefined, '996713')).toBe('NA');
+  });
+
+  it('a service line goes into the HSN summary as NA with no quantity', () => {
+    const { e } = books();
+    // the bolt (counted in Nos) billed under a service code: the line's own SAC decides
+    const draft = e.sale(e.acme, [['1', '1550', '18']], { date: '2024-06-21', dueDate: '2024-07-21' });
+    e.must({ ...draft, lines: draft.lines.map((l) => ({ ...l, hsn: '996713' })) });
+    const range = { from: D('2024-06-21'), to: D('2024-06-21') };
+    const j = gstr1Export({ masters: e.masters, invoices: gstInvoices({ vouchers: e.vouchers, masters: e.masters, side: 'sales', range }), period: range }).json as { hsn: { hsn_b2b: { hsn_sc: string; uqc: string; qty: number; txval: number }[] } };
+    expect(j.hsn.hsn_b2b).toEqual([expect.objectContaining({ hsn_sc: '996713', uqc: 'NA', qty: 0, txval: 1550 })]);
   });
 
   it('a quarterly return (QRMP) holds the quarter’s invoices and is filed for its last month', () => {

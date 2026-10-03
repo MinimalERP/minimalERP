@@ -82,7 +82,7 @@ describe('a one-time (written) line on a Sales Invoice', () => {
     const [inv] = gstInvoices({ vouchers: [v], masters: c.m, side: 'sales', range: {} });
     expect(inv?.lines.map((l) => [l.itemId ?? null, l.description, l.hsn, l.uqc, l.taxable])).toEqual([
       [c.bolt, 'Hex Bolt', '7318', 'NOS', money(50000n)],
-      [null, 'Machining charges – job 44', '998898', 'NOS', money(500000n)],
+      [null, 'Machining charges – job 44', '998898', 'NA', money(500000n)], // a service (SAC 99…) reports no unit to GST
     ]);
     expect(inv?.tax).toBe(money(99000n));
   });
