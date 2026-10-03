@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { type Books, BooksHost, type LocalBackend } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { createLocalFactory, memoryStore } from '../books/local';
-import { availableOf, stockLedgerColumns, stockLedgerOf, stockSummaryColumns, stockSummaryRows, summaryTotals } from './stockReports';
+import { availableOf, soldQty, stockLedgerColumns, stockLedgerOf, stockSummaryColumns, stockSummaryRows, summaryTotals } from './stockReports';
 
 const item = (name: string) => deterministicUuid(`demo|stockItem|${name}`) as StockItemId;
 
@@ -157,5 +157,28 @@ describe('what is on order', () => {
     expect(ledger.onOrder).toBe(10_000_000n);
     expect(ledger.committed).toBe(0n);
     expect(ledger.rows.filter((r) => r.isOrder).map((r) => r.voucherType)).toEqual(['Purchase Order']);
+  });
+});
+
+describe('what was sold', () => {
+  it('is the item’s quantity on posted Sales invoices in the period — not cancelled ones, not challans, not other dates', async () => {
+    const { books, from, to } = await demo();
+    const bolt = item('ABC Hex Bolt M8');
+    // the demo's invoice against ABC's PO sold 2,000
+    expect(stockLedgerOf(books.masters, books.stock, books.vouchers, bolt, from, to).sold).toBe(20_000_000n);
+
+    const sale = books.vouchers.find((v) => books.masters.voucherType(v.voucherTypeId)?.baseKind === 'sales' && JSON.stringify(v.content).includes(bolt));
+    const challanType = books.masters.voucherTypes.find((t) => t.baseKind === 'deliveryChallan');
+    if (!sale || !challanType) throw new Error('the demo has a sale of the bolt and a challan type');
+    const lines = [{ itemId: bolt, qty: '7', rate: '5', challanRef: { challanId: 'c', lineId: 'l' } }];
+    const more = [
+      ...books.vouchers,
+      { ...sale, id: 'billed' as never, content: { ...sale.content, lines } }, // an invoice billing a challan line: a sale
+      { ...sale, id: 'cancelled' as never, status: 'cancelled' as const },
+      { ...sale, id: 'later' as never, date: localDate('2999-01-01') },
+      { ...sale, id: 'challan' as never, voucherTypeId: challanType.id },
+    ];
+    expect(soldQty(books.masters, more, bolt, from, to)).toBe(20_070_000n);
+    expect(soldQty(books.masters, more, item('MS Scrap'), from, to)).toBe(0n);
   });
 });
