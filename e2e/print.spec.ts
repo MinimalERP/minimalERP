@@ -71,7 +71,7 @@ test.describe('Print', () => {
     await app.keyboard.press('Control+p');
     await expect(app.getByTestId('report-dialog')).toContainText('Print');
     const options = app.getByTestId('report-dialog').getByRole('option');
-    await expect(options).toHaveCount(4);
+    await expect(options).toHaveCount(7); // 1–4 copies, then Duplicate / Triplicate / Extra Copy only
     await expect(options.first()).toContainText('1 copy');
 
     // Down twice: 1 copy -> 2 copies -> 3 copies
@@ -109,7 +109,7 @@ test.describe('Print', () => {
     await expect(heading(app)).toContainText('Display');
 
     await app.keyboard.press('Control+p');
-    await app.keyboard.press('ArrowUp'); // wraps to the last option: 4 copies
+    for (let i = 0; i < 3; i++) await app.keyboard.press('ArrowDown'); // 1 → 4 copies
     await app.keyboard.press('Enter');
 
     await expect(printCopies(app)).toHaveCount(4);

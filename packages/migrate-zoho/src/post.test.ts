@@ -150,4 +150,28 @@ describe('a previous year’s Zoho invoices, rehearsed in memory', () => {
     expect(second.posted.filter((p) => !p.skipped)).toEqual([]);
     expect((await gw.stockMovements({ companyId })).length).toBe(stockAfterFirst);
   });
+
+  it('posts an invoice whose Zoho number another invoice has (23--24/38 beside 23-24/38) under "Sales (Zoho number)", as Zoho numbered it', async () => {
+    let masters = seedCompany({ name: 'Works', fyStart: localDate('2025-04-01'), newId, gstin: gstin('27AABCD1234E1Z'), stateCode: '27' });
+    masters = masters.with({ company: { ...masters.company, chargeGst: true } });
+    const companyId = masters.company.id as CompanyId;
+    const gw = new MemoryBackend(masters);
+    const salesGroup = masters.groups.all.find((g) => g.reservedKey === 'sales-accounts');
+    expect((await gw.execute({ companyId, command: { op: 'create', kind: 'ledger', id: newId('ledger:sales'), data: { name: 'Sales', groupId: salesGroup?.id } } })).ok).toBe(true);
+
+    const one = (n: string, id: string): ZohoInvoice => ({ invoiceNumber: n, rows: [line({ invoiceId: id, invoiceNumber: n, subtotal: '200.00', total: '236.00' })] });
+    const invoices = [one('25-26/1', 'a'), one('25--26/2', 'b'), one('25-26/2', 'c'), one('25-26/3', 'd')];
+    const ctx = { companyId, gw, same: new Map<string, string>(), log: () => {} };
+    const plan = planOf(invoices, await gw.load(companyId));
+    expect(plan.problems).toEqual([]);
+    expect(plan.renumbered.map((i) => i.invoiceNumber)).toEqual(['25--26/2']);
+    expect(plan.gaps).toEqual([]);
+    const after = await createMasters(ctx, plan);
+    await postStock(ctx, plan, after);
+    const posted = await postInvoices(ctx, plan, after);
+    expect(posted.map((p) => [p.zoho, p.number])).toEqual([['25-26/1', 'SAL/25-26/0001'], ['25-26/2', 'SAL/25-26/0002'], ['25-26/3', 'SAL/25-26/0003'], ['25--26/2', '25--26/0002']]);
+    const twin = (await gw.list(companyId)).find((v) => v.number === '25--26/0002');
+    expect((await gw.load(companyId)).voucherType(twin!.voucherTypeId)).toMatchObject({ name: 'Sales (Zoho number)', baseKind: 'sales' });
+    expect((await postInvoices(ctx, plan, after)).filter((p) => !p.skipped)).toEqual([]);
+  });
 });

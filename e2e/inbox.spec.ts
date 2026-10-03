@@ -22,8 +22,9 @@ test.describe('the AI Inbox', () => {
     await app.keyboard.press('Enter');
     await expect(heading(app)).toHaveText('AI Inbox');
     expect(new URL(app.url()).hash).toBe('#/inbox');
-    await expect(app.getByTestId('inbox-empty')).toContainText('Send to ERP');
+    await expect(app.getByTestId('inbox-empty')).toContainText('Share a PDF or photo');
     await expect(app.getByTestId('inbox-empty')).toContainText('Alt+U');
+    await expect(app.getByTestId('inbox-empty')).toContainText('Alt+P');
   });
 
   test('Upload: a PDF, then what it is — offline, the books say reading needs the online company', async ({ app }) => {
@@ -39,12 +40,25 @@ test.describe('the AI Inbox', () => {
     await expect(app.getByTestId('inbox-error')).toContainText('needs the online books');
   });
 
+  test("Take photo (Alt+P) opens the camera input (a phone's camera, image only) and the photo goes on like an upload", async ({ app }) => {
+    await goTo(app, 'ai inbox');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText('AI Inbox');
+    await expect(app.getByTestId('inbox-camera')).toHaveAttribute('capture', 'environment');
+    await expect(app.getByTestId('inbox-camera')).toHaveAttribute('accept', 'image/*');
+
+    const chooser = app.waitForEvent('filechooser');
+    await app.keyboard.press('Alt+P');
+    await (await chooser).setFiles({ name: 'bill-photo.jpg', mimeType: 'image/jpeg', buffer: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) });
+    await expect(app.getByText('What is bill-photo.jpg?')).toBeVisible();
+  });
+
   test('Upload refuses what cannot be read before sending anything', async ({ app }) => {
     await goTo(app, 'ai inbox');
     await app.keyboard.press('Enter');
     const chooser = app.waitForEvent('filechooser');
     await app.keyboard.press('Alt+U');
     await (await chooser).setFiles({ name: 'orders.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('PK') });
-    await expect(app.getByTestId('inbox-error')).toContainText('choose a PDF or a photo');
+    await expect(app.getByTestId('inbox-error')).toContainText('its file type could not be identified');
   });
 });

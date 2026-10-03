@@ -223,7 +223,7 @@ test.describe('opening stock, the Stock Summary and the Item ledger', () => {
     await app.keyboard.press('Enter'); // the group is optional → unit
     await app.keyboard.type('nos');
     await app.keyboard.press('Enter');
-    await expect(app.locator('.form-section')).toContainText('Opening stock (optional)');
+    await expect(app.getByRole('heading', { name: 'Opening stock (optional)' })).toBeVisible(); // beside Main drawing and Item details
     await app.locator('[data-field="openQty"]').fill('250');
     await app.locator('[data-field="openRate"]').fill('1.2');
     await app.keyboard.press('Control+a');

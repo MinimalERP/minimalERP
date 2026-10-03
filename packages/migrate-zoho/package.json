@@ -6,7 +6,9 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "stage": "tsx src/run.ts",
-    "post": "tsx src/post.ts"
+    "post": "tsx src/post.ts",
+    "receipts": "tsx src/receipts.ts",
+    "reinstate": "tsx src/reinstate.ts"
   },
   "dependencies": {
     "@minimalerp/adapter-memory": "workspace:*",

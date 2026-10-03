@@ -22,10 +22,12 @@ async function loadDemo(page: Page): Promise<void> {
   await expect(page.getByTestId('company-name')).toHaveText('Demo Manufacturing Pvt Ltd');
 }
 
+/** The register with every line: it opens on open, undelivered lines by due date, and Alt+K clears those filters. */
 async function openRegister(page: Page): Promise<void> {
   await goTo(page, 'sales order register');
   await page.keyboard.press('Enter');
   await expect(heading(page)).toHaveText('Sales Order Register');
+  await page.keyboard.press('Alt+k');
 }
 
 /** Enter, then wait for the cursor to have moved on — so the next thing typed lands in the next cell, never the one just left. */
@@ -450,7 +452,7 @@ test.describe('the Sales Order Register', () => {
   });
 
   test('every column sorts and filters like the other reports: Alt+S on Fill, Alt+L on Status, typing narrows', async ({ app }) => {
-    for (let i = 0; i < 9; i++) await app.keyboard.press('Tab'); // → Fill
+    for (let i = 0; i < 5; i++) await app.keyboard.press('Tab'); // → Fill, beside Item
     await expect(app.getByRole('columnheader', { name: /Fill/ })).toHaveClass(/active/);
     await app.keyboard.press('Alt+s');
     await expect(app.getByRole('columnheader', { name: /Fill/ })).toHaveAttribute('aria-sort', 'ascending');
@@ -458,7 +460,7 @@ test.describe('the Sales Order Register', () => {
     await app.keyboard.press('Alt+s');
     await expect(app.getByRole('columnheader', { name: /Fill/ })).toHaveAttribute('aria-sort', 'descending');
     await expect(gridRows(app).first()).toContainText('/'); // (a line delivered in full first)
-    await app.keyboard.press('Tab'); // → Status
+    for (let i = 0; i < 5; i++) await app.keyboard.press('Tab'); // → Status, past Due, Ordered, Delivered and Pending
     await app.keyboard.press('Alt+l');
     await expect(app.getByTestId('report-dialog')).toContainText('Filter Status');
     await app.keyboard.press('ArrowDown'); // All → Open
@@ -494,6 +496,7 @@ test.describe('the Sales Order Register', () => {
     await app.keyboard.press('Enter');
     await expect(heading(app)).toHaveText('Sales orders: ABC Hex Bolt M8');
     expect(new URL(app.url()).hash).toMatch(/^#\/report\/sales-orders\//);
+    await app.keyboard.press('Alt+k'); // every line, the delivered one too
     await expect(gridRows(app)).toHaveCount(2); // PO-4471 (delivered in full) and KEW-12 (nothing yet)
     await expect(registerRow(app, 'PO-4471', 'ABC Hex Bolt M8')).toContainText('2,000/2,000');
     await expect(registerRow(app, 'KEW-12', 'ABC Hex Bolt M8')).toContainText('0/800');
