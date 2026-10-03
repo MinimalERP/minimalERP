@@ -495,7 +495,10 @@ function ReportBody({
       )}
       {report === 'stock-item' && stockLedger && stockItem && (
         <p class="report-figures" data-testid="stock-opening">
-          Opening <strong>{formatQuantity(stockLedger.opening.qty, masters.unit(stockItem.unitId)?.decimals ?? 0)} {masters.unit(stockItem.unitId)?.symbol}</strong> worth <strong>{formatAmount(stockLedger.opening.value)}</strong>
+          Opening <strong>{formatQuantity(stockLedger.opening.qty, masters.unit(stockItem.unitId)?.decimals ?? 0)} {masters.unit(stockItem.unitId)?.symbol}</strong> worth <strong>{formatAmount(stockLedger.opening.value)}</strong> · Sold{' '}
+          <strong data-testid="stock-sold">
+            {formatQuantity(stockLedger.sold, masters.unit(stockItem.unitId)?.decimals ?? 0)} {masters.unit(stockItem.unitId)?.symbol}
+          </strong>
         </p>
       )}
       {(report === 'vouchers' || report === 'ledger') && notice && (

@@ -194,6 +194,7 @@ test.describe('opening stock, the Stock Summary and the Item ledger', () => {
     await expect(app.getByTestId('stock-opening')).toContainText('Opening'); // (a period that starts before any movement: nothing yet)
     await expect(gridRows(app)).toHaveCount(6); // opening stock, the godown transfer's In and Out, the sales invoice — and the two sales orders that have bolts
     await expect(app.getByTestId('stock-closing')).toContainText('3,000');
+    await expect(app.getByTestId('stock-sold')).toHaveText('2,000 Nos'); // the demo's sales invoice
     await app.keyboard.press('Enter');
     await expect(heading(app)).toHaveText(/^Display Sales SAL\/\d\d-\d\d\/\d{4}$/); // the top row is the newest movement: the demo's invoice
     await app.keyboard.press('Escape');

@@ -10,6 +10,7 @@ import {
   type VoucherTypeId,
   OrderBook,
   formatRate,
+  parseQty,
   rateOf,
 } from '@minimalerp/domain';
 import { formatAmount, formatDate, formatQuantity } from '../vouchers/format';
@@ -168,6 +169,21 @@ export interface StockLedger {
   /** Still to come on open purchase orders. */
   readonly onOrder: Qty;
   readonly available: bigint;
+  /** What was SOLD in the period: the item's quantity on posted Sales invoices dated in it (an invoice billing a challan counts; a challan does not). */
+  readonly sold: Qty;
+}
+
+/** The item's quantity on the posted Sales invoices (of every Sales voucher type) dated from `from` to `to`. */
+export function soldQty(masters: Masters, vouchers: readonly Voucher[], itemId: StockItemId, from: LocalDate, to: LocalDate): Qty {
+  let sold = 0n;
+  for (const v of vouchers) {
+    if (v.status !== 'posted' || v.date < from || v.date > to) continue;
+    if (masters.voucherType(v.voucherTypeId)?.baseKind !== 'sales') continue;
+    for (const l of (v.content as { lines?: readonly { itemId?: string; qty?: string }[] }).lines ?? []) {
+      if (l.itemId === itemId) sold += parseQty(l.qty ?? '') ?? 0n;
+    }
+  }
+  return sold as Qty;
 }
 
 /** The movements of one item in the period, oldest first, each with the item's TRUE running position after it. */
@@ -240,7 +256,7 @@ export function stockLedgerOf(
   const current = book.positionAt(itemId, '9999-12-31' as LocalDate);
   const committed = orders.committedByItem().get(itemId) ?? (0n as Qty);
   const onOrder = orders.onOrderByItem().get(itemId) ?? (0n as Qty);
-  return { opening: ledger.opening, closing: ledger.closing, rows: all, current, committed, onOrder, available: current.qty - committed };
+  return { opening: ledger.opening, closing: ledger.closing, rows: all, current, committed, onOrder, available: current.qty - committed, sold: soldQty(masters, vouchers, itemId, from, to) };
 }
 
 const qty = (r: StockLedgerRow, v: bigint): string => (v === 0n ? '' : formatQuantity(v as never, r.decimals));
