@@ -2,11 +2,16 @@ package com.minimalerp.app;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Insets;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -31,6 +36,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -38,7 +45,7 @@ import java.util.List;
 
 /**
  * MinimalERP on Android: the live site in a WebView, plus what a WebView cannot do alone — receive a shared bill (Chrome's own share
- * target drops the file), print, save a file, open a link outside. The page talks to it through `window.MinimalERPAndroid`
+ * target drops the file), photograph one with the camera for the AI Inbox, print, save a file, open a link outside. The page talks to it through `window.MinimalERPAndroid`
  * (apps/web/src/ui/nativeApp.ts).
  */
 public class MainActivity extends Activity {
@@ -46,9 +53,13 @@ public class MainActivity extends Activity {
     /** The Inbox refuses larger files; they are not read into memory at all. */
     static final int MAX_SHARED_BYTES = 10 * 1024 * 1024;
     static final int PICK_FILE = 1;
+    /** A photo is made no larger than this on its long side: sharp enough to read a bill, a few hundred KB instead of many MB. */
+    static final int PHOTO_LONG_SIDE = 2560;
 
     private WebView web;
     private ValueCallback<Uri[]> pickCallback;
+    /** Where the camera was asked to write the photo, while it is open. */
+    private File pendingPhoto;
     private final List<JSONObject> shared = new ArrayList<>();
 
     @Override
@@ -80,11 +91,23 @@ public class MainActivity extends Activity {
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (pickCallback != null) pickCallback.onReceiveValue(null);
                 pickCallback = callback;
+                Intent files = params.createIntent();
+                Intent camera = acceptsImages(params) ? cameraIntent() : null;
+                // "Take photo" (capture) opens the camera at once; "Upload" offers the camera beside the files
+                Intent chosen = camera != null && params.isCaptureEnabled() ? camera : files;
+                if (camera != null && chosen == files) {
+                    chosen = Intent.createChooser(files, "Upload a bill");
+                    chosen.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[] {camera});
+                }
                 try {
-                    startActivityForResult(params.createIntent(), PICK_FILE);
+                    startActivityForResult(chosen, PICK_FILE);
                 } catch (ActivityNotFoundException e) {
-                    pickCallback = null;
-                    return false;
+                    try {
+                        startActivityForResult(files, PICK_FILE);
+                    } catch (ActivityNotFoundException again) {
+                        pickCallback = null;
+                        return false;
+                    }
                 }
                 return true;
             }
@@ -135,8 +158,78 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode != PICK_FILE || pickCallback == null) return;
-        pickCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
+        Uri[] picked = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+        File photo = pendingPhoto;
+        pendingPhoto = null;
+        // the camera answers with no data of its own: the photo is in the file it was given
+        if ((picked == null || picked.length == 0) && resultCode == RESULT_OK && photo != null && photo.length() > 0) {
+            shrink(photo);
+            picked = new Uri[] {CaptureProvider.uriFor(photo.getName())};
+        } else if (photo != null) {
+            photo.delete();
+        }
+        pickCallback.onReceiveValue(picked);
         pickCallback = null;
+    }
+
+    private static boolean acceptsImages(WebChromeClient.FileChooserParams params) {
+        String[] types = params.getAcceptTypes();
+        if (types == null || types.length == 0) return true;
+        for (String t : types) {
+            if (t == null || t.isEmpty() || t.startsWith("image/") || t.equals("*/*")) return true;
+        }
+        return false;
+    }
+
+    /** The camera, writing to a fresh file in the cache (old photos there cleared first); null when the phone has no camera app. */
+    private Intent cameraIntent() {
+        Intent camera = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        if (camera.resolveActivity(getPackageManager()) == null) return null;
+        File dir = CaptureProvider.dir(this);
+        File[] old = dir.listFiles();
+        if (old != null) for (File f : old) f.delete();
+        pendingPhoto = new File(dir, "photo-" + System.currentTimeMillis() + ".jpg");
+        Uri out = CaptureProvider.uriFor(pendingPhoto.getName());
+        camera.putExtra(MediaStore.EXTRA_OUTPUT, out);
+        camera.setClipData(ClipData.newRawUri("", out)); // carries the write grant to the camera app
+        camera.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        return camera;
+    }
+
+    /**
+     * The photo, upright (cameras often store it sideways with a note to turn it) and no larger than PHOTO_LONG_SIDE, as JPEG: what the
+     * AI Inbox reads, well inside its 10 MB limit. Left as it was if it cannot be read.
+     */
+    private static void shrink(File photo) {
+        try {
+            BitmapFactory.Options size = new BitmapFactory.Options();
+            size.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(photo.getPath(), size);
+            int longSide = Math.max(size.outWidth, size.outHeight);
+            if (longSide <= 0) return;
+            BitmapFactory.Options load = new BitmapFactory.Options();
+            load.inSampleSize = 1;
+            while (longSide / (load.inSampleSize * 2) >= PHOTO_LONG_SIDE) load.inSampleSize *= 2;
+            Bitmap bitmap = BitmapFactory.decodeFile(photo.getPath(), load);
+            if (bitmap == null) return;
+
+            Matrix turn = new Matrix();
+            int orientation = new ExifInterface(photo.getPath()).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+            if (orientation == ExifInterface.ORIENTATION_ROTATE_90) turn.postRotate(90);
+            else if (orientation == ExifInterface.ORIENTATION_ROTATE_180) turn.postRotate(180);
+            else if (orientation == ExifInterface.ORIENTATION_ROTATE_270) turn.postRotate(270);
+            float scale = Math.min(1f, (float) PHOTO_LONG_SIDE / Math.max(bitmap.getWidth(), bitmap.getHeight()));
+            turn.postScale(scale, scale);
+            Bitmap ready = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), turn, true);
+
+            try (FileOutputStream out = new FileOutputStream(photo)) {
+                ready.compress(Bitmap.CompressFormat.JPEG, 85, out);
+            }
+            if (ready != bitmap) ready.recycle();
+            bitmap.recycle();
+        } catch (Exception | OutOfMemoryError e) {
+            // the photo as the camera took it: the Inbox says so if it is too large
+        }
     }
 
     /**

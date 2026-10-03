@@ -72,6 +72,7 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
   const [pickedSharedId, setPickedSharedId] = useState<string | undefined>(undefined);
   const [shared, setShared] = useState<SharedDocument[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
@@ -146,8 +147,15 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
     fileRef.current?.click();
     return true;
   };
+  /** Take photo (Alt+P): the phone's camera straight away — a paper bill photographed where it lies, read like an upload. */
+  const camera = (): boolean => {
+    if (!books) return false;
+    cameraRef.current?.click();
+    return true;
+  };
   function onFile(file: File | undefined, sharedId?: string) {
     if (fileRef.current) fileRef.current.value = ''; // the same file can be chosen again
+    if (cameraRef.current) cameraRef.current.value = '';
     if (!file) return;
     if (!READABLE.test(file.type)) {
       setPickedSharedId(undefined);
@@ -203,7 +211,10 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
     <section class="screen" aria-labelledby="inbox-title" data-testid="inbox">
       {selected && <Only scope={SCOPE} command="inbox.reject" run={reject} />}
       {books && !picked && <Only scope={SCOPE} command="inbox.upload" run={upload} />}
+      {books && !picked && <Only scope={SCOPE} command="inbox.camera" run={camera} />}
       <input ref={fileRef} type="file" accept="application/pdf,image/*" hidden data-testid="inbox-file" onChange={(e) => onFile((e.target as HTMLInputElement).files?.[0])} />
+      {/* capture: a phone opens its camera (the Android app and mobile browsers); a computer offers its files as for Upload */}
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden data-testid="inbox-camera" onChange={(e) => onFile((e.target as HTMLInputElement).files?.[0])} />
       {picked && books && <ChooseOneDialog title={`What is ${picked.name}?`} options={UPLOAD_KINDS} onDone={send} />}
       <h1 id="inbox-title">AI Inbox</h1>
       <p class="lede">
@@ -218,6 +229,12 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
           <>
             {' '}
             · <Kbd chord={chord('inbox.upload') as string} /> upload a PDF or photo
+          </>
+        )}
+        {chord('inbox.camera') && (
+          <>
+            {' '}
+            · <Kbd chord={chord('inbox.camera') as string} /> take a photo
           </>
         )}
       </p>
@@ -250,7 +267,7 @@ export function InboxScreen({ frame }: { frame: Frame<ScreenRef> }) {
         <p class="empty">Loading…</p>
       ) : rows.length === 0 ? (
         <p class="empty" data-testid="inbox-empty">
-          Nothing waiting. Share a PDF or photo from WhatsApp or another app to <strong>MinimalERP</strong>, or upload a document here ({chord('inbox.upload') ?? 'Alt+U'}).
+          Nothing waiting. Share a PDF or photo from WhatsApp or another app to <strong>MinimalERP</strong>, upload a document here ({chord('inbox.upload') ?? 'Alt+U'}), or take a photo of a bill ({chord('inbox.camera') ?? 'Alt+P'}).
         </p>
       ) : (
         <>
