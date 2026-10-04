@@ -122,6 +122,14 @@ const commands: Command<AppContext>[] = [
     description: 'Every sales invoice line: item, quantity, rate and GST — read invoices item by item',
     run: (app) => app.navigate({ type: 'report', report: 'sales-register' }),
   },
+  {
+    id: 'report.partyItems',
+    title: 'Item Movement by Party',
+    category: 'Report',
+    keywords: ['party wise', 'partywise', 'item wise', 'inventory', 'movement', 'customer items', 'supplier items', 'bought', 'sold'],
+    description: 'Every party and item: the quantity and value bought from the party and sold to it',
+    run: (app) => app.navigate({ type: 'report', report: 'party-items' }),
+  },
   // What Go To runs for "Purchase orders" on a stock item: the register for that item alone.
   {
     id: 'report.purchaseOrdersOf',
@@ -240,6 +248,7 @@ const menu: MenuEntry[] = [
   { section: 'reports', commandId: 'report.salesOrders', order: 31, group: 'Inventory & Sales' },
   { section: 'reports', commandId: 'report.salesRegister', order: 32, group: 'Inventory & Sales' },
   { section: 'reports', commandId: 'report.purchaseOrders', order: 33, group: 'Inventory & Sales' },
+  { section: 'reports', commandId: 'report.partyItems', order: 34, group: 'Inventory & Sales' },
   { section: 'reports', commandId: 'report.gstr1', order: 40, group: 'GST' },
   { section: 'reports', commandId: 'report.gstr3b', order: 41, group: 'GST' },
 ];

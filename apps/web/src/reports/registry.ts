@@ -42,6 +42,8 @@ export function reportTitle(report: ReportKind, kind: string | undefined): strin
       return 'Purchase Order Register';
     case 'sales-register':
       return 'Sales Invoice Register';
+    case 'party-items':
+      return 'Item Movement by Party';
     case 'trial-balance':
       return 'Trial Balance';
     case 'profit-loss':

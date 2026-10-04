@@ -31,6 +31,7 @@ import { GstScreen } from './GstScreen';
 import { type VoucherListRow, listTotals, voucherRowClass } from '../reports/voucherLists';
 import { type OrderRow, orderRowClass, registerCounts } from '../reports/salesReports';
 import { type SalesRegisterRow } from '../reports/salesRegister';
+import { type PartyItemRow, partyItemTotals } from '../reports/partyItemReport';
 import { type StockLedgerRow, type StockSummaryRow, summaryTotals } from '../reports/stockReports';
 import { type TbRow } from '../reports/booksReports';
 import { billCells, billColumnsFor, billSideOf, ledgerBills, partyBlock } from '../reports/ledgerReport';
@@ -246,9 +247,9 @@ function ReportBody({
   const newVoucher = (): boolean => {
     if (!listKind) return false;
     setNotice(undefined);
-    void app.navigateForResult<{ id: string; number: string; typeName: string }>({ type: 'voucher', mode: 'create', typeKey: listKind }).then((made) => {
+    void app.navigateForResult<{ id: string; number: string; typeName: string; also?: string }>({ type: 'voucher', mode: 'create', typeKey: listKind }).then((made) => {
       if (!made) return;
-      frame.state.set('notice', `${made.typeName} ${made.number} saved.`);
+      frame.state.set('notice', made.also ? `${made.typeName} ${made.number} saved ${made.also}` : `${made.typeName} ${made.number} saved.`);
       frame.state.set('select', made.id);
     });
     return true;
@@ -683,6 +684,15 @@ function ReportBody({
             <strong data-testid="sales-register-value">{formatAmount((rows as readonly SalesRegisterRow[]).reduce((s, r) => s + r.value, 0n))}</strong>
           </span>
         )}
+        {report === 'party-items' &&
+          (() => {
+            const t = partyItemTotals(rows as readonly PartyItemRow[]);
+            return (
+              <span data-testid="party-items-total">
+                {hasActiveFilters(query) ? 'Filtered total' : 'Total'} — in <strong data-testid="party-items-in">{formatAmount(t.inward as never)}</strong> · out <strong data-testid="party-items-out">{formatAmount(t.outward as never)}</strong>
+              </span>
+            );
+          })()}
         {(report === 'sales-orders' || report === 'purchase-orders') && (
           <span data-testid="order-counts">
             {(() => {

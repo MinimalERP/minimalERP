@@ -26,6 +26,7 @@ import { type OutstandingBillRow, type PartyRow, billColumns, billRows, partyCol
 import { type VoucherListRow, listTitle, voucherListColumns, voucherListRows } from './voucherLists';
 import { type OrderRow, orderRegisterColumns, newestOrdersFirst, orderRegisterRows } from './salesReports';
 import { type SalesRegisterRow, newestInvoicesFirst, salesRegisterColumns, salesRegisterRows } from './salesRegister';
+import { type PartyItemRow, partyItemColumns, partyItemRows } from './partyItemReport';
 import { type StockLedgerRow, type StockSummaryRow, stockLedgerColumns, stockLedgerOf, stockSummaryColumns, stockSummaryRows } from './stockReports';
 import type { GstReportKind, StatementReportKind } from './registry';
 import { todayText } from '../vouchers/format';
@@ -39,6 +40,7 @@ export type AnyGridRow =
   | StockLedgerRow
   | OrderRow
   | SalesRegisterRow
+  | PartyItemRow
   | VoucherListRow
   | TbRow
   | PartyRow
@@ -150,6 +152,12 @@ export function gridReportSlice(ctx: GridReportContext): GridReportSlice {
         baseRows: salesRegisterRows(books.vouchers, masters, range.from, range.to),
         rowOrder: 'newest-invoices',
       };
+    case 'party-items':
+      return {
+        columns: partyItemColumns(),
+        baseRows: partyItemRows(books.vouchers, masters, range.from, range.to),
+        rowOrder: 'natural',
+      };
     case 'vouchers':
       return {
         columns: voucherListColumns(listKind ?? 'journal'),
@@ -230,6 +238,8 @@ export function gridReportHeading(ctx: GridReportContext): string {
       return report === 'purchase-orders' ? 'Purchase Order Register' : 'Sales Order Register';
     case 'sales-register':
       return 'Sales Invoice Register';
+    case 'party-items':
+      return 'Item Movement by Party';
     case 'ledger':
       return ledger ? `Ledger: ${ledger.name}` : 'Ledger';
   }

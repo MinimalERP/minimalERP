@@ -58,7 +58,7 @@ export type ScreenRef =
 
 export type MasterMode = 'create' | 'display' | 'alter';
 export type VoucherMode = 'create' | 'display' | 'alter';
-export type ReportKind = 'daybook' | 'ledger' | 'stock-summary' | 'stock-item' | 'sales-orders' | 'purchase-orders' | 'sales-register' | 'vouchers' | 'trial-balance' | 'book' | 'profit-loss' | 'balance-sheet' | 'outstanding' | 'gstr1' | 'gstr3b' | 'gst-purchases';
+export type ReportKind = 'daybook' | 'ledger' | 'stock-summary' | 'stock-item' | 'sales-orders' | 'purchase-orders' | 'sales-register' | 'party-items' | 'vouchers' | 'trial-balance' | 'book' | 'profit-loss' | 'balance-sheet' | 'outstanding' | 'gstr1' | 'gstr3b' | 'gst-purchases';
 const MODES: readonly string[] = ['create', 'display', 'alter'];
 
 export const GATEWAY: ScreenRef = { type: 'menu', id: 'gateway' };
@@ -160,11 +160,12 @@ export function hashToRef(hash: string): ScreenRef | undefined {
       return undefined;
     }
   }
-  const report = /^\/report\/(daybook|ledger|stock-summary|stock-item|sales-orders|purchase-orders|sales-register|vouchers|trial-balance|book|profit-loss|balance-sheet|outstanding|gstr1|gstr3b|gst-purchases)(?:\/(.+))?$/.exec(path);
+  const report = /^\/report\/(daybook|ledger|stock-summary|stock-item|sales-orders|purchase-orders|sales-register|party-items|vouchers|trial-balance|book|profit-loss|balance-sheet|outstanding|gstr1|gstr3b|gst-purchases)(?:\/(.+))?$/.exec(path);
   if (report) {
     if (report[1] === 'daybook') return { type: 'report', report: 'daybook' };
     if (report[1] === 'stock-summary') return { type: 'report', report: 'stock-summary' };
     if (report[1] === 'sales-register') return { type: 'report', report: 'sales-register' };
+    if (report[1] === 'party-items') return { type: 'report', report: 'party-items' };
     try {
       if (report[1] === 'profit-loss') return { type: 'report', report: 'profit-loss' };
       if (report[1] === 'balance-sheet') return { type: 'report', report: 'balance-sheet' };

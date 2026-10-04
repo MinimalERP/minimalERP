@@ -157,6 +157,17 @@ test.describe('opening stock, the Stock Summary and the Item ledger', () => {
     await loadDemo(app);
   });
 
+  test('Item Movement by Party: a row per party and item, with what was sold to it and the total', async ({ app }) => {
+    await goTo(app, 'item movement by party');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText('Item Movement by Party');
+    await expect(gridRows(app)).toHaveCount(3);
+    await expect(gridRows(app).first()).toContainText('ABC Industries');
+    await expect(gridRows(app).first()).toContainText('ABC Hex Bolt M8');
+    await expect(gridRows(app).first()).toContainText('13,000.00'); // 2,000 × 6.5
+    await expect(app.getByTestId('party-items-out')).toHaveText('30,000.00');
+  });
+
   test('the summary lists the items with stock, and what it adds up to', async ({ app }) => {
     await openSummary(app);
     await expect(gridRows(app)).toHaveCount(6);
