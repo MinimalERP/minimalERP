@@ -26,11 +26,14 @@ test.describe('tasks on the Gateway', () => {
     await app.getByTestId('task-new').click();
     const dialog = app.getByTestId('task-dialog');
     await dialog.getByLabel('Title').fill('Call Kumar about the plating rate');
-    await dialog.getByLabel('Due').fill('3-10');
+    // due today, typed as day-month: a day already past would be read as next year's
+    const now = new Date();
+    const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][now.getMonth()];
+    await dialog.getByLabel('Due').fill(`${now.getDate()}-${now.getMonth() + 1}`);
     await dialog.getByTestId('task-save').click();
     await expect(dialog).toHaveCount(0);
     const task = app.getByTestId('task-list').getByRole('listitem').filter({ hasText: 'Call Kumar' });
-    await expect(task).toContainText('3-Oct-2026');
+    await expect(task).toContainText(`${now.getDate()}-${month}-${now.getFullYear()}`);
     await task.getByRole('checkbox').check();
     await expect(task).toHaveClass(/done/);
 
