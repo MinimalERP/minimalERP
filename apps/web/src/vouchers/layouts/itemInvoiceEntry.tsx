@@ -213,8 +213,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const [mailOpen, setMailOpen] = useState(false);
   /** When it was last emailed and to whom (null: never; undefined: not known here, or not a kind that is emailed). */
   const [lastMail, setLastMail] = useState<{ readonly at: string; readonly to: readonly string[] } | null | undefined>(undefined);
-  /** A purchase: the GSTR-2B period it was tagged "GST matched" in (undefined: not tagged, or tags are not kept here). */
-  const [gstTag, setGstTag] = useState<string | undefined>(undefined);
+  /** A purchase: what the last GSTR-2B it was checked against said of it (undefined: not tagged, or tags are not kept here). */
+  const [gstTag, setGstTag] = useState<{ readonly period: string; readonly status: 'matched' | 'missing' } | undefined>(undefined);
   const [reminding, setReminding] = useState(false);
   /** The dispatch docket's details window (Alt+D on a saved sales invoice). */
   const [docketOpen, setDocketOpen] = useState(false);
@@ -1311,8 +1311,12 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             </span>
           )}
           {gstTag !== undefined && !cancelled && (
-            <span class="badge" data-testid="gst-matched" title="Found in the GSTR-2B of this period (tagged from GST Purchases)">
-              GST matched · 2B {gstr2bPeriodLabel(gstTag)}
+            <span
+              class={gstTag.status === 'missing' ? 'badge open' : 'badge'}
+              data-testid="gst-matched"
+              title={gstTag.status === 'missing' ? 'Not in the GSTR-2B of this period: the supplier has not filed it, so its input credit is at risk' : 'Found in the GSTR-2B of this period'}
+            >
+              {gstTag.status === 'missing' ? 'ITC missing' : 'GST matched'} · 2B {gstr2bPeriodLabel(gstTag.period)}
             </span>
           )}
           {convertedTo && !cancelled && (

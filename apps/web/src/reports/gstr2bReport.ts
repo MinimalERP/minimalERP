@@ -14,7 +14,11 @@ const STATUSES: readonly Gstr2bStatus[] = ['mismatch', 'not-in-books', 'not-on-p
 const money0 = (m: bigint | undefined): string => (m === undefined ? '' : formatAmount(m as never));
 const taxOf = (f: Gstr2bRow['book']): bigint | undefined => (f ? f.cgst + f.sgst + f.igst : undefined);
 
-export function gstr2bColumns(): ColumnSpec<Gstr2bGridRow>[] {
+/** A GST tag as a column says it: "Jun 2026" for a purchase the GSTR-2B had, "Missing (Jun 2026)" for one it did not. */
+export const gstTagText = (tag: { readonly period: string; readonly status: 'matched' | 'missing' } | undefined): string =>
+  tag === undefined ? '' : tag.status === 'missing' ? `Missing (${gstr2bPeriodLabel(tag.period)})` : gstr2bPeriodLabel(tag.period);
+
+export function gstr2bColumns(tagOf: (voucherId: string | undefined) => string = () => ''): ColumnSpec<Gstr2bGridRow>[] {
   return [
     { id: 'status', label: 'Status', type: 'choice', value: (r) => GSTR2B_STATUS_LABELS[r.status], choices: STATUSES.map((s) => ({ value: GSTR2B_STATUS_LABELS[s], label: GSTR2B_STATUS_LABELS[s] })) },
     { id: 'supplier', label: 'Supplier', type: 'text', value: (r) => r.supplier },
@@ -27,7 +31,7 @@ export function gstr2bColumns(): ColumnSpec<Gstr2bGridRow>[] {
     { id: 'bookTaxable', label: 'Taxable (books)', type: 'money', align: 'right', value: (r) => r.book?.taxable ?? (0n as never), text: (r) => money0(r.book?.taxable) },
     { id: 'fileTax', label: 'GST (GST site)', type: 'money', align: 'right', value: (r) => (taxOf(r.file) ?? 0n) as never, text: (r) => money0(taxOf(r.file)) },
     { id: 'bookTax', label: 'GST (books)', type: 'money', align: 'right', value: (r) => (taxOf(r.book) ?? 0n) as never, text: (r) => money0(taxOf(r.book)) },
-    { id: 'tagged', label: 'Tagged', type: 'text', value: (r) => (r.tagged ? `2B ${gstr2bPeriodLabel(r.tagged)}` : '') },
+    { id: 'tagged', label: 'Tagged', type: 'text', value: (r) => tagOf(r.voucherId) },
     { id: 'note', label: 'Note', type: 'text', value: (r) => r.note },
   ];
 }

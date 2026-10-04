@@ -24,7 +24,7 @@ import {
   type WebsiteEnquiryCommand,
   type WebsiteEnquiryList,
 } from '@minimalerp/domain';
-import type { LastMail, AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, PrintLayoutStore, PrintLayouts, SentDocument, MailSender, VoucherMailOrder, LedgerMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, AssistantGateway, AssistantReply, AssistantScreen, AssistantTurn, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
+import type { GstTag, GstTagStatus, LastMail, AlterRequest, CancelRequest, ChangeFeed, CompanyExchange, PrintLayoutStore, PrintLayouts, SentDocument, MailSender, VoucherMailOrder, LedgerMailOrder, PostOutcome, PostRequest, VoucherChange, DocumentSender, InboxGateway, InboxItem, AssistantGateway, AssistantReply, AssistantScreen, AssistantTurn, IntakeDocument, JournalQuery, MastersRepository, StockQuery, StockRepository, VoucherRepository, JournalRepository } from '@minimalerp/ports';
 import { SupabasePostingGateway } from './gateway';
 
 /** What arrives with a change's own answer: the parts of the books the browser is about to reload. */
@@ -309,15 +309,18 @@ export class SupabaseBooksBackend
     return r.ok ? ok((r.value as { last: LastMail | null }).last) : r;
   }
 
-  /** The purchase vouchers tagged "GST matched", each with the GSTR-2B period of its tag. */
-  async gstMatches(companyId: CompanyId): Promise<Result<Readonly<Record<string, string>>>> {
+  /** The purchase vouchers' GST tags: the GSTR-2B period each was last checked against, and whether it was in it. */
+  async gstMatches(companyId: CompanyId): Promise<Result<Readonly<Record<string, GstTag>>>> {
     const r = await this.call({ action: 'gst-matches', companyId });
-    return r.ok ? ok((r.value as { matches: Record<string, string> }).matches) : r;
+    if (!r.ok) return r;
+    // a function not yet redeployed answers the period alone
+    const raw = (r.value as { matches: Record<string, GstTag | string> }).matches;
+    return ok(Object.fromEntries(Object.entries(raw).map(([id, t]) => [id, typeof t === 'string' ? { period: t, status: 'matched' as const } : t])));
   }
 
-  /** Tags posted purchase vouchers as found in a GSTR-2B period (the server leaves out anything that is not one). */
-  async tagGstMatched(companyId: CompanyId, voucherIds: readonly string[], period: string): Promise<Result<{ readonly tagged: number }>> {
-    const r = await this.call({ action: 'gst-match', companyId, period, voucherIds });
+  /** Tags posted purchase vouchers as found in a GSTR-2B period, or as missing from it (the server leaves out anything that is not one). */
+  async tagGstMatched(companyId: CompanyId, voucherIds: readonly string[], period: string, status: GstTagStatus): Promise<Result<{ readonly tagged: number }>> {
+    const r = await this.call({ action: 'gst-match', companyId, period, voucherIds, status });
     return r.ok ? ok(r.value as { tagged: number }) : r;
   }
 

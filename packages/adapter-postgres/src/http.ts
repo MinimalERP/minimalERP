@@ -65,8 +65,8 @@ import { z } from 'zod';
  *         { action: 'tasks', companyId }                 the Gateway's tasks and enquiries, and the people they can be for: { tasks, people }
  *         { action: 'task', companyId, change }          one change to them (create / update / note): the list after it
  *         { action: 'voucher-mail-last', companyId, voucherId }   when the voucher was last emailed, and to whom: { last: { at, to } | null }
- *         { action: 'gst-matches', companyId }            the purchase vouchers tagged "GST matched": { matches: { voucherId: period } }
- *         { action: 'gst-match', companyId, period, voucherIds }   tag posted purchase vouchers as found in that GSTR-2B period: { tagged }
+ *         { action: 'gst-matches', companyId }            the purchase vouchers' GST tags: { matches: { voucherId: { period, status } } }
+ *         { action: 'gst-match', companyId, period, voucherIds, status? }   tag posted purchase vouchers as found in that GSTR-2B period ('matched') or not in it ('missing'): { tagged }
  *         { action: 'website-enquiries', companyId }     the company website's quote enquiries: { site, enquiries }
  *         { action: 'website-enquiry', companyId, change }   a status, 'convert' into a Gateway enquiry, or 'delete' (with its drawing)
  *         { action: 'website-drawing', companyId, id }   a download link (an hour) for the drawing sent with one: { url }
@@ -160,7 +160,7 @@ const body = z.discriminatedUnion('action', [
   z.object({ action: z.literal('task'), companyId, change: taskCommandSchema }),
   z.object({ action: z.literal('voucher-mail-last'), companyId, voucherId: z.string().min(1) }),
   z.object({ action: z.literal('gst-matches'), companyId }),
-  z.object({ action: z.literal('gst-match'), companyId, period: z.string().regex(/^\d{6}$/), voucherIds: z.array(z.string().min(1)).min(1).max(2000) }),
+  z.object({ action: z.literal('gst-match'), companyId, period: z.string().regex(/^\d{6}$/), voucherIds: z.array(z.string().min(1)).min(1).max(2000), status: z.enum(['matched', 'missing']).default('matched') }),
   z.object({ action: z.literal('website-enquiries'), companyId }),
   z.object({ action: z.literal('website-enquiry'), companyId, change: websiteEnquiryCommandSchema }),
   z.object({ action: z.literal('website-drawing'), companyId, id: z.string().min(1) }),
@@ -207,8 +207,8 @@ export interface BooksServer extends PostingGateway, MasterGateway, MastersRepos
   /** When a voucher was last emailed, and to whom (its audit line); null when never. */
   lastMail(companyId: string, voucherId: string): Promise<{ readonly at: string; readonly to: readonly string[] } | null>;
   /** The audit lines that tag purchase vouchers "GST matched" in a GSTR-2B period, and the tags a company has. */
-  recordGstMatch(companyId: string, voucherIds: readonly string[], period: string): Promise<number>;
-  gstMatches(companyId: string): Promise<Record<string, string>>;
+  recordGstMatch(companyId: string, voucherIds: readonly string[], period: string, status?: 'matched' | 'missing'): Promise<number>;
+  gstMatches(companyId: string): Promise<Record<string, { period: string; status: 'matched' | 'missing' }>>;
 }
 
 /** A company's own print layouts (HTML by document, see domain print/template.ts) and pictures (logo, signature as data URLs). */
@@ -564,7 +564,7 @@ export function createPostingHandler(deps: PostingHandlerDeps): (request: Reques
         case 'gst-match': {
           const denied = await refuse(gateway, cmd.companyId, 'voucher.purchase.post');
           if (denied) return json(200, denied);
-          return json(200, { ok: true, value: { tagged: await gateway.recordGstMatch(cmd.companyId, cmd.voucherIds, cmd.period) } });
+          return json(200, { ok: true, value: { tagged: await gateway.recordGstMatch(cmd.companyId, cmd.voucherIds, cmd.period, cmd.status) } });
         }
         case 'website-enquiries':
           return asResponse(await gateway.websiteEnquiries(cmd.companyId), (list) => list);

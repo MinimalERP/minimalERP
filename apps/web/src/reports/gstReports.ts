@@ -61,6 +61,19 @@ export function periodOfYm(ym: string | undefined): GstPeriod | undefined {
   return month >= 1 && month <= 12 ? monthPeriod(Number(m[1]), month) : undefined;
 }
 
+/**
+ * The period a GSTR-2B statement covers, from the period the portal writes in it (`MMYYYY`): that month — or, for a quarterly statement
+ * (which names its quarter's last month), the quarter of the GST year the month is in. Undefined when the text is not a period.
+ */
+export function gstr2bFilePeriod(period: string, quarterly: boolean): GstPeriod | undefined {
+  const m = /^(\d{2})(\d{4})$/.exec(period);
+  const month = m ? Number(m[1]) : 0;
+  if (!m || month < 1 || month > 12) return undefined;
+  const year = Number(m[2]);
+  if (!quarterly) return monthPeriod(year, month);
+  return month >= 4 ? quarterPeriod(year, Math.ceil((month - 3) / 3)) : quarterPeriod(year - 1, 4);
+}
+
 /** The month a return is for when none is asked for: this month if it is inside a financial year of the company, otherwise the last month of the latest year. */
 export function defaultPeriod(masters: Masters, today: string): GstPeriod {
   const y = Number(today.slice(0, 4));

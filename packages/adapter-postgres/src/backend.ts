@@ -415,7 +415,7 @@ export class PostgresBackend
    * Tags the company's POSTED PURCHASE vouchers among `voucherIds` as found in a GSTR-2B period: an audit line each (the way a voucher's
    * mail is kept). Anything else in the list — another company's, another kind, cancelled — is left out. Says how many were tagged.
    */
-  async recordGstMatch(companyId: string, voucherIds: readonly string[], period: string): Promise<number> {
+  async recordGstMatch(companyId: string, voucherIds: readonly string[], period: string, status: 'matched' | 'missing' = 'matched'): Promise<number> {
     const ids = voucherIds.filter(isUuid);
     if (!isUuid(companyId) || ids.length === 0) return 0;
     const r = await this.db.query(
@@ -424,21 +424,21 @@ export class PostgresBackend
          from public.vouchers v join public.voucher_types t on t.id = v.voucher_type_id
         where v.company_id = $1::uuid and v.id = any($3::uuid[]) and v.status = 'posted' and t.base_kind = 'purchase'
        returning entity_id`,
-      [companyId, this.options.actorId, ids, JSON.stringify({ period }), this.options.requestId ?? null],
+      [companyId, this.options.actorId, ids, JSON.stringify({ period, status }), this.options.requestId ?? null],
     );
     return r.rows.length;
   }
 
-  /** The company's vouchers tagged "GST matched", each with the period of its latest tag. */
-  async gstMatches(companyId: string): Promise<Record<string, string>> {
+  /** The company's vouchers with a GST tag, each with its latest: the period, and whether the GSTR-2B had it (a line without a status is `matched`). */
+  async gstMatches(companyId: string): Promise<Record<string, { period: string; status: 'matched' | 'missing' }>> {
     if (!isUuid(companyId)) return {};
     const r = await this.db.query(
-      `select distinct on (a.entity_id) a.entity_id::text as voucher_id, a.after ->> 'period' as period from public.audit_log a
+      `select distinct on (a.entity_id) a.entity_id::text as voucher_id, a.after ->> 'period' as period, a.after ->> 'status' as status from public.audit_log a
         where a.company_id = $1::uuid and a.entity_type = 'voucher' and a.action = 'voucher.gstMatched'
         order by a.entity_id, a.id desc`,
       [companyId],
     );
-    return Object.fromEntries(r.rows.map((row) => [String(row['voucher_id']), String(row['period'] ?? '')]));
+    return Object.fromEntries(r.rows.map((row) => [String(row['voucher_id']), { period: String(row['period'] ?? ''), status: row['status'] === 'missing' ? ('missing' as const) : ('matched' as const) }]));
   }
 
   async can(companyId: string, permission: string): Promise<boolean> {

@@ -28,7 +28,7 @@ const ask = async (userId: string, body: Record<string, unknown>) => {
       body: JSON.stringify({ companyId: w.companyId, ...body }),
     }),
   );
-  return (await res.json()) as { ok: boolean; value?: { tagged?: number; matches?: Record<string, string> }; issues?: { code: string }[] };
+  return (await res.json()) as { ok: boolean; value?: { tagged?: number; matches?: Record<string, { period: string; status: string }> }; issues?: { code: string }[] };
 };
 
 beforeAll(async () => {
@@ -61,14 +61,24 @@ describe('tagging purchases “GST matched”', () => {
     // the order is not a purchase invoice; the random id is no voucher of this company
     const r = await ask(w.ownerId, { action: 'gst-match', period: '052024', voucherIds: [purchaseId, orderId, randomUUID()] });
     expect(r).toEqual({ ok: true, value: { tagged: 1 } });
-    expect((await ask(w.ownerId, { action: 'gst-matches' })).value).toEqual({ matches: { [purchaseId]: '052024' } });
+    expect((await ask(w.ownerId, { action: 'gst-matches' })).value).toEqual({ matches: { [purchaseId]: { period: '052024', status: 'matched' } } });
     const audit = await db.pool.query(`select after from public.audit_log where entity_id = $1 and action = 'voucher.gstMatched'`, [purchaseId]);
-    expect(audit.rows.map((x) => x['after'])).toEqual([{ period: '052024' }]);
+    expect(audit.rows.map((x) => x['after'])).toEqual([{ period: '052024', status: 'matched' }]);
   });
 
-  it('a later tag is the one shown', async () => {
-    expect((await ask(w.ownerId, { action: 'gst-match', period: '062024', voucherIds: [purchaseId] })).value).toEqual({ tagged: 1 });
-    expect((await ask(w.ownerId, { action: 'gst-matches' })).value).toEqual({ matches: { [purchaseId]: '062024' } });
+  it('a purchase a statement does not have is marked missing; the latest tag is the one shown, so a later statement that has it makes it matched', async () => {
+    expect((await ask(w.ownerId, { action: 'gst-match', period: '062024', status: 'missing', voucherIds: [purchaseId] })).value).toEqual({ tagged: 1 });
+    expect((await ask(w.ownerId, { action: 'gst-matches' })).value).toEqual({ matches: { [purchaseId]: { period: '062024', status: 'missing' } } });
+    expect((await ask(w.ownerId, { action: 'gst-match', period: '072024', voucherIds: [purchaseId] })).value).toEqual({ tagged: 1 });
+    expect((await ask(w.ownerId, { action: 'gst-matches' })).value).toEqual({ matches: { [purchaseId]: { period: '072024', status: 'matched' } } });
+  });
+
+  it('a tag written before there was a status reads as matched', async () => {
+    await db.pool.query(
+      `insert into public.audit_log (company_id, actor, action, entity_type, entity_id, after) values ($1, $2, 'voucher.gstMatched', 'voucher', $3, '{"period":"082024"}'::jsonb)`,
+      [w.companyId, w.ownerId, purchaseId],
+    );
+    expect((await ask(w.ownerId, { action: 'gst-matches' })).value).toEqual({ matches: { [purchaseId]: { period: '082024', status: 'matched' } } });
   });
 
   it('someone outside the company can neither tag nor read; a period that is not MMYYYY is refused', async () => {

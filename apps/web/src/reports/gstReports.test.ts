@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { BooksHost, type LocalBackend } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { createLocalFactory, memoryStore } from '../books/local';
-import { defaultPeriod, findFinancialYear, gstr1Columns, gstr3bColumns, hsnColumns, monthPeriod, parseMonth, parseQuarter, periodInYear, periodOfYm, quarterInYear, quarterPeriod, yearOf } from './gstReports';
+import { defaultPeriod, findFinancialYear, gstr2bFilePeriod, gstr1Columns, gstr3bColumns, hsnColumns, monthPeriod, parseMonth, parseQuarter, periodInYear, periodOfYm, quarterInYear, quarterPeriod, yearOf } from './gstReports';
 
 async function demoMasters() {
   const host = new BooksHost(createLocalFactory({ makeBackend: (masters) => new MemoryBackend(masters) as unknown as LocalBackend, store: memoryStore(), newIdSeed: () => 'seed-1' }));
@@ -73,6 +73,17 @@ const row1 = (over: Partial<Gstr1Row> = {}): Gstr1Row =>
     rowType: 'gstr1', key: 'k', voucherId: 'v1', number: 'SAL/26-27/0001', date: localDate('2026-09-21'), party: 'ABC Industries', gstin: '27AAPFU0939F1ZV', placeOfSupply: '27', section: 'B2B',
     rate: '18', taxable: 1_000_000n, cgst: 90_000n, sgst: 90_000n, igst: 0n, value: 1_180_000n, hsns: '7318', ...over,
   }) as unknown as Gstr1Row;
+
+describe('the period a GSTR-2B statement covers', () => {
+  it('a monthly statement is its month; a quarterly one the quarter its period ends', () => {
+    expect(gstr2bFilePeriod('062026', false)).toMatchObject({ from: '2026-06-01', to: '2026-06-30', ym: '2026-06' });
+    expect(gstr2bFilePeriod('062026', true)).toMatchObject({ from: '2026-04-01', to: '2026-06-30', ym: '2026-Q1' });
+    expect(gstr2bFilePeriod('122026', true)).toMatchObject({ from: '2026-10-01', to: '2026-12-31', ym: '2026-Q3' });
+    expect(gstr2bFilePeriod('032027', true)).toMatchObject({ from: '2027-01-01', to: '2027-03-31', ym: '2026-Q4' });
+    expect(gstr2bFilePeriod('June', true)).toBeUndefined();
+    expect(gstr2bFilePeriod('132026', false)).toBeUndefined();
+  });
+});
 
 describe('the GSTR-1 columns', () => {
   it('the sales report has a Type column (B2B / B2CL / B2CS / Export); the purchase register does not, and names its party a supplier', () => {

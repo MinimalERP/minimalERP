@@ -28,6 +28,8 @@ import {
 } from '@minimalerp/domain';
 import type {
   GstMatchStore,
+  GstTag,
+  GstTagStatus,
   LastMail,
   ChangeFeed,
   CompanyExchange,
@@ -265,17 +267,17 @@ export class Books {
     return typeof this.backend.tagGstMatched === 'function';
   }
 
-  /** The purchase vouchers tagged "GST matched": voucher id → the GSTR-2B period. Empty where tags are not kept. */
-  async gstMatches(): Promise<Readonly<Record<string, string>>> {
+  /** The purchase vouchers' GST tags: voucher id → the GSTR-2B period and whether it was in it. Empty where tags are not kept. */
+  async gstMatches(): Promise<Readonly<Record<string, GstTag>>> {
     if (!this.backend.gstMatches) return {};
     const r = await this.backend.gstMatches(this.companyId);
     return r.ok ? r.value : {};
   }
 
-  /** Tags purchase vouchers as found in a GSTR-2B period. */
-  tagGstMatched(voucherIds: readonly string[], period: string): Promise<Result<{ readonly tagged: number }>> {
+  /** Tags purchase vouchers as found in a GSTR-2B period, or as missing from it. */
+  tagGstMatched(voucherIds: readonly string[], period: string, status: GstTagStatus): Promise<Result<{ readonly tagged: number }>> {
     if (!this.backend.tagGstMatched) return Promise.resolve(fail(issue(IssueCode.UnsupportedOperation, 'Tagging needs the online books')));
-    return this.backend.tagGstMatched(this.companyId, voucherIds, period);
+    return this.backend.tagGstMatched(this.companyId, voucherIds, period, status);
   }
 
   /** A party's statement (a payment reminder from its ledger), from the company's Gmail. */

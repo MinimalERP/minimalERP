@@ -388,7 +388,7 @@ test.describe('GSTR-2B matching on GST Purchases', () => {
     await expect(gridRows(app)).toHaveCount(2);
     await expect(app.getByTestId('gst-2b-matched')).toHaveText('1,800.00');
     await expect(app.getByTestId('gst-2b-not-in-books')).toHaveText('900.00');
-    await expect(app.getByTestId('action-panel').getByRole('button', { name: /Tag matched/ })).toHaveCount(0); // tags are kept in the online books only
+    await expect(app.getByTestId('gst-2b-tagged')).toHaveCount(0); // tags are kept in the online books only
 
     await gridRows(app).filter({ hasText: 'Not in books' }).click();
     await expect(heading(app)).toHaveText('New Purchase Voucher');

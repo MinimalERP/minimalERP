@@ -29,8 +29,8 @@ import {
   matchGstr2b,
 } from '@minimalerp/domain';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { type Gstr2bGridRow, gstr2bColumns, gstr2bGridRows } from '../reports/gstr2bReport';
-import { defaultPeriod, findFinancialYear, gstr1Columns, gstr3bColumns, hsnColumns, parseMonth, parseQuarter, periodInYear, periodOfYm, quarterInYear, yearOf, type GstPeriod } from '../reports/gstReports';
+import { type Gstr2bGridRow, gstTagText, gstr2bColumns, gstr2bGridRows } from '../reports/gstr2bReport';
+import { defaultPeriod, findFinancialYear, gstr2bFilePeriod, gstr1Columns, gstr3bColumns, hsnColumns, parseMonth, parseQuarter, periodInYear, periodOfYm, quarterInYear, yearOf, type GstPeriod } from '../reports/gstReports';
 import { Only } from '../shell/Only';
 import { useCommandHandler, useFrameState, useListNavigation, useServices, useSubscriptions } from '../shell/hooks';
 import type { ReportKind, ScreenRef } from '../shell/router';
@@ -98,28 +98,40 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
 
   // ---- GSTR-2B: the portal's file against the purchases (GST Purchases only). The file is read here and kept for this window; nothing of it is stored. ----
   const [file2b, setFile2b] = useFrameState<Gstr2bFile | undefined>(frame, 'file2b', undefined);
-  /** The purchases tagged "GST matched": voucher id → the 2B period (online books). */
-  const [tags, setTags] = useState<Readonly<Record<string, string>>>({});
+  /** The file is the portal's QUARTERLY statement (its name says so): it covers the quarter its period ends. */
+  const [quarterly2b, setQuarterly2b] = useFrameState<boolean>(frame, 'file2bQuarterly', false);
+  /** The purchases' GST tags: voucher id → the 2B period, and whether that statement had the purchase (online books). */
+  const [tags, setTags] = useState<Readonly<Record<string, { readonly period: string; readonly status: 'matched' | 'missing' }>>>({});
   const fileRef = useRef<HTMLInputElement>(null);
-  const loadTags = () => void books.gstMatches().then(setTags);
+  const loadTags = () => books.gstMatches().then(setTags);
   useEffect(() => {
-    if (report === 'gst-purchases') loadTags();
+    if (report === 'gst-purchases') void loadTags();
   }, [report, books.vouchers]);
   const show2b = report === 'gst-purchases' && view === '2b' && file2b !== undefined;
+  /** What the statement covers: its own month or quarter, whatever period the screen is on. */
+  const fileRange = file2b ? (gstr2bFilePeriod(file2b.period, quarterly2b) ?? range) : range;
   const rows2b = useMemo(
     () =>
       show2b && file2b
-        ? gstr2bGridRows(matchGstr2b({ file: file2b, purchases: gstInvoices({ vouchers: books.vouchers, masters, side: 'purchase', range: {} }), range, tagged: new Map(Object.entries(tags)) }))
+        ? gstr2bGridRows(
+            matchGstr2b({
+              file: file2b,
+              purchases: gstInvoices({ vouchers: books.vouchers, masters, side: 'purchase', range: {} }),
+              range: { from: fileRange.from, to: fileRange.to },
+              // a purchase marked missing is still looked for; only one already found is left alone
+              tagged: new Map(Object.entries(tags).filter(([, t]) => t.status === 'matched').map(([id, t]) => [id, t.period])),
+            }),
+          )
         : [],
-    [show2b, file2b, books.vouchers, masters, period.from, period.to, tags],
+    [show2b, file2b, books.vouchers, masters, fileRange.from, fileRange.to, tags],
   );
 
   const invoiceColumns = (): ColumnSpec<Gstr1Row>[] => [
     ...gstr1Columns(side),
-    // a purchase found in a GSTR-2B says which
-    ...(side === 'purchase' && books.canTagGst ? [{ id: 'gst2b', label: '2B', type: 'text', value: (r: Gstr1Row) => (tags[r.voucherId] ? gstr2bPeriodLabel(tags[r.voucherId] as string) : '') } satisfies ColumnSpec<Gstr1Row>] : []),
+    // what the last GSTR-2B said of a purchase: the period it was found in, or that it was missing from it
+    ...(side === 'purchase' && books.canTagGst ? [{ id: 'gst2b', label: '2B', type: 'text', value: (r: Gstr1Row) => gstTagText(tags[r.voucherId]) } satisfies ColumnSpec<Gstr1Row>] : []),
   ];
-  const columns = (report === 'gstr3b' ? gstr3bColumns() : show2b ? gstr2bColumns() : view === 'hsn' ? hsnColumns() : invoiceColumns()) as readonly ColumnSpec<AnyRow>[];
+  const columns = (report === 'gstr3b' ? gstr3bColumns() : show2b ? gstr2bColumns((id) => gstTagText(id ? tags[id] : undefined)) : view === 'hsn' ? hsnColumns() : invoiceColumns()) as readonly ColumnSpec<AnyRow>[];
   const baseRows = (report === 'gstr3b' ? (summary?.rows ?? []) : show2b ? rows2b : view === 'hsn' ? hsn : invoiceRows) as readonly AnyRow[];
   const rows = useMemo(() => applyGridQuery(baseRows, columns, query), [baseRows, columns, query]);
   const safeRow = Math.min(row, Math.max(0, rows.length - 1));
@@ -229,14 +241,14 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
       if (own !== '' && read.value.gstin !== own) {
         return setNotice({ tone: 'error', text: `That GSTR-2B is of GSTIN ${read.value.gstin}; this company is ${own}. Nothing was loaded.` });
       }
-      // the screen moves to the file's month, unless the period in front (a quarter, say) already holds it
-      const m = /^(\d{2})(\d{4})$/.exec(read.value.period);
-      const fileMonth = m ? periodOfYm(`${m[2]}-${m[1]}`) : undefined;
-      const moved = fileMonth !== undefined && !(fileMonth.from >= period.from && fileMonth.to <= period.to);
-      if (moved && fileMonth) {
-        setPeriod(fileMonth);
-        app.replace({ type: 'report', report, kind: fileMonth.ym });
+      // the portal names its quarterly statement …R2BQ…; the screen moves to the period the statement covers
+      const quarterly = /R2BQ/i.test(file.name);
+      const covers = gstr2bFilePeriod(read.value.period, quarterly);
+      if (covers && covers.ym !== period.ym) {
+        setPeriod(covers);
+        app.replace({ type: 'report', report, kind: covers.ym });
       }
+      setQuarterly2b(quarterly);
       setFile2b(read.value);
       setView('2b');
       setQuery({ ...query, filters: {}, quick: '' });
@@ -246,20 +258,9 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
       const left = [s.creditNotes > 0 ? `${s.creditNotes} credit / debit note${s.creditNotes === 1 ? '' : 's'}` : '', s.amendments > 0 ? `${s.amendments} amended invoice${s.amendments === 1 ? '' : 's'}` : '', s.imports > 0 ? `${s.imports} import${s.imports === 1 ? '' : 's'}` : ''].filter((x) => x !== '');
       setNotice({
         tone: 'ok',
-        text: `GSTR-2B of ${gstr2bPeriodLabel(read.value.period)} loaded: ${read.value.invoices.length} invoice${read.value.invoices.length === 1 ? '' : 's'}.${left.length > 0 ? ` Not matched (the books do not hold them): ${left.join(', ')}.` : ''}${moved ? ` The period is now ${fileMonth?.label}: for a quarterly statement choose the quarter (F2).` : ''}`,
+        text: `GSTR-2B of ${gstr2bPeriodLabel(read.value.period)} loaded: ${read.value.invoices.length} invoice${read.value.invoices.length === 1 ? '' : 's'}.${covers ? ` It covers ${covers.label}.` : ''}${left.length > 0 ? ` Not matched (the books do not hold them): ${left.join(', ')}.` : ''}`,
       });
     });
-  };
-  /** The matched purchases not yet tagged for this file's period. */
-  const toTag = show2b && file2b ? rows2b.filter((r) => r.status === 'matched' && r.voucherId !== undefined && r.tagged !== file2b.period) : [];
-  const tag2b = (): boolean => {
-    if (!file2b || toTag.length === 0) return false;
-    void books.tagGstMatched(toTag.map((r) => r.voucherId as string), file2b.period).then((r) => {
-      if (!r.ok) return setNotice({ tone: 'error', text: r.issues[0]?.message ?? 'The purchases could not be tagged' });
-      loadTags();
-      setNotice({ tone: 'ok', text: `${r.value.tagged} purchase${r.value.tagged === 1 ? '' : 's'} tagged GST matched (2B ${gstr2bPeriodLabel(file2b.period)}).` });
-    });
-    return true;
   };
   const totals2b = show2b ? gstr2bTotals(rows2b) : undefined;
 
@@ -313,11 +314,40 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
       setPosting(false);
     }
     setRow(0);
+    void loadTags();
     setNotice({
       tone: refused.length > 0 ? 'error' : 'ok',
       text: `${posted} purchase${posted === 1 ? '' : 's'} of ${supplier} posted${from ? ` and ${paid} paid from ${from.name}` : ''}.${refused.length > 0 ? ` Not done — ${refused.join('; ')}.` : ''}`,
     });
   };
+
+  // ---- GSTR-2B: the tags are saved as the matching finds them (online books) — a purchase the statement has is "GST matched"; one of the
+  // statement's period that it does not have is "ITC missing", until a later statement has it. A mismatch is not tagged: it wants correcting.
+  const toMatch = show2b && !posting ? rows2b.filter((r) => r.status === 'matched' && r.voucherId !== undefined && tags[r.voucherId]?.status !== 'matched').map((r) => r.voucherId as string) : [];
+  const toMiss = show2b && !posting ? rows2b.filter((r) => r.status === 'not-on-portal' && r.voucherId !== undefined && tags[r.voucherId] === undefined).map((r) => r.voucherId as string) : [];
+  /** The last set of vouchers sent to be tagged: a refused save is said once, not tried again on every render. */
+  const tagged = useRef('');
+  const tagKey = file2b && books.canTagGst && (toMatch.length > 0 || toMiss.length > 0) ? `${file2b.period}|${toMatch.join(',')}|${toMiss.join(',')}` : '';
+  useEffect(() => {
+    if (tagKey === '' || !file2b || tagged.current === tagKey) return;
+    tagged.current = tagKey;
+    void (async () => {
+      // the tags as they are saved NOW (this window's copy may be behind): only what is still untagged is sent
+      const now = await books.gstMatches();
+      const match = toMatch.filter((id) => now[id]?.status !== 'matched');
+      const miss = toMiss.filter((id) => now[id] === undefined);
+      const results = [match.length > 0 ? await books.tagGstMatched(match, file2b.period, 'matched') : undefined, miss.length > 0 ? await books.tagGstMatched(miss, file2b.period, 'missing') : undefined];
+      const failed = results.find((r) => r !== undefined && !r.ok);
+      if (failed && !failed.ok) setNotice({ tone: 'error', text: `The purchases could not be tagged: ${failed.issues[0]?.message ?? 'refused'}` });
+      await loadTags();
+    })();
+  }, [tagKey]);
+  const taggedCounts = show2b
+    ? {
+        matched: rows2b.filter((r) => r.voucherId !== undefined && tags[r.voucherId]?.status === 'matched').length,
+        missing: rows2b.filter((r) => r.voucherId !== undefined && tags[r.voucherId]?.status === 'missing').length,
+      }
+    : undefined;
 
   const chord = (id: string) => keymapStore.keymap.chordsFor(id)[0];
   const title = report === 'gstr1' ? (view === 'hsn' ? 'GSTR-1: HSN summary' : 'GSTR-1') : report === 'gstr3b' ? 'GSTR-3B' : show2b && file2b ? `GST Purchases: GSTR-2B ${gstr2bPeriodLabel(file2b.period)} matching` : 'GST Purchases';
@@ -457,7 +487,12 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
                 {GSTR2B_STATUS_LABELS[s]} {totals2b[s].count} — GST <strong data-testid={`gst-2b-${s}`}>{formatAmount(totals2b[s].tax)}</strong>
               </span>
             ))}
-            {books.canTagGst ? (toTag.length > 0 ? ` · ${toTag.length} matched to tag` : ' · every matched purchase is tagged') : ''}
+            {books.canTagGst && taggedCounts && (
+              <span data-testid="gst-2b-tagged">
+                {' '}
+                — {taggedCounts.matched} tagged GST matched · {taggedCounts.missing} marked ITC missing
+              </span>
+            )}
           </span>
         ) : (
           <span data-testid="gst-totals">
@@ -485,7 +520,6 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
       {report === 'gst-purchases' && (
         <>
           <Only scope={SCOPE} command="gst.load2b" run={load2b} />
-          {books.canTagGst && toTag.length > 0 && <Only scope={SCOPE} command="gst.tag2b" run={tag2b} />}
           {canBulk && bulkOf === undefined && <Only scope={SCOPE} command="gst.post2b" run={() => (setBulkOf(cursorRow?.gstin), true)} />}
           <input ref={fileRef} type="file" accept=".json,application/json" hidden data-testid="gst-2b-file" onChange={(e) => on2bFile((e.target as HTMLInputElement).files?.[0])} />
         </>
