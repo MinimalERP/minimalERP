@@ -246,6 +246,52 @@ export function matchGstr2b({
   return rows.sort((a, b) => order[a.status] - order[b.status] || a.supplier.localeCompare(b.supplier) || a.number.localeCompare(b.number));
 }
 
+// ---- the follow-up list: purchases whose input credit no GSTR-2B has confirmed --------------------------------------------
+
+/** `missing`: a GSTR-2B of its period was loaded and did not have it. `unchecked`: none was loaded for it yet (or it did not agree). */
+export type ItcFollowUpStatus = 'missing' | 'unchecked';
+
+export interface ItcFollowUpRow {
+  readonly key: string;
+  readonly voucherId: string;
+  /** Our voucher number, and the supplier's own invoice number. */
+  readonly number: string;
+  readonly billNo: string;
+  readonly date: LocalDate;
+  readonly supplier: string;
+  readonly gstin: string;
+  readonly taxable: Money;
+  readonly tax: Money;
+  readonly status: ItcFollowUpStatus;
+  /** The GSTR-2B period (`MMYYYY`) that did not have it, when one was loaded. */
+  readonly period?: string | undefined;
+}
+
+/**
+ * The purchases to follow up with their suppliers: those a credit rides on (a supplier with a GSTIN, GST on the voucher) that no GSTR-2B
+ * has confirmed — `tags` is each voucher's latest GST tag. By supplier, then date, so one supplier's invoices are together.
+ */
+export function itcFollowUpRows({ purchases, tags }: { purchases: readonly GstInvoice[]; tags: ReadonlyMap<string, { readonly period: string; readonly status: 'matched' | 'missing' }> }): ItcFollowUpRow[] {
+  const rows: ItcFollowUpRow[] = [];
+  for (const p of purchases) {
+    const tag = tags.get(p.voucherId);
+    if (p.gstin === '' || p.tax <= 0n || tag?.status === 'matched') continue;
+    rows.push({ key: p.voucherId, voucherId: p.voucherId, number: p.number, billNo: p.billNo ?? '', date: p.date, supplier: p.party, gstin: p.gstin, taxable: p.taxable, tax: p.tax, status: tag ? 'missing' : 'unchecked', period: tag?.period });
+  }
+  return rows.sort((a, b) => a.supplier.localeCompare(b.supplier) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) || a.number.localeCompare(b.number));
+}
+
+/** How many purchases wait, and the GST on them — in all, and of each status. */
+export function itcFollowUpTotals(rows: readonly ItcFollowUpRow[]): { count: number; tax: Money; missing: Money; unchecked: Money } {
+  let missing = 0n;
+  let unchecked = 0n;
+  for (const r of rows) {
+    if (r.status === 'missing') missing += r.tax;
+    else unchecked += r.tax;
+  }
+  return { count: rows.length, tax: money(missing + unchecked), missing: money(missing), unchecked: money(unchecked) };
+}
+
 /** The GST rates invoices are charged at. */
 const GST_RATES = ['0.1', '0.25', '1', '1.5', '3', '5', '6', '7.5', '12', '18', '28'] as const;
 

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { BooksHost, type LocalBackend } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { createLocalFactory, memoryStore } from '../books/local';
-import { defaultPeriod, findFinancialYear, gstr2bFilePeriod, gstr1Columns, gstr3bColumns, hsnColumns, monthPeriod, parseMonth, parseQuarter, periodInYear, periodOfYm, quarterInYear, quarterPeriod, yearOf } from './gstReports';
+import { defaultPeriod, findFinancialYear, gstr2bFilePeriod, gstr1Columns, gstr3bColumns, hsnColumns, monthPeriod, parseMonth, parseQuarter, periodInYear, periodOfYm, quarterInYear, quarterPeriod, yearOf, yearPeriodOf } from './gstReports';
 
 async function demoMasters() {
   const host = new BooksHost(createLocalFactory({ makeBackend: (masters) => new MemoryBackend(masters) as unknown as LocalBackend, store: memoryStore(), newIdSeed: () => 'seed-1' }));
@@ -81,6 +81,10 @@ describe('the period a GSTR-2B statement covers', () => {
     expect(gstr2bFilePeriod('122026', true)).toMatchObject({ from: '2026-10-01', to: '2026-12-31', ym: '2026-Q3' });
     expect(gstr2bFilePeriod('032027', true)).toMatchObject({ from: '2027-01-01', to: '2027-03-31', ym: '2026-Q4' });
     expect(gstr2bFilePeriod('June', true)).toBeUndefined();
+    // a whole GST year (the ITC follow-up list): April to March, addressed by the year it starts in
+    expect(yearPeriodOf('2026-06-15')).toMatchObject({ from: '2026-04-01', to: '2027-03-31', ym: '2026-FY' });
+    expect(yearPeriodOf('2027-02-01')).toMatchObject({ ym: '2026-FY' });
+    expect(periodOfYm('2026-FY')).toMatchObject({ from: '2026-04-01', to: '2027-03-31' });
     expect(gstr2bFilePeriod('132026', false)).toBeUndefined();
   });
 });

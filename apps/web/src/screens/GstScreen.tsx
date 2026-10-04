@@ -26,11 +26,13 @@ import {
   gstr2bFromJson,
   gstr2bPeriodLabel,
   gstr2bTotals,
+  itcFollowUpRows,
+  itcFollowUpTotals,
   matchGstr2b,
 } from '@minimalerp/domain';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { type Gstr2bGridRow, gstTagText, gstr2bColumns, gstr2bGridRows } from '../reports/gstr2bReport';
-import { defaultPeriod, findFinancialYear, gstr2bFilePeriod, gstr1Columns, gstr3bColumns, hsnColumns, parseMonth, parseQuarter, periodInYear, periodOfYm, quarterInYear, yearOf, type GstPeriod } from '../reports/gstReports';
+import { type ItcGridRow, defaultPeriod, findFinancialYear, gstr2bFilePeriod, itcColumns, yearPeriodOf, gstr1Columns, gstr3bColumns, hsnColumns, parseMonth, parseQuarter, periodInYear, periodOfYm, quarterInYear, yearOf, type GstPeriod } from '../reports/gstReports';
 import { Only } from '../shell/Only';
 import { useCommandHandler, useFrameState, useListNavigation, useServices, useSubscriptions } from '../shell/hooks';
 import type { ReportKind, ScreenRef } from '../shell/router';
@@ -44,10 +46,10 @@ import { FieldsDialog } from './ReportDialogs';
 
 const SCOPE = 'screen:report';
 
-type GstReport = Extract<ReportKind, 'gstr1' | 'gstr3b' | 'gst-purchases'>;
+type GstReport = Extract<ReportKind, 'gstr1' | 'gstr3b' | 'gst-purchases' | 'gst-itc'>;
 /** `2b`: GST Purchases with a GSTR-2B file loaded — the file's invoices against the books'. */
 type View = 'invoices' | 'hsn' | '2b';
-type AnyRow = Gstr1Row | HsnRow | Gstr3bRow | Gstr2bGridRow;
+type AnyRow = Gstr1Row | HsnRow | Gstr3bRow | Gstr2bGridRow | ItcGridRow;
 
 /**
  * GSTR-1, the purchase register behind GSTR-3B, and GSTR-3B (ADR-0019): REPORTS of a month, on the same grid, with the same keys (F2 changes the
@@ -63,7 +65,8 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
   const masters = books.masters;
   const today = todayText();
 
-  const [period, setPeriod] = useFrameState<GstPeriod>(frame, 'period', periodOfYm(kind) ?? defaultPeriod(masters, today));
+  // the follow-up list looks at a whole GST year unless a month or quarter is asked for; the returns at a month
+  const [period, setPeriod] = useFrameState<GstPeriod>(frame, 'period', periodOfYm(kind) ?? (report === 'gst-itc' ? yearPeriodOf(defaultPeriod(masters, today).from) : defaultPeriod(masters, today)));
   const [view, setView] = useFrameState<View>(frame, 'view', 'invoices');
   const [query, setQuery] = useFrameState<GridQuery>(frame, 'query', EMPTY_QUERY);
   const [col, setCol] = useFrameState<number>(frame, 'col', 0);
@@ -71,7 +74,7 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
   const [asking, setAsking] = useState(false);
   const [notice, setNotice] = useState<{ text: string; tone: 'error' | 'ok' } | undefined>(undefined);
   const range = { from: period.from, to: period.to };
-  const side = report === 'gst-purchases' ? 'purchase' : 'sales';
+  const side = report === 'gst-purchases' || report === 'gst-itc' ? 'purchase' : 'sales';
   const year = yearOf(masters, period);
 
   // ---- the data: read from the posted invoices and the journal ----
@@ -105,8 +108,13 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
   const fileRef = useRef<HTMLInputElement>(null);
   const loadTags = () => books.gstMatches().then(setTags);
   useEffect(() => {
-    if (report === 'gst-purchases') void loadTags();
+    if (report === 'gst-purchases' || report === 'gst-itc') void loadTags();
   }, [report, books.vouchers]);
+  /** The purchases of the period no GSTR-2B has confirmed: the follow-up list (and, on GST Purchases, how many there are). */
+  const itcRows = useMemo(
+    () => (side === 'purchase' ? itcFollowUpRows({ purchases: invoices, tags: new Map(Object.entries(tags)) }).map((r): ItcGridRow => ({ ...r, rowType: 'itc' })) : []),
+    [side, invoices, tags],
+  );
   const show2b = report === 'gst-purchases' && view === '2b' && file2b !== undefined;
   /** What the statement covers: its own month or quarter, whatever period the screen is on. */
   const fileRange = file2b ? (gstr2bFilePeriod(file2b.period, quarterly2b) ?? range) : range;
@@ -131,8 +139,8 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
     // what the last GSTR-2B said of a purchase: the period it was found in, or that it was missing from it
     ...(side === 'purchase' && books.canTagGst ? [{ id: 'gst2b', label: '2B', type: 'text', value: (r: Gstr1Row) => gstTagText(tags[r.voucherId]) } satisfies ColumnSpec<Gstr1Row>] : []),
   ];
-  const columns = (report === 'gstr3b' ? gstr3bColumns() : show2b ? gstr2bColumns((id) => gstTagText(id ? tags[id] : undefined)) : view === 'hsn' ? hsnColumns() : invoiceColumns()) as readonly ColumnSpec<AnyRow>[];
-  const baseRows = (report === 'gstr3b' ? (summary?.rows ?? []) : show2b ? rows2b : view === 'hsn' ? hsn : invoiceRows) as readonly AnyRow[];
+  const columns = (report === 'gstr3b' ? gstr3bColumns() : report === 'gst-itc' ? itcColumns() : show2b ? gstr2bColumns((id) => gstTagText(id ? tags[id] : undefined)) : view === 'hsn' ? hsnColumns() : invoiceColumns()) as readonly ColumnSpec<AnyRow>[];
+  const baseRows = (report === 'gstr3b' ? (summary?.rows ?? []) : report === 'gst-itc' ? itcRows : show2b ? rows2b : view === 'hsn' ? hsn : invoiceRows) as readonly AnyRow[];
   const rows = useMemo(() => applyGridQuery(baseRows, columns, query), [baseRows, columns, query]);
   const safeRow = Math.min(row, Math.max(0, rows.length - 1));
   const safeCol = Math.min(col, columns.length - 1);
@@ -141,7 +149,7 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
   const drill = (i: number) => {
     const r = rows[i];
     if (!r) return;
-    if (r.rowType === 'gstr1') app.navigate({ type: 'voucher', mode: 'display', id: r.voucherId });
+    if (r.rowType === 'gstr1' || r.rowType === 'itc') app.navigate({ type: 'voucher', mode: 'display', id: r.voucherId });
     else if (r.rowType === 'gstr2b') {
       // an invoice the books have opens it; one only the GST site has opens a new purchase for it
       if (r.voucherId) app.navigate({ type: 'voucher', mode: 'display', id: r.voucherId });
@@ -350,7 +358,8 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
     : undefined;
 
   const chord = (id: string) => keymapStore.keymap.chordsFor(id)[0];
-  const title = report === 'gstr1' ? (view === 'hsn' ? 'GSTR-1: HSN summary' : 'GSTR-1') : report === 'gstr3b' ? 'GSTR-3B' : show2b && file2b ? `GST Purchases: GSTR-2B ${gstr2bPeriodLabel(file2b.period)} matching` : 'GST Purchases';
+  const itcTotals = side === 'purchase' ? itcFollowUpTotals(report === 'gst-itc' ? (rows as readonly ItcGridRow[]) : itcRows) : undefined;
+  const title = report === 'gstr1' ? (view === 'hsn' ? 'GSTR-1: HSN summary' : 'GSTR-1') : report === 'gstr3b' ? 'GSTR-3B' : report === 'gst-itc' ? 'ITC not matched' : show2b && file2b ? `GST Purchases: GSTR-2B ${gstr2bPeriodLabel(file2b.period)} matching` : 'GST Purchases';
 
   const ledgerButtons = (list: HeadCheck[], kindOf: 'output' | 'input') =>
     list.map((c) => {
@@ -384,7 +393,16 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
           </>
         )}
         {report === 'gstr3b' && <> · Enter on a line opens the invoices behind it</>}
+        {report === 'gst-itc' && <> · purchases with GST from registered suppliers that no GSTR-2B has confirmed — Enter opens the purchase</>}
       </p>
+      {report === 'gst-purchases' && books.canTagGst && itcTotals && itcTotals.count > 0 && (
+        <p class="notice" data-testid="gst-itc-link">
+          {itcTotals.count} purchase{itcTotals.count === 1 ? '' : 's'} of this period {itcTotals.count === 1 ? 'is' : 'are'} not ITC matched (GST {formatAmount(itcTotals.tax)}) —{' '}
+          <button type="button" class="linkish" onClick={() => app.navigate({ type: 'report', report: 'gst-itc', kind: period.ym })}>
+            see ITC not matched
+          </button>
+        </p>
+      )}
 
       {report === 'gstr1' &&
         (errors.length > 0 || warnings.length > 0 ? (
@@ -452,7 +470,7 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
 
       {rows.length === 0 ? (
         <p class="empty" data-testid="report-empty">
-          {baseRows.length === 0 ? (show2b ? 'The file has no invoices, and there are no purchases with GST in this period.' : `No ${side === 'sales' ? 'sales' : 'purchase'} invoices in ${period.label}.`) : 'No rows match.'}
+          {baseRows.length === 0 ? (report === 'gst-itc' ? `Nothing to follow up in ${period.label}: every purchase with GST from a registered supplier is matched.` : show2b ? 'The file has no invoices, and there are no purchases with GST in this period.' : `No ${side === 'sales' ? 'sales' : 'purchase'} invoices in ${period.label}.`) : 'No rows match.'}
         </p>
       ) : (
         <DataGrid
@@ -479,6 +497,12 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
             {summary.sales.length} sales invoice{summary.sales.length === 1 ? '' : 's'} · {summary.purchases.length} purchase invoice{summary.purchases.length === 1 ? '' : 's'} · Output tax <strong data-testid="gst-output">{formatAmount(summary.output.tax)}</strong> · Input tax to review{' '}
             <strong data-testid="gst-review">{formatAmount(summary.toReview.tax)}</strong> · Net payable, claiming nothing under review <strong data-testid="gst-net">{formatAmount(summary.net.tax)}</strong>
           </>
+        ) : report === 'gst-itc' && itcTotals ? (
+          <span data-testid="gst-itc-totals">
+            {itcTotals.count} purchase{itcTotals.count === 1 ? '' : 's'} · GST not matched <strong data-testid="gst-itc-tax">{formatAmount(itcTotals.tax)}</strong> — ITC missing <strong data-testid="gst-itc-missing">{formatAmount(itcTotals.missing)}</strong> · not checked{' '}
+            <strong data-testid="gst-itc-unchecked">{formatAmount(itcTotals.unchecked)}</strong>
+            {books.canTagGst ? '' : ' · GSTR-2B tags are kept in the online books only: here every purchase reads “Not checked”'}
+          </span>
         ) : totals2b ? (
           <span data-testid="gst-2b-totals">
             {(['matched', 'mismatch', 'not-in-books', 'not-on-portal'] as const).map((s, n) => (
@@ -502,13 +526,15 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
           </span>
         )}
       </p>
-      <p class="report-foot" data-testid="gst-reconciliation">
-        {checks.map((c, n) => (
-          <span key={n} class="gst-recon">
-            {c.label}: {ledgerButtons(c.list, c.label.startsWith('Sales') ? 'output' : 'input')}
-          </span>
-        ))}
-      </p>
+      {report !== 'gst-itc' && (
+        <p class="report-foot" data-testid="gst-reconciliation">
+          {checks.map((c, n) => (
+            <span key={n} class="gst-recon">
+              {c.label}: {ledgerButtons(c.list, c.label.startsWith('Sales') ? 'output' : 'input')}
+            </span>
+          ))}
+        </p>
+      )}
 
       {report === 'gstr1' && (
         <>
@@ -594,7 +620,12 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
           title="Period"
           fields={[
             { key: 'fy', label: 'Financial year', value: year?.label ?? masters.financialYears.at(-1)?.label ?? '', hint: `like ${masters.financialYears.at(-1)?.label ?? '26-27'}` },
-            { key: 'month', label: 'Month or quarter', value: period.quarter ? `Q${period.quarter}` : period.label.slice(0, 3), hint: 'Apr, or 4 — or Q1 (Apr–Jun) … Q4 (Jan–Mar) for a quarterly return' },
+            {
+              key: 'month',
+              label: 'Month or quarter',
+              value: period.ym.endsWith('-FY') ? '' : period.quarter ? `Q${period.quarter}` : period.label.slice(0, 3),
+              hint: report === 'gst-itc' ? 'empty for the whole year — or Apr, 4, Q1 (Apr–Jun) … Q4 (Jan–Mar)' : 'Apr, or 4 — or Q1 (Apr–Jun) … Q4 (Jan–Mar) for a quarterly return',
+            },
           ]}
           validate={(v) => {
             const errs: Record<string, string> = {};
@@ -603,6 +634,8 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
             const q = parseQuarter(text);
             const m = parseMonth(text);
             if (!fy) errs['fy'] = 'That is not one of this company’s financial years';
+            // the follow-up list takes a whole year: the month left empty
+            if (report === 'gst-itc' && text.trim() === '') return errs;
             if (q === undefined && m === undefined) errs['month'] = 'That is not a month or a quarter (Q1 to Q4)';
             else if (fy && !(q !== undefined ? quarterInYear(fy, q) : periodInYear(fy, m as number))) errs['month'] = `${text.trim()} is not in ${fy.label}`;
             return errs;
@@ -612,7 +645,8 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
               const fy = findFinancialYear(masters, v['fy'] ?? '');
               const q = parseQuarter(v['month'] ?? '');
               const m = parseMonth(v['month'] ?? '');
-              const p = !fy ? undefined : q !== undefined ? quarterInYear(fy, q) : m !== undefined ? periodInYear(fy, m) : undefined;
+              const wholeYear = report === 'gst-itc' && (v['month'] ?? '').trim() === '';
+              const p = !fy ? undefined : wholeYear ? yearPeriodOf(fy.start) : q !== undefined ? quarterInYear(fy, q) : m !== undefined ? periodInYear(fy, m) : undefined;
               if (p) {
                 setPeriod(p);
                 setRow(0);

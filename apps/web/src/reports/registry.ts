@@ -9,6 +9,7 @@ const HOST: Partial<Record<ReportKind, ReportHost>> = {
   gstr1: 'gst',
   gstr3b: 'gst',
   'gst-purchases': 'gst',
+  'gst-itc': 'gst',
 };
 
 /** Where to route a report kind. Unknown kinds use the shared grid host. */
@@ -16,7 +17,7 @@ function reportHost(report: ReportKind): ReportHost {
   return HOST[report] ?? 'grid';
 }
 
-export type GstReportKind = Extract<ReportKind, 'gstr1' | 'gstr3b' | 'gst-purchases'>;
+export type GstReportKind = Extract<ReportKind, 'gstr1' | 'gstr3b' | 'gst-purchases' | 'gst-itc'>;
 export type StatementReportKind = Extract<ReportKind, 'profit-loss' | 'balance-sheet'>;
 
 export function asStatementReport(report: ReportKind): StatementReportKind | undefined {
@@ -58,6 +59,8 @@ export function reportTitle(report: ReportKind, kind: string | undefined): strin
       return 'GSTR-3B';
     case 'gst-purchases':
       return 'GST Purchases';
+    case 'gst-itc':
+      return 'ITC not matched';
     case 'outstanding':
       return kind === 'payable' ? 'Outstanding Payables' : 'Outstanding Receivables';
     default:

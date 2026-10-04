@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { localDate } from '../dates';
 import { money } from '../money';
 import type { GstInvoice } from '../reports/gst';
-import { type Gstr2bFile, gstRateOfFigures, gstr2bFromJson, gstr2bPeriodLabel, gstr2bTotals, matchGstr2b, normaliseInvoiceNo } from './gstr2b';
+import { type Gstr2bFile, gstRateOfFigures, itcFollowUpRows, itcFollowUpTotals, gstr2bFromJson, gstr2bPeriodLabel, gstr2bTotals, matchGstr2b, normaliseInvoiceNo } from './gstr2b';
 
 /** The shape the GST portal's GSTR-2B JSON has (figures on the invoice, as its summary download writes them). */
 const portal = {
@@ -80,6 +80,30 @@ describe('an invoice number, as two people write it', () => {
     expect(normaliseInvoiceNo('0045')).toBe('45');
     expect(normaliseInvoiceNo('100')).not.toBe(normaliseInvoiceNo('10'));
     expect(normaliseInvoiceNo('A0')).toBe('A0');
+  });
+});
+
+describe('the purchases to follow up', () => {
+  it('lists what no GSTR-2B has confirmed — missing or not checked — by supplier then date, and leaves out the matched, the unregistered and the untaxed', () => {
+    const purchases = [
+      purchase({ voucherId: 'm', billNo: 'A1', gstin: '27BKYPC9399H1Z5' }), // matched
+      purchase({ voucherId: 'x', billNo: 'A2', gstin: '27BKYPC9399H1Z5', date: localDate('2026-05-09') }), // a statement did not have it
+      purchase({ voucherId: 'u', billNo: 'A3', gstin: '27BKYPC9399H1Z5', date: localDate('2026-05-03') }), // never checked
+      purchase({ voucherId: 'k', billNo: 'K1', gstin: '27AAACK1111K1Z2', party: 'Kumar Engg', tax: money(18_000n) }),
+      purchase({ voucherId: 'n', billNo: 'N1', gstin: '' }), // an unregistered supplier
+      purchase({ voucherId: 'r', billNo: 'R1', gstin: '27BKYPC9399H1Z5', tax: money(0n) }), // reverse charge: no GST on the voucher
+    ];
+    const tags = new Map([
+      ['m', { period: '062026', status: 'matched' as const }],
+      ['x', { period: '062026', status: 'missing' as const }],
+    ]);
+    const rows = itcFollowUpRows({ purchases, tags });
+    expect(rows.map((r) => [r.supplier, r.billNo, r.status, r.period])).toEqual([
+      ['Kumar Engg', 'K1', 'unchecked', undefined],
+      ['Sadhi Steel Centre', 'A3', 'unchecked', undefined],
+      ['Sadhi Steel Centre', 'A2', 'missing', '062026'],
+    ]);
+    expect(itcFollowUpTotals(rows)).toEqual({ count: 3, tax: 1_973_520n, missing: 977_760n, unchecked: 995_760n });
   });
 });
 

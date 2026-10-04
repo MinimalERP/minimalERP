@@ -1,4 +1,4 @@
-import { type ColumnSpec, type FinancialYear, type Gstr1Row, type Gstr3bRow, type HsnRow, type LocalDate, type Masters, localDate, percentHundredths } from '@minimalerp/domain';
+import { type ColumnSpec, type FinancialYear, type Gstr1Row, type Gstr3bRow, type HsnRow, type ItcFollowUpRow, type LocalDate, type Masters, gstr2bPeriodLabel, localDate, percentHundredths } from '@minimalerp/domain';
 import { formatAmount, formatDate, formatQuantity } from '../vouchers/format';
 
 /**
@@ -51,8 +51,18 @@ export function quarterInYear(fy: FinancialYear, quarter: number): GstPeriod | u
   return p.from >= fy.start && p.to <= fy.end ? p : undefined;
 }
 
-/** `2026-04` → April 2026, `2026-Q1` → Apr–Jun 2026, or undefined when it is neither. */
+/** The whole GST year that starts in April of `startYear`: its address is `2026-FY`. (The ITC follow-up list looks at a year at once.) */
+export function yearPeriod(startYear: number): GstPeriod {
+  return { from: localDate(`${startYear}-04-01`), to: localDate(`${startYear + 1}-03-31`), ym: `${startYear}-FY`, label: `Apr ${startYear}–Mar ${startYear + 1}` };
+}
+
+/** The GST year a day is in. */
+export const yearPeriodOf = (day: string): GstPeriod => yearPeriod(Number(day.slice(0, 4)) - (Number(day.slice(5, 7)) >= 4 ? 0 : 1));
+
+/** `2026-04` → April 2026, `2026-Q1` → Apr–Jun 2026, `2026-FY` → Apr 2026–Mar 2027, or undefined when it is none of them. */
 export function periodOfYm(ym: string | undefined): GstPeriod | undefined {
+  const fy = /^(\d{4})-FY$/.exec(ym ?? '');
+  if (fy) return yearPeriod(Number(fy[1]));
   const q = /^(\d{4})-Q([1-4])$/.exec(ym ?? '');
   if (q) return quarterPeriod(Number(q[1]), Number(q[2]));
   const m = /^(\d{4})-(\d{2})$/.exec(ym ?? '');
@@ -161,6 +171,26 @@ export function hsnColumns(): ColumnSpec<HsnRow>[] {
     { id: 'igst', label: 'IGST', type: 'money', align: 'right', value: (r) => r.igst, text: (r) => money0(r.igst) },
     { id: 'value', label: 'Total value', type: 'money', align: 'right', value: (r) => r.value, text: (r) => formatAmount(r.value) },
     { id: 'invoices', label: 'Invoices', type: 'number', align: 'right', value: (r) => r.invoices },
+  ];
+}
+
+export type ItcGridRow = ItcFollowUpRow & { readonly rowType: 'itc' };
+
+/** What the Status column says of a purchase no GSTR-2B has confirmed. */
+export const itcStatusText = (r: Pick<ItcFollowUpRow, 'status'>): string => (r.status === 'missing' ? 'ITC missing' : 'Not checked');
+
+/** ITC not matched: a purchase per row, with the supplier to follow up and the GST that waits on them. */
+export function itcColumns(): ColumnSpec<ItcGridRow>[] {
+  return [
+    { id: 'supplier', label: 'Supplier', type: 'text', value: (r) => r.supplier },
+    { id: 'gstin', label: 'GSTIN', type: 'text', value: (r) => r.gstin },
+    { id: 'billNo', label: 'Supplier inv no.', type: 'text', value: (r) => r.billNo },
+    { id: 'date', label: 'Date', type: 'date', value: (r) => r.date, text: (r) => formatDate(r.date) },
+    { id: 'number', label: 'Voucher no.', type: 'text', value: (r) => r.number },
+    { id: 'taxable', label: 'Taxable value', type: 'money', align: 'right', value: (r) => r.taxable, text: (r) => formatAmount(r.taxable) },
+    { id: 'tax', label: 'GST', type: 'money', align: 'right', value: (r) => r.tax, text: (r) => formatAmount(r.tax) },
+    { id: 'status', label: 'Status', type: 'choice', value: (r) => itcStatusText(r), choices: ['ITC missing', 'Not checked'].map((v) => ({ value: v, label: v })) },
+    { id: 'period', label: 'GSTR-2B', type: 'text', value: (r) => (r.period ? gstr2bPeriodLabel(r.period) : '') },
   ];
 }
 

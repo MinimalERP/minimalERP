@@ -61,7 +61,7 @@ export type ScreenRef =
 
 export type MasterMode = 'create' | 'display' | 'alter';
 export type VoucherMode = 'create' | 'display' | 'alter';
-export type ReportKind = 'daybook' | 'ledger' | 'stock-summary' | 'stock-item' | 'sales-orders' | 'purchase-orders' | 'sales-register' | 'party-items' | 'vouchers' | 'trial-balance' | 'book' | 'profit-loss' | 'balance-sheet' | 'outstanding' | 'gstr1' | 'gstr3b' | 'gst-purchases';
+export type ReportKind = 'daybook' | 'ledger' | 'stock-summary' | 'stock-item' | 'sales-orders' | 'purchase-orders' | 'sales-register' | 'party-items' | 'vouchers' | 'trial-balance' | 'book' | 'profit-loss' | 'balance-sheet' | 'outstanding' | 'gstr1' | 'gstr3b' | 'gst-purchases' | 'gst-itc';
 const MODES: readonly string[] = ['create', 'display', 'alter'];
 
 export const GATEWAY: ScreenRef = { type: 'menu', id: 'gateway' };
@@ -118,7 +118,7 @@ export function refToHash(ref: ScreenRef): string {
       if (ref.report === 'book' && ref.kind) return `#/report/book/${encodeURIComponent(ref.kind)}`;
       if (ref.report === 'outstanding' && ref.kind) return `#/report/outstanding/${encodeURIComponent(ref.kind)}${ref.ledgerId ? `/${encodeURIComponent(ref.ledgerId)}` : ''}`;
       if (ref.report === 'vouchers' && ref.kind) return `#/report/vouchers/${encodeURIComponent(ref.kind)}`;
-      if ((ref.report === 'gstr1' || ref.report === 'gstr3b' || ref.report === 'gst-purchases') && ref.kind) return `#/report/${ref.report}/${encodeURIComponent(ref.kind)}`;
+      if ((ref.report === 'gstr1' || ref.report === 'gstr3b' || ref.report === 'gst-purchases' || ref.report === 'gst-itc') && ref.kind) return `#/report/${ref.report}/${encodeURIComponent(ref.kind)}`;
       if (ref.report === 'sales-orders' && ref.itemId) return `#/report/sales-orders/${encodeURIComponent(ref.itemId)}`;
       if (ref.report === 'purchase-orders' && ref.itemId) return `#/report/purchase-orders/${encodeURIComponent(ref.itemId)}`;
       return `#/report/${ref.report}`;
@@ -163,7 +163,7 @@ export function hashToRef(hash: string): ScreenRef | undefined {
       return undefined;
     }
   }
-  const report = /^\/report\/(daybook|ledger|stock-summary|stock-item|sales-orders|purchase-orders|sales-register|party-items|vouchers|trial-balance|book|profit-loss|balance-sheet|outstanding|gstr1|gstr3b|gst-purchases)(?:\/(.+))?$/.exec(path);
+  const report = /^\/report\/(daybook|ledger|stock-summary|stock-item|sales-orders|purchase-orders|sales-register|party-items|vouchers|trial-balance|book|profit-loss|balance-sheet|outstanding|gstr1|gstr3b|gst-purchases|gst-itc)(?:\/(.+))?$/.exec(path);
   if (report) {
     if (report[1] === 'daybook') return { type: 'report', report: 'daybook' };
     if (report[1] === 'stock-summary') return { type: 'report', report: 'stock-summary' };
@@ -179,9 +179,10 @@ export function hashToRef(hash: string): ScreenRef | undefined {
         if (side !== 'receivable' && side !== 'payable') return undefined;
         return party ? { type: 'report', report: 'outstanding', kind: side, ledgerId: decodeURIComponent(party) } : { type: 'report', report: 'outstanding', kind: side };
       }
-      if (report[1] === 'gstr1' || report[1] === 'gstr3b' || report[1] === 'gst-purchases') {
+      if (report[1] === 'gstr1' || report[1] === 'gstr3b' || report[1] === 'gst-purchases' || report[1] === 'gst-itc') {
         if (report[2] === undefined) return { type: 'report', report: report[1] };
-        return /^\d{4}-(0[1-9]|1[0-2])$/.test(report[2]) ? { type: 'report', report: report[1], kind: report[2] } : undefined;
+        // a month, a quarter (a quarterly return) or a whole GST year (the ITC follow-up list)
+        return /^\d{4}-(0[1-9]|1[0-2]|Q[1-4]|FY)$/.test(report[2]) ? { type: 'report', report: report[1], kind: report[2] } : undefined;
       }
       if (report[1] === 'vouchers') return report[2] ? { type: 'report', report: 'vouchers', kind: decodeURIComponent(report[2]) } : undefined;
       if (report[1] === 'sales-orders') return report[2] ? { type: 'report', report: 'sales-orders', itemId: decodeURIComponent(report[2]) } : { type: 'report', report: 'sales-orders' };

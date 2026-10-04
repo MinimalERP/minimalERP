@@ -202,7 +202,15 @@ const commands: Command<AppContext>[] = [
     description: 'A month’s purchase invoices and input GST — and, with the GSTR-2B file from the GST portal, which of them the suppliers have filed',
     run: (app) => app.navigate({ type: 'report', report: 'gst-purchases' }),
   },
-  { id: 'gst.exportJson', title: 'Export GSTR-1 (JSON)', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Export JSON', group: 'Report', order: 44, on: ['report'] } },
+  {
+    id: 'report.gstItc',
+    title: 'ITC not matched',
+    category: 'Report',
+    keywords: ['gst', 'itc', 'itc missing', 'input tax credit', 'not matched', 'unmatched', 'follow up', 'supplier not filed', 'gstr-2b', '2b'],
+    description: 'Every purchase whose input credit no GSTR-2B has confirmed, by supplier — the list to follow suppliers up from',
+    run: (app) => app.navigate({ type: 'report', report: 'gst-itc' }),
+  },
+  { id: 'gst.exportJson',title: 'Export GSTR-1 (JSON)', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Export JSON', group: 'Report', order: 44, on: ['report'] } },
   { id: 'gst.exportCsv', title: 'Export GSTR-1 (CSV)', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Export CSV', group: 'Report', order: 45, on: ['report'] } },
   { id: 'gst.view', title: 'Switch invoices / HSN summary', category: 'Reports', hidden: true, configurable: true, panel: { label: 'HSN summary', group: 'Report', order: 46, on: ['report'] } },
   { id: 'gst.load2b', title: 'Load GSTR-2B (the JSON from the GST portal) to match the purchases', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Load GSTR-2B', group: 'Report', order: 46.2, on: ['report'], hideWhenUnavailable: true } },
@@ -253,6 +261,7 @@ const menu: MenuEntry[] = [
   { section: 'reports', commandId: 'report.gstr1', order: 40, group: 'GST' },
   { section: 'reports', commandId: 'report.gstr3b', order: 41, group: 'GST' },
   { section: 'reports', commandId: 'report.gstPurchases', order: 42, group: 'GST' },
+  { section: 'reports', commandId: 'report.gstItc', order: 43, group: 'GST' },
 ];
 
 export const reportsModule: ModuleManifest<AppContext> = { id: 'reports', commands, bindings, menu };

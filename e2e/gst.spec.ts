@@ -321,6 +321,18 @@ test.describe('input GST on purchases is shown to review, never claimed', () => 
     await expect(app.getByTestId('invoice-total')).toHaveText('11,800.00');
     await app.keyboard.press('Control+a');
 
+    // no GSTR-2B has confirmed it: it is on the follow-up list for the year, and Enter opens it
+    await openReport(app, 'ITC not matched');
+    await expect(gridRows(app)).toHaveCount(1);
+    await expect(gridRows(app).first()).toContainText('Steel Supplies Pvt Ltd');
+    await expect(gridRows(app).first()).toContainText('SS-77');
+    await expect(gridRows(app).first()).toContainText('Not checked');
+    await expect(app.getByTestId('gst-itc-tax')).toHaveText('1,800.00');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText(/^Display Purchase PUR\//);
+    await app.keyboard.press('Escape');
+    await app.keyboard.press('Escape');
+
     await openReport(app, 'GSTR-3B');
     await expect(app.getByTestId('gst-review')).toHaveText('1,800.00');
     await expect(app.getByTestId('gst-output')).toHaveText('0.00');
