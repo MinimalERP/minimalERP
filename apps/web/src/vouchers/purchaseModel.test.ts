@@ -15,6 +15,8 @@ import {
   openOrderLines,
   openOrdersOf,
   orderCallName,
+  paidFromOptions,
+  paymentForPurchase,
   partyDetailsOfParty,
   previewSales,
   salesFormFromVoucher,
@@ -93,6 +95,35 @@ describe('a purchase invoice form', () => {
     expect(r.ok).toBe(false);
     expect(r.issues[0]).toMatchObject({ field: 'billno', code: 'BILL_REF_IN_USE' });
     expect(previewSales({ ...form, billNo: 'BC-78' }, 'purchase', books.masters, books.stock, books.orders, undefined, books.vouchers).ok).toBe(true);
+  });
+});
+
+describe('a purchase paid on the spot', () => {
+  it('is paid from a cash or bank ledger only', async () => {
+    const books = await demo();
+    const names = paidFromOptions(books.masters).map((o) => o.name);
+    expect(names).toContain('Cash');
+    expect(names).not.toContain('Purchase - Raw Material');
+    expect(paidFromOptions(books.masters).every((o) => books.masters.isCashOrBank(o.id as never))).toBe(true);
+  });
+
+  it('its Payment credits that ledger and settles the supplier’s bill in full, and posts', async () => {
+    const books = await demo();
+    const cash = paidFromOptions(books.masters).find((o) => o.name === 'Cash')!;
+    const form = { ...blankSalesForm('p9', typeOf(books, 'purchase'), '2026-06-01', 'k1', { warehouse: main(books), salesLedger: defaultSalesLedger(books.masters, 'purchase') }), partyId: steel(), partyLabel: 'Steel Supplies Pvt Ltd', partyDetails: partyDetailsOfParty(books.masters.party(steel() as never)!), billNo: 'SS/905' };
+    form.lines = [{ ...form.lines[0]!, itemId: id('stockItem', 'MS Sheet 2mm'), itemLabel: 'MS Sheet 2mm', qty: '100', rate: '59.25' }];
+    const bought = await books.post(formToSalesDraft(form, 'purchase', books.masters).draft);
+    if (!bought.ok) throw new Error(JSON.stringify(bought.issues));
+    const draft = paymentForPurchase(books.masters, bought.value.voucher, cash.id, 'pay-9')!;
+    expect(draft).toMatchObject({
+      date: bought.value.voucher.date,
+      accountLedgerId: cash.id,
+      narration: `Paid on purchase ${bought.value.voucher.number}`,
+      lines: [{ amount: '5925.00', allocations: [{ kind: 'against', ref: 'SS/905', amount: '5925.00' }] }],
+    });
+    expect(books.masters.ledger((draft['lines'] as { ledgerId: string }[])[0]!.ledgerId as never)?.partyId).toBe(steel());
+    const paid = await books.post(draft);
+    expect(paid.ok).toBe(true);
   });
 });
 

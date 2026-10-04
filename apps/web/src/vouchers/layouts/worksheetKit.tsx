@@ -303,6 +303,11 @@ export function useVoucherSave(o: {
   readonly initialBanner?: VoucherBanner | undefined;
   /** Other questions accept confirms, by name (`cancel` is built in). */
   readonly confirms?: Readonly<Record<string, () => Promise<void>>>;
+  /**
+   * A new voucher that was just saved may bring another with it (a purchase paid on the spot: its Payment). What it says is added to "saved";
+   * when it could not be done (`ok: false`) the window stays, with a fresh form, and says so.
+   */
+  readonly afterPost?: (saved: Voucher) => Promise<{ readonly ok: boolean; readonly text: string } | undefined>;
 }) {
   const { app } = useServices();
   const [busy, setBusy] = useState(false);
@@ -341,14 +346,16 @@ export function useVoucherSave(o: {
         return;
       }
       await o.books.clearDraft(o.draftKey);
+      const also = await o.afterPost?.(r.value.voucher);
       // Saved: the window closes back to where it was opened from, handing over what it made (a voucher list highlights it). Save and new stays instead.
-      if (closeAfter) {
-        app.back({ id: r.value.voucher.id, number: r.value.voucher.number, typeName: o.typeName ?? 'Voucher' });
+      if (closeAfter && also?.ok !== false) {
+        app.back({ id: r.value.voucher.id, number: r.value.voucher.number, typeName: o.typeName ?? 'Voucher', ...(also ? { also: also.text } : {}) });
         return;
       }
       o.setShowErrors(false);
       o.setFieldErrors({});
-      setBanner({ text: `${o.typeName ?? 'Voucher'} ${r.value.voucher.number} saved.`, tone: 'ok' });
+      const saved = `${o.typeName ?? 'Voucher'} ${r.value.voucher.number} saved`;
+      setBanner(also ? { text: `${saved} ${also.text}`, tone: also.ok ? 'ok' : 'error' } : { text: `${saved}.`, tone: 'ok' });
       o.startNew();
     });
   };

@@ -86,6 +86,28 @@ test.describe('the Purchase Invoice window (F9)', () => {
     await expect(heading(app)).toHaveText(/^Display Purchase PUR\/\d\d-\d\d\/\d{4}$/); // Enter on the bill opens the invoice that raised it
   });
 
+  test('“Paid from” on the panel: the purchase and its Payment are saved together, and no bill is left outstanding', async ({ app }) => {
+    await app.keyboard.press('F9');
+    await expect(app.locator('[data-vf="paidfrom"]')).toHaveCount(0); // not asked for until it is wanted
+    await fillBharat(app, 'BC-103');
+    await panel(app).getByRole('button', { name: /Paid from/ }).click();
+    await expect(app.locator('[data-vf="paidfrom"]')).toBeFocused();
+    await app.keyboard.type('cash');
+    await expect(app.getByTestId('picker')).toContainText('Cash');
+    await app.keyboard.press('Enter');
+    await expect(app.locator('[data-vf="paidfrom"]')).toHaveValue('Cash');
+    await app.keyboard.press('Alt+n');
+    await expect(banner(app)).toContainText(/Purchase PUR\/\S+ saved and paid: Payment PAY\/\S+ from Cash\./);
+    await expect(app.locator('[data-vf="paidfrom"]')).toHaveValue('Cash'); // the next one is paid from the same place
+    await app.keyboard.press('Escape');
+    await app.keyboard.press('Escape');
+
+    await openReport(app, 'Outstanding Payables');
+    await expect(gridRows(app).filter({ hasText: 'Bharat Chemicals' })).toContainText('1,500.00'); // only BC-77, as before: the new bill is paid
+    await gridRows(app).filter({ hasText: 'Bharat Chemicals' }).click();
+    await expect(gridRows(app).filter({ hasText: 'BC-103' })).toHaveCount(0);
+  });
+
   test('the books follow: Purchases in the Trading account, the stock in, the Balance Sheet still balanced', async ({ app }) => {
     await app.keyboard.press('F9');
     await fillBharat(app, 'BC-102');

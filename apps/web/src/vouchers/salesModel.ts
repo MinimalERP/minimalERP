@@ -17,6 +17,8 @@ import {
   canonicalPercent,
   deriveGstHeader,
   grandTotalParts,
+  gstOfContent,
+  partyLedgerId,
   isPercentText,
   defaultVoucherKinds,
   formatQty,
@@ -100,6 +102,10 @@ export interface SalesForm {
   purpose?: ChallanPurpose;
   /** Returnable challan: this is the return of that challan. */
   returnOf?: string;
+  /** New purchase invoice: "Paid from" is asked for (the panel's button), and the cash or bank ledger it is paid from — a Payment is posted with it. */
+  paidOn?: boolean;
+  paidFromId?: string;
+  paidFromLabel?: string;
   lines: SalesLineForm[];
 }
 
@@ -230,6 +236,33 @@ export function defaultSalesLedger(masters: Masters, side: DocSide = 'sales'): {
   const all = salesLedgerOptions(masters, side);
   const pick = all.length === 1 ? all[0] : all.find((o) => (side === 'sales' ? /^sales( account)?$/i : /^purchases?( account)?$/i).test(o.name));
   return pick ? { id: pick.id, label: pick.name } : undefined;
+}
+
+/** What a purchase paid on the spot may be paid from: the active cash and bank ledgers. */
+export const paidFromOptions = (masters: Masters): Option[] =>
+  masters.ledgers
+    .filter((l) => l.isActive && masters.isCashOrBank(l.id))
+    .map((l) => ({ id: l.id, name: l.name, sub: masters.groups.get(l.groupId)?.name ?? '' }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+/**
+ * The Payment that pays a posted purchase invoice in full, on its own date: the cash or bank ledger is credited, the supplier debited for the
+ * invoice's total (rounded, with its GST) against the bill the invoice raised. Nothing when there is no Payment voucher type.
+ */
+export function paymentForPurchase(masters: Masters, purchase: Voucher, paidFromId: string, id: string): Record<string, unknown> | undefined {
+  const type = masters.voucherTypes.find((t) => t.baseKind === 'payment' && t.isSystem) ?? masters.voucherTypes.find((t) => t.baseKind === 'payment');
+  if (!type) return undefined;
+  const c = purchase.content as unknown as { partyId: string; billNo: string; lines: { qty: string; rate: string }[] };
+  const total = grandTotalParts(c.lines, gstOfContent(purchase.content)).rounded;
+  const amount = `${total / 100n}.${String(total % 100n).padStart(2, '0')}`;
+  return {
+    id,
+    voucherTypeId: type.id,
+    date: purchase.date,
+    narration: `Paid on purchase ${purchase.number}`,
+    accountLedgerId: paidFromId,
+    lines: [{ ledgerId: partyLedgerId(c.partyId as never, 'vendor'), amount, allocations: [{ kind: 'against', ref: c.billNo, amount }] }],
+  };
 }
 
 /** The goods a sales line may name: active items that hold stock. */

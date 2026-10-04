@@ -44,6 +44,8 @@ import {
   previewSales,
   salesFormFromVoucher,
   salesKindOf,
+  paidFromOptions,
+  paymentForPurchase,
   salesLedgerOptions,
   switchSales,
   trimPlaces,
@@ -71,7 +73,7 @@ import { Cell, type CellHost, PickerList, focusKeyOf, matchOptions, useFieldFocu
 
 const SCOPE = 'screen:voucher';
 
-type Kind = 'date' | 'party' | 'ref' | 'purpose' | 'eway' | 'sledger' | 'billno' | 'due' | 'item' | 'wh' | 'ord' | 'ldue' | 'qty' | 'rate' | 'gst' | 'narration';
+type Kind = 'date' | 'party' | 'ref' | 'purpose' | 'eway' | 'sledger' | 'billno' | 'due' | 'paidfrom' | 'item' | 'wh' | 'ord' | 'ldue' | 'qty' | 'rate' | 'gst' | 'narration';
 interface Field {
   readonly key: string;
   readonly kind: Kind;
@@ -96,6 +98,8 @@ function fieldsOf(form: SalesForm, kind: ItemDocKind, gstOn = false): Field[] {
     out.push({ key: 'sledger', kind: 'sledger' });
     if (p.side === 'purchase') out.push({ key: 'billno', kind: 'billno' });
     out.push({ key: 'due', kind: 'due' });
+    // asked for from the panel ("Paid from"): a purchase paid on the spot
+    if (p.side === 'purchase' && form.paidOn) out.push({ key: 'paidfrom', kind: 'paidfrom' });
   }
   form.lines.forEach((l, i) => {
     out.push({ key: `l${i}.item`, kind: 'item', line: i });
@@ -281,6 +285,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   // a returnable challan goes to a supplier: the parties are the other side's
   const parties = useMemo(() => customerOptions(masters, p.role === 'vendor' ? 'purchase' : 'sales'), [masters, p.role]);
   const salesLedgers = useMemo(() => salesLedgerOptions(masters, p.side), [masters, p.side]);
+  const paidFrom = useMemo(() => paidFromOptions(masters), [masters]);
   const items = useMemo(() => itemOptions(masters), [masters]);
   const godowns: Option[] = useMemo(() => masters.warehouses.filter((w) => w.isActive).map((w) => ({ id: w.id, name: w.name, sub: '' })), [masters]);
   const shownDue = (d: string): string => formatDate(d).replace(/-20(\d\d)$/, '-$1');
@@ -335,14 +340,14 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const writtenHere = current.kind === 'item' && current.line !== undefined && form.lines[current.line]?.oneTime === true;
   const pickerKind = writtenHere
     ? undefined
-    : ((['party', 'sledger', 'item', 'wh', 'ord', 'purpose'] as const).find((k) => k === current.kind) ?? (current.kind === 'ref' && refOptions.length > 0 ? ('ref' as const) : undefined));
+    : ((['party', 'sledger', 'paidfrom', 'item', 'wh', 'ord', 'purpose'] as const).find((k) => k === current.kind) ?? (current.kind === 'ref' && refOptions.length > 0 ? ('ref' as const) : undefined));
   const options: readonly Option[] =
-    pickerKind === 'purpose' ? PURPOSE_OPTIONS : pickerKind === 'party' ? parties : pickerKind === 'sledger' ? salesLedgers : pickerKind === 'item' ? items : pickerKind === 'wh' ? godowns : pickerKind === 'ord' ? [...orderOptions, ...challanOptions] : pickerKind === 'ref' ? refOptions : [];
+    pickerKind === 'purpose' ? PURPOSE_OPTIONS : pickerKind === 'party' ? parties : pickerKind === 'sledger' ? salesLedgers : pickerKind === 'paidfrom' ? paidFrom : pickerKind === 'item' ? items : pickerKind === 'wh' ? godowns : pickerKind === 'ord' ? [...orderOptions, ...challanOptions] : pickerKind === 'ref' ? refOptions : [];
   const pickerOn = !readOnly && pickerKind !== undefined;
   const typedLabel =
-    pickerKind === 'purpose' ? purposeText : pickerKind === 'party' ? form.partyLabel : pickerKind === 'sledger' ? form.salesLedgerLabel : pickerKind === 'item' ? (line?.itemLabel ?? '') : pickerKind === 'wh' ? (line?.warehouseLabel ?? '') : pickerKind === 'ord' ? (line?.orderLabel ?? '') : pickerKind === 'ref' ? form.reference : '';
+    pickerKind === 'purpose' ? purposeText : pickerKind === 'party' ? form.partyLabel : pickerKind === 'sledger' ? form.salesLedgerLabel : pickerKind === 'paidfrom' ? (form.paidFromLabel ?? '') : pickerKind === 'item' ? (line?.itemLabel ?? '') : pickerKind === 'wh' ? (line?.warehouseLabel ?? '') : pickerKind === 'ord' ? (line?.orderLabel ?? '') : pickerKind === 'ref' ? form.reference : '';
   const storedId =
-    pickerKind === 'purpose' ? (form.purpose ?? 'sale') : pickerKind === 'party' ? form.partyId : pickerKind === 'sledger' ? form.salesLedgerId : pickerKind === 'item' ? (line?.itemId ?? '') : pickerKind === 'wh' ? (line?.warehouseId ?? '') : pickerKind === 'ord' ? (line && line.orderId !== '' ? orderId({ orderId: line.orderId, lineId: line.orderLineId }) : line?.challanId ? `dc:${line.challanId}|${line.challanLineId}` : '') : pickerKind === 'ref' ? (refOptions.find((o) => o.name === form.reference)?.id ?? '') : '';
+    pickerKind === 'purpose' ? (form.purpose ?? 'sale') : pickerKind === 'party' ? form.partyId : pickerKind === 'sledger' ? form.salesLedgerId : pickerKind === 'paidfrom' ? (form.paidFromId ?? '') : pickerKind === 'item' ? (line?.itemId ?? '') : pickerKind === 'wh' ? (line?.warehouseId ?? '') : pickerKind === 'ord' ? (line && line.orderId !== '' ? orderId({ orderId: line.orderId, lineId: line.orderLineId }) : line?.challanId ? `dc:${line.challanId}|${line.challanLineId}` : '') : pickerKind === 'ref' ? (refOptions.find((o) => o.name === form.reference)?.id ?? '') : '';
   const storedName = pickerKind === 'ord' ? (line && (line.orderId !== '' || line.challanId) ? line.orderLabel : '') : (options.find((o) => o.id === storedId)?.name ?? '');
   const pickerDismissed = picker.dismissed;
   // A list opens when something is TYPED and offers only what matches; an empty (or already chosen) field shows no list. The two order pickers are
@@ -453,6 +458,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       clearError('sledger');
       return;
     }
+    if (f.kind === 'paidfrom') {
+      update((x) => ({ ...x, paidFromId: o.id, paidFromLabel: o.name }));
+      clearError('paidfrom');
+      return;
+    }
     if (f.line === undefined) return;
     if (f.kind === 'item') {
       const l = fresh().lines[f.line] as SalesLineForm;
@@ -558,6 +568,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         if (storedId === '') return;
         if (pickerKind === 'party') update((x) => ({ ...x, partyId: '', partyLabel: '', partyDetails: undefined }));
         else if (pickerKind === 'sledger') update((x) => ({ ...x, salesLedgerId: '', salesLedgerLabel: '' }));
+        else if (pickerKind === 'paidfrom') update((x) => ({ ...x, paidFromId: '', paidFromLabel: '' }));
         else if (current.line !== undefined) {
           if (pickerKind === 'item') setLine(current.line, { itemId: '', itemLabel: '' });
           else if (pickerKind === 'wh') setLine(current.line, { warehouseId: '', warehouseLabel: '' });
@@ -593,6 +604,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             ? `No open order line of this ${p.noun} matches`
             : pickerKind === 'party'
               ? `No such ${p.noun} — press Alt+C to create it`
+              : pickerKind === 'paidfrom'
+                ? 'No such cash or bank ledger — leave it empty for a purchase on credit'
               : pickerKind === 'item' && p.invoice
                 ? 'No match — Alt+C creates the item, Alt+T writes it as a one-time line'
                 : 'No match — press Alt+C to create it',
@@ -744,7 +757,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     return true;
   };
   const createInline = (): boolean => {
-    if (readOnly || !pickerOn || pickerKind === undefined || pickerKind === 'ord' || pickerKind === 'ref' || pickerKind === 'purpose') return false;
+    if (readOnly || !pickerOn || pickerKind === undefined || pickerKind === 'ord' || pickerKind === 'ref' || pickerKind === 'purpose' || pickerKind === 'paidfrom') return false;
     const f = current;
     const masterKind = pickerKind === 'party' ? 'party' : pickerKind === 'sledger' ? 'ledger' : pickerKind === 'item' ? 'stockItem' : 'warehouse';
     void app
@@ -832,12 +845,13 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           if (pickerKind === 'purpose') setPurposeTyped(undefined);
           else if (pickerKind === 'party') update((x) => ({ ...x, partyLabel: storedName }));
           else if (pickerKind === 'sledger') update((x) => ({ ...x, salesLedgerLabel: storedName }));
+          else if (pickerKind === 'paidfrom') update((x) => ({ ...x, paidFromLabel: storedName }));
           else if (current.line !== undefined) {
             setLine(current.line, pickerKind === 'item' ? { itemLabel: storedName } : pickerKind === 'wh' ? { warehouseLabel: storedName } : { orderLabel: storedName });
           }
         }
         go(previous);
-        if (/(^party$|^purpose$|^sledger$|\.item$|\.wh$|\.ord$)/.test(previous)) picker.setClosed(previous);
+        if (/(^party$|^purpose$|^sledger$|^paidfrom$|\.item$|\.wh$|\.ord$)/.test(previous)) picker.setClosed(previous);
         return true;
       }
     }
@@ -874,12 +888,30 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     startNew: () => {
       const f = fresh();
       // a challan keeps its purpose: challans are usually made in runs of one kind
-      setFormState({ ...blankSalesForm(crypto.randomUUID(), form.typeId, f.date, crypto.randomUUID(), { warehouse: defaultGodown(books), salesLedger: { id: f.salesLedgerId, label: f.salesLedgerLabel } }), ...(f.purpose ? { purpose: f.purpose } : {}) });
+      // a run of purchases paid on the spot keeps where they are paid from
+      setFormState({ ...blankSalesForm(crypto.randomUUID(), form.typeId, f.date, crypto.randomUUID(), { warehouse: defaultGodown(books), salesLedger: { id: f.salesLedgerId, label: f.salesLedgerLabel } }), ...(f.purpose ? { purpose: f.purpose } : {}), ...(f.paidOn ? { paidOn: true, paidFromId: f.paidFromId ?? '', paidFromLabel: f.paidFromLabel ?? '' } : {}) });
       go('party');
     },
     initialBanner: inboxBanner(fromInbox),
     confirms: { close: () => closeOrder() },
+    // a purchase paid on the spot: its Payment is posted with it
+    afterPost: async (saved) => {
+      const f = fresh();
+      if (kind !== 'purchase' || !f.paidOn || (f.paidFromId ?? '') === '') return undefined;
+      const from = f.paidFromLabel ?? '';
+      const draft = paymentForPurchase(masters, saved, f.paidFromId ?? '', crypto.randomUUID());
+      const paid = draft ? await books.post(draft) : undefined;
+      if (paid?.ok) return { ok: true, text: `and paid: Payment ${paid.value.voucher.number} from ${from}.` };
+      return { ok: false, text: `— but it was NOT paid from ${from}: ${paid?.issues[0]?.message ?? 'there is no Payment voucher type'}. Its bill is open: pay it with a Payment voucher.` };
+    },
   });
+  /** The panel's "Paid from": the field appears beside the bill's due date, and the cursor goes to it. */
+  const askPaidFrom = (): boolean => {
+    if (!settle()) return true;
+    update((f) => ({ ...f, paidOn: true }));
+    go('paidfrom');
+    return true;
+  };
   const { accept, acceptAndNew, acceptKey, confirm, setConfirm, banner, setBanner } = save;
   /** Closing an order is an alteration (it is versioned and audited like one): the same document with `closed` set. */
   const closeOrder = (): Promise<void> =>
@@ -927,11 +959,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         show={show}
         hits={hits}
         index={pickIndex}
-        label={pickerKind === 'purpose' ? 'Purpose' : pickerKind === 'party' ? p.nounPlural : pickerKind === 'sledger' ? `${p.ledgerLabel}s` : pickerKind === 'item' ? 'Stock items' : pickerKind === 'wh' ? 'Godowns' : pickerKind === 'ref' ? (challanRefOptions.length > 0 ? 'Open orders and challans' : 'Open orders') : challanOptions.length > 0 ? 'Open order and challan lines' : 'Open order lines'}
+        label={pickerKind === 'purpose' ? 'Purpose' : pickerKind === 'party' ? p.nounPlural : pickerKind === 'sledger' ? `${p.ledgerLabel}s` : pickerKind === 'paidfrom' ? 'Cash and bank ledgers' : pickerKind === 'item' ? 'Stock items' : pickerKind === 'wh' ? 'Godowns' : pickerKind === 'ref' ? (challanRefOptions.length > 0 ? 'Open orders and challans' : 'Open orders') : challanOptions.length > 0 ? 'Open order and challan lines' : 'Open order lines'}
         onChoose={(o) => choose(o)}
         typed={typedLabel}
         storedName={storedName}
-        canCreate={pickerKind !== 'ord' && pickerKind !== 'ref' && pickerKind !== 'purpose'}
+        canCreate={pickerKind !== 'ord' && pickerKind !== 'ref' && pickerKind !== 'purpose' && pickerKind !== 'paidfrom'}
         meta={(o) => pickerKind === 'item' && <span class="row-meta amt">{stockOf(o.id)}</span>}
         hint={
           <>
@@ -1146,7 +1178,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       {!readOnly && <Only scope={SCOPE} command="voucher.changeDate" run={changeDate} />}
       {(!readOnly || confirm !== undefined) && <Only scope={SCOPE} command="voucher.accept" run={acceptKey} />}
       {!readOnly && mode === 'create' && <Only scope={SCOPE} command="voucher.acceptAndNew" run={acceptAndNew} />}
-      {pickerOn && pickerKind !== 'ord' && pickerKind !== 'ref' && pickerKind !== 'purpose' && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
+      {pickerOn && pickerKind !== 'ord' && pickerKind !== 'ref' && pickerKind !== 'purpose' && pickerKind !== 'paidfrom' && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
+      {!readOnly && mode === 'create' && kind === 'purchase' && <Only scope={SCOPE} command="voucher.paidFrom" run={askPaidFrom} />}
       {!readOnly && <Only scope={SCOPE} command="voucher.partyDetails" run={openPartyDetails} />}
       {!readOnly && p.invoice && <Only scope={SCOPE} command="voucher.againstOrder" run={againstOrder} />}
       {!readOnly && p.invoice && current.kind === 'item' && oneTimeFor === undefined && <Only scope={SCOPE} command="voucher.oneTimeLine" run={openOneTime} />}
@@ -1442,6 +1475,16 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
               />
               {errorOf('due')}
             </div>
+            {p.side === 'purchase' && form.paidOn && (
+              <>
+                <label class="vlabel" for="v-paidfrom">
+                  Paid from
+                </label>
+                <div class={isFocus('paidfrom') ? 'vfield active' : 'vfield'}>
+                  {pickerInput('paidfrom', 'Paid from', form.paidFromLabel ?? '', (v) => update((f) => ({ ...f, paidFromLabel: v })), 'paidfrom')}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
