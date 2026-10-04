@@ -330,6 +330,82 @@ test.describe('input GST on purchases is shown to review, never claimed', () => 
   });
 });
 
+test.describe('GSTR-2B matching on GST Purchases', () => {
+  test('the portal’s file against the purchases: matched, and one the books do not have — which opens a new purchase, filled', async ({ app }) => {
+    await loadDemo(app);
+    await chargeGst(app);
+    await goTo(app, 'company settings');
+    await app.keyboard.press('Enter');
+    const own = await app.locator('[data-field="gstin"]').inputValue();
+    await app.keyboard.press('Escape');
+
+    await app.keyboard.press('F9');
+    await expect(heading(app)).toHaveText('New Purchase Voucher');
+    await app.keyboard.type('steel');
+    for (let i = 0; i < 3; i++) await app.keyboard.press('Enter'); // → supplier inv no.
+    await app.keyboard.type('SS-77');
+    await app.keyboard.press('Enter'); // → bill due
+    await app.keyboard.press('Enter'); // → item
+    await app.keyboard.type('ms sheet');
+    for (let i = 0; i < 3; i++) await app.keyboard.press('Enter'); // → qty
+    await app.keyboard.type('100');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('100');
+    await app.keyboard.press('Enter');
+    await expect(app.getByTestId('gst-igst')).toHaveText('1,800.00');
+    await app.keyboard.press('Control+a');
+
+    await openReport(app, 'GST Purchases');
+    await expect(gridRows(app)).toHaveCount(1);
+    const supplier = ((await gridRows(app).first().locator('td').filter({ hasText: /^24[A-Z0-9]{13}$/ }).textContent()) ?? '').trim();
+    expect(supplier).toHaveLength(15);
+
+    const now = new Date();
+    const two = (n: number) => String(n).padStart(2, '0');
+    const dt = `${two(now.getDate())}-${two(now.getMonth() + 1)}-${now.getFullYear()}`;
+    const file = {
+      data: {
+        gstin: own,
+        rtnprd: `${two(now.getMonth() + 1)}${now.getFullYear()}`,
+        docdata: {
+          b2b: [
+            {
+              ctin: supplier,
+              trdnm: 'STEEL SUPPLIES PRIVATE LIMITED',
+              inv: [
+                { inum: 'ss/077', dt, val: 11800, txval: 10000, igst: 1800, cgst: 0, sgst: 0, rev: 'N', itcavl: 'Y' }, // our SS-77, written their way
+                { inum: 'SS-90', dt, val: 5900, txval: 5000, igst: 900, cgst: 0, sgst: 0, rev: 'N', itcavl: 'Y' },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    await expect(app.getByTestId('action-panel').getByRole('button', { name: /Load GSTR-2B/ })).toBeVisible();
+    await app.getByTestId('gst-2b-file').setInputFiles({ name: 'returns_R2B.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file)) });
+    await expect(heading(app)).toContainText('GSTR-2B');
+    await expect(app.getByTestId('gst-notice')).toContainText('2 invoices');
+    await expect(gridRows(app)).toHaveCount(2);
+    await expect(app.getByTestId('gst-2b-matched')).toHaveText('1,800.00');
+    await expect(app.getByTestId('gst-2b-not-in-books')).toHaveText('900.00');
+    await expect(app.getByTestId('action-panel').getByRole('button', { name: /Tag matched/ })).toHaveCount(0); // tags are kept in the online books only
+
+    await gridRows(app).filter({ hasText: 'Not in books' }).click();
+    await expect(heading(app)).toHaveText('New Purchase Voucher');
+    await expect(app.locator('[data-vf="party"]')).toHaveValue('Steel Supplies Pvt Ltd'); // the party whose GSTIN it is
+    await expect(app.locator('[data-vf="billno"]')).toHaveValue('SS-90');
+    await expect(banner(app)).toContainText('From GSTR-2B');
+  });
+
+  test('a GSTR-1 file is refused by name', async ({ app }) => {
+    await loadDemo(app);
+    await openReport(app, 'GST Purchases');
+    await app.getByTestId('gst-2b-file').setInputFiles({ name: 'returns_R1.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ gstin: 'X', fp: '062026', b2b: [] })) });
+    await expect(app.getByTestId('gst-notice')).toContainText('GSTR-1');
+    await expect(heading(app)).toHaveText('GST Purchases');
+  });
+});
+
 /** Ctrl+A on an invoice: saved, and the window has closed back to where it was opened. */
 async function save(page: Page): Promise<void> {
   await page.keyboard.press('Control+a');

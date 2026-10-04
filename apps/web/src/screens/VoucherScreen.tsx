@@ -1,6 +1,7 @@
 import type { Frame } from '@minimalerp/command';
 import { type Voucher, type VoucherKindRegistry, defaultVoucherKinds } from '@minimalerp/domain';
 import type { InboxItem } from '@minimalerp/ports';
+import type { PurchasePrefill } from '../vouchers/salesModel';
 import { useEffect, useRef } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { useCommandHandler, useServices, useSubscriptions } from '../shell/hooks';
@@ -113,9 +114,11 @@ interface Props {
   readonly fromInbox?: InboxItem | undefined;
   /** create, receipt / payment: the posted invoice / bill it settles, filled in. */
   readonly fromBill?: string | undefined;
+  /** create, purchase invoice: the GSTR-2B invoice it is entered for. */
+  readonly from2b?: PurchasePrefill | undefined;
 }
 
-export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotation, fromInbox, fromBill }: Props) {
+export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotation, fromInbox, fromBill, from2b }: Props) {
   const { books: host, keymapStore } = useServices();
   useSubscriptions(host, keymapStore);
   const books = host.current;
@@ -155,7 +158,7 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotati
     return (
       <>
         {paging}
-        <ItemInvoiceEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} fromOrder={fromOrder} fromQuotation={fromQuotation} fromInbox={mode === 'create' ? fromInbox : undefined} />
+        <ItemInvoiceEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} fromOrder={fromOrder} fromQuotation={fromQuotation} fromInbox={mode === 'create' ? fromInbox : undefined} from2b={mode === 'create' ? from2b : undefined} />
       </>
     );
   }

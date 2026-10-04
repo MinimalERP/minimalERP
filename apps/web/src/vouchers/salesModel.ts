@@ -109,7 +109,35 @@ export interface SalesForm {
   lines: SalesLineForm[];
 }
 
-export const blankSalesLine = (key: string, warehouse?: { id: string; label: string }, due?: string): SalesLineForm => ({
+/** An invoice GSTR-2B has and the books do not, as a new Purchase invoice starts with it: who, which invoice, when — the items are the person's to add. */
+export interface PurchasePrefill {
+  /** The supplier as the GST portal names it, and its GSTIN. */
+  readonly supplier: string;
+  readonly gstin: string;
+  readonly billNo: string;
+  readonly date?: string | undefined;
+  /** Said on the window: what the invoice comes to on the GST site. */
+  readonly note: string;
+}
+
+/** A blank purchase form filled from a GSTR-2B invoice: the party whose GSTIN it is (else the portal's name, typed, for Alt+C), the number and the date. */
+export function withPurchasePrefill(form: SalesForm, prefill: PurchasePrefill, masters: Masters): SalesForm {
+  const party = masters.parties.find((p) => p.isActive && (p.roles ?? []).includes('vendor') && canonicalId(p.gstin ?? '') === canonicalId(prefill.gstin));
+  const date = prefill.date && masters.financialYears.some((fy) => (prefill.date as string) >= fy.start && (prefill.date as string) <= fy.end) ? prefill.date : form.date;
+  const due = party ? dueDateFor(masters, party.id, date) : date;
+  return {
+    ...form,
+    date,
+    partyId: party?.id ?? '',
+    partyLabel: party?.name ?? prefill.supplier,
+    partyDetails: party ? partyDetailsOfParty(party) : undefined,
+    billNo: prefill.billNo,
+    due,
+    dueText: formatDate(due),
+  };
+}
+
+export const blankSalesLine =(key: string, warehouse?: { id: string; label: string }, due?: string): SalesLineForm => ({
   key,
   itemId: '',
   itemLabel: '',

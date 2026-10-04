@@ -309,6 +309,18 @@ export class SupabaseBooksBackend
     return r.ok ? ok((r.value as { last: LastMail | null }).last) : r;
   }
 
+  /** The purchase vouchers tagged "GST matched", each with the GSTR-2B period of its tag. */
+  async gstMatches(companyId: CompanyId): Promise<Result<Readonly<Record<string, string>>>> {
+    const r = await this.call({ action: 'gst-matches', companyId });
+    return r.ok ? ok((r.value as { matches: Record<string, string> }).matches) : r;
+  }
+
+  /** Tags posted purchase vouchers as found in a GSTR-2B period (the server leaves out anything that is not one). */
+  async tagGstMatched(companyId: CompanyId, voucherIds: readonly string[], period: string): Promise<Result<{ readonly tagged: number }>> {
+    const r = await this.call({ action: 'gst-match', companyId, period, voucherIds });
+    return r.ok ? ok(r.value as { tagged: number }) : r;
+  }
+
   /** Emails a party its statement (a payment reminder) through the company's Gmail (the server checks the addresses are that party's). */
   async sendLedgerMail(mail: LedgerMailOrder): Promise<Result<{ readonly sentTo: readonly string[] }>> {
     const r = await this.call({ action: 'send-ledger-mail', ...mail });

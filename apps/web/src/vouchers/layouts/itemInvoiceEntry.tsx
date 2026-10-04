@@ -1,5 +1,5 @@
 import type { Frame } from '@minimalerp/command';
-import { type ChallanPurpose, type Voucher, billStatusOf, isMailKind, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type ChallanPurpose, type Voucher, billStatusOf, gstr2bPeriodLabel, isMailKind, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { Only } from '../../shell/Only';
@@ -44,6 +44,8 @@ import {
   previewSales,
   salesFormFromVoucher,
   salesKindOf,
+  type PurchasePrefill,
+  withPurchasePrefill,
   paidFromOptions,
   paymentForPurchase,
   salesLedgerOptions,
@@ -138,6 +140,8 @@ interface Props {
   readonly fromOrder?: string | undefined;
   /** A new document made from an AI Inbox proposal (ADR-0023): it posts under the proposal's id. */
   readonly fromInbox?: InboxItem | undefined;
+  /** A new Purchase invoice for an invoice GSTR-2B has and the books do not. */
+  readonly from2b?: PurchasePrefill | undefined;
 }
 
 /**
@@ -147,7 +151,7 @@ interface Props {
  * header, the entry grid straight under it, narration at the foot, its actions in the panel — and an invoice and its order switch into each
  * other in place (F8 / Shift+F8, F9 / Shift+F9) keeping the party, the reference and the lines. What differs between the four is in `docProfile`.
  */
-export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrder, fromQuotation, fromInbox }: Props) {
+export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrder, fromQuotation, fromInbox, from2b }: Props) {
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books, keymapStore);
   const masters = books.masters;
@@ -187,9 +191,9 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const startForm = (): SalesForm =>
     voucher
       ? salesFormFromVoucher(voucher, masters, books.orders)
-      : (mode === 'create' && (inboxForm() ?? fromQuotationForm() ?? fromOrderForm())) || blankForm();
+      : (mode === 'create' && (inboxForm() ?? fromQuotationForm() ?? fromOrderForm() ?? (from2b ? withPurchasePrefill(blankForm(), from2b, masters) : undefined))) || blankForm();
   /** A proposal is its own starting point: it neither loads nor leaves a half-entered draft (that belongs to the ordinary New voucher). */
-  const drafts = mode === 'create' && !fromInbox;
+  const drafts = mode === 'create' && !fromInbox && !from2b;
 
   const [form, setFormState] = useFrameState<SalesForm>(frame, 'form', startForm());
   // a proposal opens on the first thing the reading could not settle: the party, else the first line without an item
@@ -198,7 +202,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     const i = form.lines.findIndex((l) => l.itemId === '');
     return i >= 0 ? `l${i}.item` : 'l0.qty';
   };
-  const [focusKey, setFocusKey] = useFrameState<string>(frame, 'focus', mode === 'create' ? (fromInbox ? firstOpen() : form.partyId !== '' ? 'l0.qty' : 'party') : 'date');
+  const [focusKey, setFocusKey] = useFrameState<string>(frame, 'focus', mode === 'create' ? (fromInbox || from2b ? firstOpen() : form.partyId !== '' ? 'l0.qty' : 'party') : 'date');
   const [dateText, setDateText] = useFrameState<string>(frame, 'dateText', formatDate(form.date));
   /** What is typed in a challan's purpose field before one is chosen; otherwise the field shows the chosen purpose. */
   const [purposeTyped, setPurposeTyped] = useFrameState<string | undefined>(frame, 'purposeTyped', undefined);
@@ -209,6 +213,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const [mailOpen, setMailOpen] = useState(false);
   /** When it was last emailed and to whom (null: never; undefined: not known here, or not a kind that is emailed). */
   const [lastMail, setLastMail] = useState<{ readonly at: string; readonly to: readonly string[] } | null | undefined>(undefined);
+  /** A purchase: the GSTR-2B period it was tagged "GST matched" in (undefined: not tagged, or tags are not kept here). */
+  const [gstTag, setGstTag] = useState<string | undefined>(undefined);
   const [reminding, setReminding] = useState(false);
   /** The dispatch docket's details window (Alt+D on a saved sales invoice). */
   const [docketOpen, setDocketOpen] = useState(false);
@@ -768,6 +774,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         seed: {
           // from a proposal, a new party or item starts with what the document printed: GSTIN and address; HSN, GST rate and unit
           ...(fromInbox && pickerKind === 'party' ? partySeedOf(fromInbox.proposal) : {}),
+          // from GSTR-2B, a new supplier starts with the GSTIN the portal has
+          ...(from2b && pickerKind === 'party' ? { gstin: from2b.gstin } : {}),
           ...(fromInbox && pickerKind === 'item' && line ? itemSeedOf(masters, line, fromInbox.proposal.lines.find((x) => x.text === line.itemLabel)?.unit) : {}),
           ...(typedLabel.trim() === '' ? {} : { name: typedLabel.trim() }),
           ...(pickerKind === 'party' ? { roleType: p.role } : {}),
@@ -892,7 +900,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       setFormState({ ...blankSalesForm(crypto.randomUUID(), form.typeId, f.date, crypto.randomUUID(), { warehouse: defaultGodown(books), salesLedger: { id: f.salesLedgerId, label: f.salesLedgerLabel } }), ...(f.purpose ? { purpose: f.purpose } : {}), ...(f.paidOn ? { paidOn: true, paidFromId: f.paidFromId ?? '', paidFromLabel: f.paidFromLabel ?? '' } : {}) });
       go('party');
     },
-    initialBanner: inboxBanner(fromInbox),
+    initialBanner: inboxBanner(fromInbox) ?? (from2b ? { text: from2b.note, tone: 'note' } : undefined),
     confirms: { close: () => closeOrder() },
     // a purchase paid on the spot: its Payment is posted with it
     afterPost: async (saved) => {
@@ -943,6 +951,16 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       live = false;
     };
   }, [voucher?.id, mailable]);
+  // a saved purchase says which GSTR-2B it was found in, once it was tagged from GST Purchases
+  useEffect(() => {
+    setGstTag(undefined);
+    if (propKind !== 'purchase' || !voucher || !books.canTagGst) return;
+    let live = true;
+    void books.gstMatches().then((m) => live && setGstTag(m[voucher.id]));
+    return () => {
+      live = false;
+    };
+  }, [voucher?.id, propKind]);
   const showFill = p.order && orderState !== undefined;
 
   const pickerList = (key: string) => {
@@ -1290,6 +1308,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           {lastMail !== undefined && !cancelled && (
             <span class={lastMail ? 'badge' : 'badge open'} data-testid="mail-status" title={lastMail ? `To ${lastMail.to.join(', ')}` : 'This has not been emailed from the ERP'}>
               {lastMail ? `Emailed ${mailedWhen(lastMail.at)}` : 'Not emailed'}
+            </span>
+          )}
+          {gstTag !== undefined && !cancelled && (
+            <span class="badge" data-testid="gst-matched" title="Found in the GSTR-2B of this period (tagged from GST Purchases)">
+              GST matched · 2B {gstr2bPeriodLabel(gstTag)}
             </span>
           )}
           {convertedTo && !cancelled && (

@@ -2,6 +2,7 @@ import type { ScreenStack } from '@minimalerp/command';
 import type { MasterKind } from '@minimalerp/domain';
 import type { InboxItem } from '@minimalerp/ports';
 import { isMasterKindName } from '../books/forms';
+import type { PurchasePrefill } from '../vouchers/salesModel';
 
 /**
  * A screen is described by data, never by a component: `{ type, id }`. The router below is the only
@@ -50,6 +51,8 @@ export type ScreenRef =
       readonly fromInbox?: InboxItem;
       /** A new Receipt / Payment that settles this posted invoice / bill (F6 / F5 on it), filled in. Not part of the address. */
       readonly fromBill?: string;
+      /** A new Purchase invoice for an invoice GSTR-2B has and the books do not: its supplier, number and date. Not part of the address. */
+      readonly from2b?: PurchasePrefill;
     }
   /** The AI Inbox: proposals made from documents sent from Gmail, waiting to be accepted or rejected. */
   | { readonly type: 'inbox' }

@@ -42,6 +42,8 @@ export interface GstInvoice {
   readonly number: string;
   readonly date: LocalDate;
   readonly side: GstSide;
+  /** A purchase: the supplier's own invoice number — what GSTR-2B knows the invoice by. */
+  readonly billNo?: string | undefined;
   readonly partyId: string;
   readonly party: string;
   readonly gstin: string;
@@ -102,6 +104,7 @@ export function uqcOf(unit: string | undefined, hsn: string | undefined): string
 
 interface Content {
   partyId?: string;
+  billNo?: string;
   partyDetails?: PartyDetails;
   lines?: { itemId?: string; description?: string; unit?: string; qty: string; rate: string; gstRate?: string; hsn?: string }[];
 }
@@ -159,6 +162,7 @@ export function gstInvoices({ vouchers, masters, side, range }: { vouchers: read
       number: v.number,
       date: v.date,
       side,
+      ...(typeof c.billNo === 'string' && c.billNo.trim() !== '' ? { billNo: c.billNo.trim() } : {}),
       partyId: c.partyId,
       party: party?.name ?? d?.mailingName ?? '',
       gstin,

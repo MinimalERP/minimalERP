@@ -196,17 +196,18 @@ const commands: Command<AppContext>[] = [
   },
   {
     id: 'report.gstPurchases',
-    title: 'GST Purchase Register',
+    title: 'GST Purchases',
     category: 'Report',
-    hidden: true,
-    configurable: false,
-    description: 'The purchase invoices and input GST behind GSTR-3B',
+    keywords: ['gst', 'purchase register', 'input tax', 'itc', 'gstr-2b', '2b', 'gstr2', 'matching', 'reconciliation'],
+    description: 'A month’s purchase invoices and input GST — and, with the GSTR-2B file from the GST portal, which of them the suppliers have filed',
     run: (app) => app.navigate({ type: 'report', report: 'gst-purchases' }),
   },
   { id: 'gst.exportJson', title: 'Export GSTR-1 (JSON)', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Export JSON', group: 'Report', order: 44, on: ['report'] } },
   { id: 'gst.exportCsv', title: 'Export GSTR-1 (CSV)', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Export CSV', group: 'Report', order: 45, on: ['report'] } },
   { id: 'gst.view', title: 'Switch invoices / HSN summary', category: 'Reports', hidden: true, configurable: true, panel: { label: 'HSN summary', group: 'Report', order: 46, on: ['report'] } },
-  { id: 'grid.sort', title: 'Sort by this column', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Sort', group: 'Report', order: 40, on: ['report'] } },
+  { id: 'gst.load2b', title: 'Load GSTR-2B (the JSON from the GST portal) to match the purchases', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Load GSTR-2B', group: 'Report', order: 46.2, on: ['report'], hideWhenUnavailable: true } },
+  { id: 'gst.tag2b', title: 'Tag the matched purchases “GST matched”', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Tag matched', group: 'Report', order: 46.3, on: ['report'], hideWhenUnavailable: true } },
+  { id: 'grid.sort',title: 'Sort by this column', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Sort', group: 'Report', order: 40, on: ['report'] } },
   { id: 'grid.filter', title: 'Filter this column', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Filter', group: 'Report', order: 41, on: ['report'] } },
   { id: 'grid.clear', title: 'Clear filters', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Clear filters', group: 'Report', order: 42, on: ['report'] } },
   { id: 'report.types', title: 'Filter by voucher type', category: 'Reports', hidden: true, configurable: true, panel: { label: 'Voucher types', group: 'Report', order: 43, on: ['report'] } },
@@ -251,6 +252,7 @@ const menu: MenuEntry[] = [
   { section: 'reports', commandId: 'report.partyItems', order: 34, group: 'Inventory & Sales' },
   { section: 'reports', commandId: 'report.gstr1', order: 40, group: 'GST' },
   { section: 'reports', commandId: 'report.gstr3b', order: 41, group: 'GST' },
+  { section: 'reports', commandId: 'report.gstPurchases', order: 42, group: 'GST' },
 ];
 
 export const reportsModule: ModuleManifest<AppContext> = { id: 'reports', commands, bindings, menu };

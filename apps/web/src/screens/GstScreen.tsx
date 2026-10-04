@@ -17,10 +17,19 @@ import {
   gstr1Validation,
   gstr3b,
   hsnRows,
+  type Gstr2bFile,
   type HeadCheck,
   type SystemLedgerKey,
+  GSTR2B_STATUS_LABELS,
+  canonicalId,
+  formatMoney,
+  gstr2bFromJson,
+  gstr2bPeriodLabel,
+  gstr2bTotals,
+  matchGstr2b,
 } from '@minimalerp/domain';
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { type Gstr2bGridRow, gstr2bColumns, gstr2bGridRows } from '../reports/gstr2bReport';
 import { defaultPeriod, findFinancialYear, gstr1Columns, gstr3bColumns, hsnColumns, parseMonth, parseQuarter, periodInYear, periodOfYm, quarterInYear, yearOf, type GstPeriod } from '../reports/gstReports';
 import { Only } from '../shell/Only';
 import { useCommandHandler, useFrameState, useListNavigation, useServices, useSubscriptions } from '../shell/hooks';
@@ -34,8 +43,9 @@ import { FieldsDialog } from './ReportDialogs';
 const SCOPE = 'screen:report';
 
 type GstReport = Extract<ReportKind, 'gstr1' | 'gstr3b' | 'gst-purchases'>;
-type View = 'invoices' | 'hsn';
-type AnyRow = Gstr1Row | HsnRow | Gstr3bRow;
+/** `2b`: GST Purchases with a GSTR-2B file loaded — the file's invoices against the books'. */
+type View = 'invoices' | 'hsn' | '2b';
+type AnyRow = Gstr1Row | HsnRow | Gstr3bRow | Gstr2bGridRow;
 
 /**
  * GSTR-1, the purchase register behind GSTR-3B, and GSTR-3B (ADR-0019): REPORTS of a month, on the same grid, with the same keys (F2 changes the
@@ -84,8 +94,31 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
     [summary, report, invoices, books.lines, masters],
   );
 
-  const columns = (report === 'gstr3b' ? gstr3bColumns() : view === 'hsn' ? hsnColumns() : gstr1Columns(side)) as readonly ColumnSpec<AnyRow>[];
-  const baseRows = (report === 'gstr3b' ? (summary?.rows ?? []) : view === 'hsn' ? hsn : invoiceRows) as readonly AnyRow[];
+  // ---- GSTR-2B: the portal's file against the purchases (GST Purchases only). The file is read here and kept for this window; nothing of it is stored. ----
+  const [file2b, setFile2b] = useFrameState<Gstr2bFile | undefined>(frame, 'file2b', undefined);
+  /** The purchases tagged "GST matched": voucher id → the 2B period (online books). */
+  const [tags, setTags] = useState<Readonly<Record<string, string>>>({});
+  const fileRef = useRef<HTMLInputElement>(null);
+  const loadTags = () => void books.gstMatches().then(setTags);
+  useEffect(() => {
+    if (report === 'gst-purchases') loadTags();
+  }, [report, books.vouchers]);
+  const show2b = report === 'gst-purchases' && view === '2b' && file2b !== undefined;
+  const rows2b = useMemo(
+    () =>
+      show2b && file2b
+        ? gstr2bGridRows(matchGstr2b({ file: file2b, purchases: gstInvoices({ vouchers: books.vouchers, masters, side: 'purchase', range: {} }), range, tagged: new Map(Object.entries(tags)) }))
+        : [],
+    [show2b, file2b, books.vouchers, masters, period.from, period.to, tags],
+  );
+
+  const invoiceColumns = (): ColumnSpec<Gstr1Row>[] => [
+    ...gstr1Columns(side),
+    // a purchase found in a GSTR-2B says which
+    ...(side === 'purchase' && books.canTagGst ? [{ id: 'gst2b', label: '2B', type: 'text', value: (r: Gstr1Row) => (tags[r.voucherId] ? gstr2bPeriodLabel(tags[r.voucherId] as string) : '') } satisfies ColumnSpec<Gstr1Row>] : []),
+  ];
+  const columns = (report === 'gstr3b' ? gstr3bColumns() : show2b ? gstr2bColumns() : view === 'hsn' ? hsnColumns() : invoiceColumns()) as readonly ColumnSpec<AnyRow>[];
+  const baseRows = (report === 'gstr3b' ? (summary?.rows ?? []) : show2b ? rows2b : view === 'hsn' ? hsn : invoiceRows) as readonly AnyRow[];
   const rows = useMemo(() => applyGridQuery(baseRows, columns, query), [baseRows, columns, query]);
   const safeRow = Math.min(row, Math.max(0, rows.length - 1));
   const safeCol = Math.min(col, columns.length - 1);
@@ -95,7 +128,25 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
     const r = rows[i];
     if (!r) return;
     if (r.rowType === 'gstr1') app.navigate({ type: 'voucher', mode: 'display', id: r.voucherId });
-    else if (r.rowType === 'hsn') {
+    else if (r.rowType === 'gstr2b') {
+      // an invoice the books have opens it; one only the GST site has opens a new purchase for it
+      if (r.voucherId) app.navigate({ type: 'voucher', mode: 'display', id: r.voucherId });
+      else {
+        const tax = r.file ? r.file.cgst + r.file.sgst + r.file.igst : 0n;
+        app.navigate({
+          type: 'voucher',
+          mode: 'create',
+          typeKey: 'purchase',
+          from2b: {
+            supplier: r.supplier,
+            gstin: r.gstin,
+            billNo: r.number,
+            date: r.fileDate,
+            note: `From GSTR-2B: ${r.supplier} (${r.gstin}), invoice ${r.number} — taxable ${formatMoney(r.file?.taxable ?? (0n as never))}, GST ${formatMoney(tax as never)}, invoice value ${formatMoney(r.fileValue ?? (0n as never))}. Add the items.`,
+          },
+        });
+      }
+    } else if (r.rowType === 'hsn') {
       // an HSN opens the invoices that carry it
       setView('invoices');
       setQuery({ ...query, quick: r.hsn });
@@ -144,16 +195,74 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
     setNotice({ tone: 'ok', text: `${name} saved.` });
     return true;
   };
+  /** The view Alt+V goes to next: invoices → HSN summary → (with a GSTR-2B loaded) its matching → invoices. */
+  const nextView: View = view === 'invoices' ? 'hsn' : view === 'hsn' && report === 'gst-purchases' && file2b ? '2b' : 'invoices';
+  const viewName = (v: View): string => (v === 'hsn' ? 'HSN summary' : v === '2b' ? 'GSTR-2B matching' : 'invoices');
   const toggleView = (): boolean => {
-    setView(view === 'invoices' ? 'hsn' : 'invoices');
+    setView(nextView);
     setQuery({ ...query, filters: {}, quick: '' });
     setCol(0);
     setRow(0);
     return true;
   };
 
+  // ---- GSTR-2B: load the file, tag what matched ----
+  const load2b = (): boolean => {
+    fileRef.current?.click();
+    return true;
+  };
+  const on2bFile = (file: File | undefined) => {
+    if (fileRef.current) fileRef.current.value = ''; // the same file can be chosen again
+    if (!file) return;
+    void file.text().then((text) => {
+      let json: unknown;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        return setNotice({ tone: 'error', text: `${file.name} is not a JSON file: download the JSON from Returns › GSTR-2B on the GST portal.` });
+      }
+      const read = gstr2bFromJson(json);
+      if (!read.ok) return setNotice({ tone: 'error', text: read.issues[0]?.message ?? 'That file could not be read' });
+      const own = canonicalId(masters.company.gstin ?? '');
+      if (own !== '' && read.value.gstin !== own) {
+        return setNotice({ tone: 'error', text: `That GSTR-2B is of GSTIN ${read.value.gstin}; this company is ${own}. Nothing was loaded.` });
+      }
+      // the screen moves to the file's month, unless the period in front (a quarter, say) already holds it
+      const m = /^(\d{2})(\d{4})$/.exec(read.value.period);
+      const fileMonth = m ? periodOfYm(`${m[2]}-${m[1]}`) : undefined;
+      const moved = fileMonth !== undefined && !(fileMonth.from >= period.from && fileMonth.to <= period.to);
+      if (moved && fileMonth) {
+        setPeriod(fileMonth);
+        app.replace({ type: 'report', report, kind: fileMonth.ym });
+      }
+      setFile2b(read.value);
+      setView('2b');
+      setQuery({ ...query, filters: {}, quick: '' });
+      setCol(0);
+      setRow(0);
+      const s = read.value.skipped;
+      const left = [s.creditNotes > 0 ? `${s.creditNotes} credit / debit note${s.creditNotes === 1 ? '' : 's'}` : '', s.amendments > 0 ? `${s.amendments} amended invoice${s.amendments === 1 ? '' : 's'}` : '', s.imports > 0 ? `${s.imports} import${s.imports === 1 ? '' : 's'}` : ''].filter((x) => x !== '');
+      setNotice({
+        tone: 'ok',
+        text: `GSTR-2B of ${gstr2bPeriodLabel(read.value.period)} loaded: ${read.value.invoices.length} invoice${read.value.invoices.length === 1 ? '' : 's'}.${left.length > 0 ? ` Not matched (the books do not hold them): ${left.join(', ')}.` : ''}${moved ? ` The period is now ${fileMonth?.label}: for a quarterly statement choose the quarter (F2).` : ''}`,
+      });
+    });
+  };
+  /** The matched purchases not yet tagged for this file's period. */
+  const toTag = show2b && file2b ? rows2b.filter((r) => r.status === 'matched' && r.voucherId !== undefined && r.tagged !== file2b.period) : [];
+  const tag2b = (): boolean => {
+    if (!file2b || toTag.length === 0) return false;
+    void books.tagGstMatched(toTag.map((r) => r.voucherId as string), file2b.period).then((r) => {
+      if (!r.ok) return setNotice({ tone: 'error', text: r.issues[0]?.message ?? 'The purchases could not be tagged' });
+      loadTags();
+      setNotice({ tone: 'ok', text: `${r.value.tagged} purchase${r.value.tagged === 1 ? '' : 's'} tagged GST matched (2B ${gstr2bPeriodLabel(file2b.period)}).` });
+    });
+    return true;
+  };
+  const totals2b = show2b ? gstr2bTotals(rows2b) : undefined;
+
   const chord = (id: string) => keymapStore.keymap.chordsFor(id)[0];
-  const title = report === 'gstr1' ? (view === 'hsn' ? 'GSTR-1: HSN summary' : 'GSTR-1') : report === 'gstr3b' ? 'GSTR-3B' : 'GST Purchases';
+  const title = report === 'gstr1' ? (view === 'hsn' ? 'GSTR-1: HSN summary' : 'GSTR-1') : report === 'gstr3b' ? 'GSTR-3B' : show2b && file2b ? `GST Purchases: GSTR-2B ${gstr2bPeriodLabel(file2b.period)} matching` : 'GST Purchases';
 
   const ledgerButtons = (list: HeadCheck[], kindOf: 'output' | 'input') =>
     list.map((c) => {
@@ -183,7 +292,7 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
         {(report === 'gstr1' || report === 'gst-purchases') && chord('gst.view') && (
           <>
             {' '}
-            · <Kbd chord={chord('gst.view') as string} /> {view === 'hsn' ? 'invoices' : 'HSN summary'}
+            · <Kbd chord={chord('gst.view') as string} /> {viewName(nextView)}
           </>
         )}
         {report === 'gstr3b' && <> · Enter on a line opens the invoices behind it</>}
@@ -255,7 +364,7 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
 
       {rows.length === 0 ? (
         <p class="empty" data-testid="report-empty">
-          {baseRows.length === 0 ? `No ${side === 'sales' ? 'sales' : 'purchase'} invoices in ${period.label}.` : 'No rows match.'}
+          {baseRows.length === 0 ? (show2b ? 'The file has no invoices, and there are no purchases with GST in this period.' : `No ${side === 'sales' ? 'sales' : 'purchase'} invoices in ${period.label}.`) : 'No rows match.'}
         </p>
       ) : (
         <DataGrid
@@ -266,7 +375,7 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
           activeCol={safeCol}
           query={query}
           label={title}
-          rowClass={(r) => (r.rowType === 'gstr3b' ? (r.heading ? 'gst-heading' : r.review ? 'gst-review' : '') : '')}
+          rowClass={(r) => (r.rowType === 'gstr3b' ? (r.heading ? 'gst-heading' : r.review ? 'gst-review' : '') : r.rowType === 'gstr2b' && r.status !== 'matched' ? 'gst-review' : '')}
           onPickRow={(i) => (setRow(i), drill(i))}
           onPickColumn={setCol}
           onSortColumn={(i) => {
@@ -282,6 +391,16 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
             {summary.sales.length} sales invoice{summary.sales.length === 1 ? '' : 's'} · {summary.purchases.length} purchase invoice{summary.purchases.length === 1 ? '' : 's'} · Output tax <strong data-testid="gst-output">{formatAmount(summary.output.tax)}</strong> · Input tax to review{' '}
             <strong data-testid="gst-review">{formatAmount(summary.toReview.tax)}</strong> · Net payable, claiming nothing under review <strong data-testid="gst-net">{formatAmount(summary.net.tax)}</strong>
           </>
+        ) : totals2b ? (
+          <span data-testid="gst-2b-totals">
+            {(['matched', 'mismatch', 'not-in-books', 'not-on-portal'] as const).map((s, n) => (
+              <span key={s}>
+                {n > 0 ? ' · ' : ''}
+                {GSTR2B_STATUS_LABELS[s]} {totals2b[s].count} — GST <strong data-testid={`gst-2b-${s}`}>{formatAmount(totals2b[s].tax)}</strong>
+              </span>
+            ))}
+            {books.canTagGst ? (toTag.length > 0 ? ` · ${toTag.length} matched to tag` : ' · every matched purchase is tagged') : ''}
+          </span>
         ) : (
           <span data-testid="gst-totals">
             {totals.invoices} invoice{totals.invoices === 1 ? '' : 's'} · Taxable <strong data-testid="gst-t-taxable">{formatAmount(totals.taxable)}</strong> · CGST <strong data-testid="gst-t-cgst">{formatAmount(totals.cgst)}</strong> · SGST{' '}
@@ -305,6 +424,13 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
         </>
       )}
       {(report === 'gstr1' || report === 'gst-purchases') && <Only scope={SCOPE} command="gst.view" run={toggleView} />}
+      {report === 'gst-purchases' && (
+        <>
+          <Only scope={SCOPE} command="gst.load2b" run={load2b} />
+          {books.canTagGst && toTag.length > 0 && <Only scope={SCOPE} command="gst.tag2b" run={tag2b} />}
+          <input ref={fileRef} type="file" accept=".json,application/json" hidden data-testid="gst-2b-file" onChange={(e) => on2bFile((e.target as HTMLInputElement).files?.[0])} />
+        </>
+      )}
 
       {asking && (
         <FieldsDialog

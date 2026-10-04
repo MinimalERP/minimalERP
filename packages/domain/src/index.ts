@@ -23,6 +23,7 @@ export * from './vouchers/drafts';
 export * from './vouchers/allocations';
 export * from './gst/tax';
 export * from './reports/gst';
+export * from './gst/gstr2b';
 export {
   deriveGstHeader,
   gstOfContent,

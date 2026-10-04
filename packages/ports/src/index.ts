@@ -152,6 +152,14 @@ export interface MailSender {
   lastVoucherMail?(companyId: CompanyId, voucherId: string): Promise<Result<LastMail | null>>;
 }
 
+/** The "GST matched" tags of purchase vouchers: which GSTR-2B period each was found in (online books; kept in the audit log, like a voucher's mail). */
+export interface GstMatchStore {
+  /** Voucher id → the period (`MMYYYY`) it was last tagged in. */
+  gstMatches(companyId: CompanyId): Promise<Result<Readonly<Record<string, string>>>>;
+  /** Tags posted purchase vouchers as matched in that period; says how many were tagged. */
+  tagGstMatched(companyId: CompanyId, voucherIds: readonly string[], period: string): Promise<Result<{ readonly tagged: number }>>;
+}
+
 /** The last time a voucher was emailed: when (ISO timestamp) and to which addresses. */
 export interface LastMail {
   readonly at: string;

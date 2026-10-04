@@ -27,6 +27,7 @@ import {
   type WebsiteEnquiryList,
 } from '@minimalerp/domain';
 import type {
+  GstMatchStore,
   LastMail,
   ChangeFeed,
   CompanyExchange,
@@ -61,7 +62,7 @@ export { newCompanyIssues } from '@minimalerp/domain';
 export type { NewCompany };
 
 /** Everything the screens need from a backend: master commands, posting, and reading masters back. Adapters provide it. */
-export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, MailSender, Partial<ChangeFeed>, Partial<CompanyExchange>, Partial<PrintLayoutStore>, Partial<AssistantGateway> {}
+export interface BooksBackend extends MasterGateway, MastersRepository, PostingGateway, VoucherRepository, JournalRepository, StockRepository, InboxGateway, DocumentSender, MailSender, Partial<ChangeFeed>, Partial<CompanyExchange>, Partial<PrintLayoutStore>, Partial<AssistantGateway>, Partial<GstMatchStore> {}
 
 /** A backend whose state can be saved as a log of changes and rebuilt from it (the in-browser demo backend). */
 export interface LocalBackend extends BooksBackend {
@@ -257,6 +258,24 @@ export class Books {
     if (!this.backend.lastVoucherMail) return undefined;
     const r = await this.backend.lastVoucherMail(this.companyId, voucherId);
     return r.ok ? r.value : undefined;
+  }
+
+  /** Whether "GST matched" tags are kept here (online books). */
+  get canTagGst(): boolean {
+    return typeof this.backend.tagGstMatched === 'function';
+  }
+
+  /** The purchase vouchers tagged "GST matched": voucher id → the GSTR-2B period. Empty where tags are not kept. */
+  async gstMatches(): Promise<Readonly<Record<string, string>>> {
+    if (!this.backend.gstMatches) return {};
+    const r = await this.backend.gstMatches(this.companyId);
+    return r.ok ? r.value : {};
+  }
+
+  /** Tags purchase vouchers as found in a GSTR-2B period. */
+  tagGstMatched(voucherIds: readonly string[], period: string): Promise<Result<{ readonly tagged: number }>> {
+    if (!this.backend.tagGstMatched) return Promise.resolve(fail(issue(IssueCode.UnsupportedOperation, 'Tagging needs the online books')));
+    return this.backend.tagGstMatched(this.companyId, voucherIds, period);
   }
 
   /** A party's statement (a payment reminder from its ledger), from the company's Gmail. */

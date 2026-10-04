@@ -40,7 +40,7 @@ test.describe('the Reports menu', () => {
     await expect(group('Books').getByRole('option')).toHaveText([/Day Book/, /Ledger/, /Cash Book/, /Bank Book/]);
     await expect(group('Outstanding').getByRole('option')).toHaveText([/Outstanding Receivables/, /Outstanding Payables/]);
     await expect(group('Inventory & Sales').getByRole('option')).toHaveText([/Stock Summary/, /Sales Order Register/, /Sales Invoice Register/, /Purchase Order Register/, /Item Movement by Party/]);
-    await expect(group('GST').getByRole('option')).toHaveText([/GSTR-1/, /GSTR-3B/]);
+    await expect(group('GST').getByRole('option')).toHaveText([/GSTR-1/, /GSTR-3B/, /GST Purchases/]);
     for (const g of ['Statements', 'Books', 'Outstanding', 'Inventory & Sales', 'GST']) await expect(group(g)).not.toContainText('Phase');
   });
 
