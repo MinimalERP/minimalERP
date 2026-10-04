@@ -62,6 +62,8 @@ interface Props {
   readonly mode: VoucherMode;
   readonly typeId: string;
   readonly voucher: Voucher | undefined;
+  /** Fast entry: a save starts the next one instead of closing the window. */
+  readonly stay?: boolean | undefined;
 }
 
 /**
@@ -69,7 +71,7 @@ interface Props {
  * entry grid straight under it, narration at the foot, its actions in the panel — with Particulars | Godown | Qty | Rate | Value and a
  * side per line: In (Debit — stock arrives) or Out (Credit — stock leaves). An Out takes its value from the stock, live.
  */
-export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props) {
+export function StockVoucherEntry({ frame, books, mode, typeId, voucher, stay }: Props) {
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books, keymapStore);
   const masters = books.masters;
@@ -372,6 +374,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher }: Props
 
   // ---- accept / cancel ----
   const save = useVoucherSave({
+    stay,
     books,
     mode,
     voucher,

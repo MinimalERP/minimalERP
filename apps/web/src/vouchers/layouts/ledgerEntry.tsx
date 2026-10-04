@@ -105,9 +105,11 @@ export interface LedgerEntryProps {
   readonly fromInbox?: InboxItem | undefined;
   /** The posted invoice / bill this new Receipt / Payment settles (F6 / F5 on it). */
   readonly fromBill?: string | undefined;
+  /** Fast entry: a save starts the next one instead of closing the window. */
+  readonly stay?: boolean | undefined;
 }
 
-export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromInbox, fromBill }: LedgerEntryProps) {
+export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromInbox, fromBill, stay }: LedgerEntryProps) {
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books);
   const masters = books.masters;
@@ -636,6 +638,7 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
 
   // ---- accept / cancel ----
   const save = useVoucherSave({
+    stay,
     books,
     mode,
     voucher,

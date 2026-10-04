@@ -40,7 +40,8 @@ const newCommands: Command<AppContext>[] = ENTRY_KINDS.map((kind) => ({
   category: 'Voucher',
   keywords: KEYWORDS[kind],
   // Without a company the screen itself says so (and keeps the address), instead of bouncing somewhere else.
-  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: kind }),
+  // Opened by its key, a voucher is in FAST ENTRY: saving starts the next one of the same type (a list's own New closes back to the list).
+  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: kind, fast: true }),
 }));
 
 // The Sales and Purchase Invoices and Orders are item-line documents on their own window. They REPLACE the planned entries of the same ids.
@@ -50,7 +51,7 @@ const salesCommands: Command<AppContext>[] = SALES_KINDS.map((kind) => ({
   category: 'Voucher',
   keywords: SALES_KEYWORDS[kind],
   description: SALES_DESCRIPTIONS[kind],
-  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: kind }),
+  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: kind, fast: true }),
 }));
 
 const quotationCommand: Command<AppContext> = {
@@ -59,7 +60,7 @@ const quotationCommand: Command<AppContext> = {
   category: 'Voucher',
   keywords: ['quote', 'estimate', 'quotation', 'proposal'],
   description: 'What you offered a customer — items, quantities and rates — posts nothing to the accounts or the stock',
-  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: QUOTATION_KIND }),
+  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: QUOTATION_KIND, fast: true }),
 };
 
 // The Delivery Challan: goods out without a bill (invoiced later, or free of cost) — one number series whatever the purpose.
@@ -69,7 +70,7 @@ const challanCommand: Command<AppContext> = {
   category: 'Voucher',
   keywords: ['delivery challan', 'delivery note', 'dc', 'dispatch', 'foc', 'free of cost', 'sample'],
   description: 'Goods sent out without a bill — to be invoiced later, or free of cost. Takes the stock out; posts nothing to the accounts',
-  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: CHALLAN_KIND }),
+  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: CHALLAN_KIND, fast: true }),
 };
 
 // The Returnable Challan: goods to a supplier that come back as they went ("Mark returned" on it brings them back).
@@ -79,7 +80,7 @@ const returnableCommand: Command<AppContext> = {
   category: 'Voucher',
   keywords: ['returnable challan', 'rc', 'repair', 'sample', 'approval', 'send to supplier', 'returnable'],
   description: 'Goods sent to a supplier to come back (repair, testing, approval) — takes the stock out until you mark it returned',
-  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: RETURNABLE_KIND }),
+  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: RETURNABLE_KIND, fast: true }),
 };
 
 // The Stock Journal moves stock, not money: it is opened from anywhere (F10) and has its own columns, so it is not one of the keys that switch type inside an accounting voucher.
@@ -128,7 +129,7 @@ const stockJournalCommand: Command<AppContext> = {
   category: 'Voucher',
   keywords: STOCK_JOURNAL_KEYWORDS,
   description: 'Move stock between godowns or convert it — no accounting effect',
-  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: 'stockJournal' }),
+  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: 'stockJournal', fast: true }),
   // on every side panel, apart from the voucher types: stock can be adjusted from wherever the person is
   panel: { label: 'Stock Journal', group: 'Stock', order: 19, on: ['voucher', 'report', 'master', 'master-list'], fold: 'Inventory' },
 };

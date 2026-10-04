@@ -52,6 +52,15 @@ async function fillBharat(page: Page, billNo: string, qty = '100', rate = '60'):
   await page.keyboard.type(rate);
 }
 
+/** Ctrl+A in a window opened by its key (fast entry): saved, and the same window is there again, empty, the cursor on the party. */
+async function savedAndNext(page: Page): Promise<void> {
+  await page.keyboard.press('Control+a');
+  await expect(banner(page)).toContainText('saved.');
+  await expect(heading(page)).toHaveText('New Purchase Voucher');
+  await expect(page.locator('[data-vf="party"]')).toBeFocused();
+  await expect(page.locator('[data-vf="party"]')).toHaveValue('');
+}
+
 test.describe('the Purchase Invoice window (F9)', () => {
   test.beforeEach(async ({ app }) => {
     await loadDemo(app);
@@ -70,12 +79,32 @@ test.describe('the Purchase Invoice window (F9)', () => {
     await expect(app.getByTestId('picker')).not.toContainText('ABC Industries');
   });
 
-  test('typed by keyboard: saves and closes back to the Gateway, and the supplier’s bill appears in Outstanding Payables under THEIR invoice number', async ({ app }) => {
+  test('typed by keyboard: opened by its key it is in fast entry — saving starts the next one; and the supplier’s bill appears in Outstanding Payables under THEIR invoice number', async ({ app }) => {
     await app.keyboard.press('F9');
     await fillBharat(app, 'BC-101');
     await expect(app.getByTestId('total-amount')).toHaveText('6,000.00');
+    await savedAndNext(app); // the window stays, fresh, for the next purchase
+    await fillBharat(app, 'BC-101B', '10', '50');
+    await savedAndNext(app);
+    await app.keyboard.press('Escape'); // an empty window: Esc leaves
+    await expect(heading(app)).toHaveText('Gateway');
+    await openReport(app, 'Outstanding Payables');
+    await expect(gridRows(app).filter({ hasText: 'Bharat Chemicals' })).toContainText('8,000.00'); // BC-77 (1,500), BC-101 (6,000) and BC-101B (500)
+    await app.keyboard.press('Escape');
+    await app.keyboard.press('Escape');
+    await expect(heading(app)).toHaveText('Gateway');
+  });
+
+  test('from the Purchase Vouchers list, New saves and closes back to the list (no fast entry), and the bill is in Outstanding Payables', async ({ app }) => {
+    await openList(app, 'Purchase Vouchers');
+    await app.keyboard.press('F9'); // the list's own New
+    await expect(heading(app)).toHaveText('New Purchase Voucher');
+    await fillBharat(app, 'BC-101');
     await app.keyboard.press('Control+a');
-    await expect(heading(app)).toHaveText('Gateway'); // saving closes back to where it was opened
+    await expect(heading(app)).toHaveText('Purchase Vouchers'); // saving closes back to where it was opened
+    await app.keyboard.press('Escape');
+    await app.keyboard.press('Escape');
+    await expect(heading(app)).toHaveText('Gateway');
 
     await openReport(app, 'Outstanding Payables');
     await expect(gridRows(app).filter({ hasText: 'Bharat Chemicals' })).toContainText('7,500.00'); // BC-77 (1,500) and the new bill
@@ -111,7 +140,8 @@ test.describe('the Purchase Invoice window (F9)', () => {
   test('the books follow: Purchases in the Trading account, the stock in, the Balance Sheet still balanced', async ({ app }) => {
     await app.keyboard.press('F9');
     await fillBharat(app, 'BC-102');
-    await app.keyboard.press('Control+a');
+    await savedAndNext(app);
+    await app.keyboard.press('Escape');
     await expect(heading(app)).toHaveText('Gateway');
 
     await openReport(app, 'Profit & Loss');
@@ -136,8 +166,7 @@ test.describe('the Purchase Invoice window (F9)', () => {
     await expect(app.getByRole('alert').filter({ hasText: 'already a bill of this supplier' })).toBeVisible();
     await expect(heading(app)).toHaveText('New Purchase Voucher'); // nothing was saved
     await app.locator('[data-vf="billno"]').fill('BC-78');
-    await app.keyboard.press('Control+a');
-    await expect(heading(app)).toHaveText('Gateway');
+    await savedAndNext(app);
   });
 
   test('the supplier’s invoice number is required, and says so on its field', async ({ app }) => {
@@ -296,7 +325,8 @@ test.describe('the Purchase Order and receiving against it', () => {
   test('the Purchase Vouchers list: newest first, supplier and their invoice number, pending and status; New from its panel', async ({ app }) => {
     await app.keyboard.press('F9');
     await fillBharat(app, 'BC-201');
-    await app.keyboard.press('Control+a');
+    await savedAndNext(app);
+    await app.keyboard.press('Escape');
     await openList(app, 'Purchase Vouchers');
     await expect(heading(app)).toHaveText('Purchase Vouchers');
     for (const label of ['Supplier', 'Supplier inv no.', 'Amount', 'Pending', 'Due', 'Status']) await expect(app.getByRole('columnheader', { name: label, exact: true })).toBeVisible();

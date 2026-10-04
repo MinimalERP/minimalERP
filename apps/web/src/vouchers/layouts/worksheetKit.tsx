@@ -308,6 +308,8 @@ export function useVoucherSave(o: {
    * when it could not be done (`ok: false`) the window stays, with a fresh form, and says so.
    */
   readonly afterPost?: (saved: Voucher) => Promise<{ readonly ok: boolean; readonly text: string } | undefined>;
+  /** FAST ENTRY (the window was opened by its shortcut key): a plain save stays and starts the next one, as Save and new does. */
+  readonly stay?: boolean | undefined;
 }) {
   const { app } = useServices();
   const [busy, setBusy] = useState(false);
@@ -348,7 +350,7 @@ export function useVoucherSave(o: {
       await o.books.clearDraft(o.draftKey);
       const also = await o.afterPost?.(r.value.voucher);
       // Saved: the window closes back to where it was opened from, handing over what it made (a voucher list highlights it). Save and new stays instead.
-      if (closeAfter && also?.ok !== false) {
+      if (closeAfter && !o.stay && also?.ok !== false) {
         app.back({ id: r.value.voucher.id, number: r.value.voucher.number, typeName: o.typeName ?? 'Voucher', ...(also ? { also: also.text } : {}) });
         return;
       }

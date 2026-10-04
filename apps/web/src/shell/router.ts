@@ -53,6 +53,8 @@ export type ScreenRef =
       readonly fromBill?: string;
       /** A new Purchase invoice for an invoice GSTR-2B has and the books do not: its supplier, number and date. Not part of the address. */
       readonly from2b?: PurchasePrefill;
+      /** Opened by its shortcut key: FAST ENTRY — a save starts a fresh voucher of the same type instead of closing the window. Not part of the address. */
+      readonly fast?: boolean;
     }
   /** The AI Inbox: proposals made from documents sent from Gmail, waiting to be accepted or rejected. */
   | { readonly type: 'inbox' }

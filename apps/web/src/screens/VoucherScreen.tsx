@@ -116,9 +116,12 @@ interface Props {
   readonly fromBill?: string | undefined;
   /** create, purchase invoice: the GSTR-2B invoice it is entered for. */
   readonly from2b?: PurchasePrefill | undefined;
+  /** create: opened by its shortcut key — a save starts a fresh voucher of the same type (fast entry). */
+  readonly fast?: boolean | undefined;
 }
 
-export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotation, fromInbox, fromBill, from2b }: Props) {
+export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotation, fromInbox, fromBill, from2b, fast }: Props) {
+  const stay = mode === 'create' && fast === true;
   const { books: host, keymapStore } = useServices();
   useSubscriptions(host, keymapStore);
   const books = host.current;
@@ -150,7 +153,7 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotati
     return (
       <>
         {paging}
-        <StockVoucherEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} />
+        <StockVoucherEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} stay={stay} />
       </>
     );
   }
@@ -158,7 +161,7 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotati
     return (
       <>
         {paging}
-        <ItemInvoiceEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} fromOrder={fromOrder} fromQuotation={fromQuotation} fromInbox={mode === 'create' ? fromInbox : undefined} from2b={mode === 'create' ? from2b : undefined} />
+        <ItemInvoiceEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} fromOrder={fromOrder} fromQuotation={fromQuotation} fromInbox={mode === 'create' ? fromInbox : undefined} from2b={mode === 'create' ? from2b : undefined} stay={stay} />
       </>
     );
   }
@@ -173,7 +176,7 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromQuotati
   return (
     <>
       {paging}
-      <LedgerVoucherEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId} voucher={voucher} fromInbox={mode === 'create' ? fromInbox : undefined} fromBill={mode === 'create' ? fromBill : undefined} />
+      <LedgerVoucherEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId} voucher={voucher} fromInbox={mode === 'create' ? fromInbox : undefined} fromBill={mode === 'create' ? fromBill : undefined} stay={stay} />
     </>
   );
 }

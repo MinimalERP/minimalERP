@@ -142,6 +142,8 @@ interface Props {
   readonly fromInbox?: InboxItem | undefined;
   /** A new Purchase invoice for an invoice GSTR-2B has and the books do not. */
   readonly from2b?: PurchasePrefill | undefined;
+  /** Fast entry: a save starts the next one instead of closing the window. */
+  readonly stay?: boolean | undefined;
 }
 
 /**
@@ -151,7 +153,7 @@ interface Props {
  * header, the entry grid straight under it, narration at the foot, its actions in the panel — and an invoice and its order switch into each
  * other in place (F8 / Shift+F8, F9 / Shift+F9) keeping the party, the reference and the lines. What differs between the four is in `docProfile`.
  */
-export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrder, fromQuotation, fromInbox, from2b }: Props) {
+export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrder, fromQuotation, fromInbox, from2b, stay }: Props) {
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books, keymapStore);
   const masters = books.masters;
@@ -877,6 +879,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
 
   // ---- accept / cancel / close order ----
   const save = useVoucherSave({
+    stay,
     books,
     mode,
     voucher,
