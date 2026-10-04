@@ -161,6 +161,8 @@ export interface Gstr2bRow {
   readonly fileValue?: Money | undefined;
   /** The input tax this row is about: the file's when the portal has the invoice, else the books'. */
   readonly tax: Money;
+  /** The file says the supplier charged no tax: the buyer pays it (reverse charge). */
+  readonly reverseCharge?: boolean | undefined;
   /** What differs, or what the portal says about the credit. */
   readonly note: string;
   /** The period this purchase was tagged "GST matched" in, when it already is. */
@@ -201,15 +203,16 @@ export function matchGstr2b({
   const rows: Gstr2bRow[] = [];
   file.invoices.forEach((inv, i) => {
     const fileFigures: Gstr2bFigures = { taxable: inv.taxable, cgst: inv.cgst, sgst: inv.sgst, igst: inv.igst };
-    const flags = [inv.reverseCharge ? 'Reverse charge' : '', inv.itcAvailable ? '' : 'The portal says ITC is not available'].filter((s) => s !== '');
+    const flags = [inv.reverseCharge ? 'Reverse charge: the GST is paid by you, not on the voucher' : '', inv.itcAvailable ? '' : 'The portal says ITC is not available'].filter((s) => s !== '');
     const found = (byKey.get(keyOf(inv.gstin, inv.number)) ?? []).find((p) => !used.has(p.voucherId));
     if (!found) {
-      rows.push({ key: `file:${i}`, status: 'not-in-books', gstin: inv.gstin, supplier: inv.supplier, number: inv.number, fileDate: inv.date, file: fileFigures, fileValue: inv.value, tax: taxOf(fileFigures), note: flags.join(' · ') });
+      rows.push({ key: `file:${i}`, status: 'not-in-books', gstin: inv.gstin, supplier: inv.supplier, number: inv.number, fileDate: inv.date, file: fileFigures, fileValue: inv.value, tax: taxOf(fileFigures), reverseCharge: inv.reverseCharge, note: flags.join(' · ') });
       return;
     }
     used.add(found.voucherId);
     const book: Gstr2bFigures = { taxable: found.taxable, cgst: found.cgst, sgst: found.sgst, igst: found.igst };
-    const differs = (['taxable', 'cgst', 'sgst', 'igst'] as const)
+    // under reverse charge the supplier bills no tax (the buyer pays it), so the books' voucher holds none: the taxable value is what agrees
+    const differs = (inv.reverseCharge ? (['taxable'] as const) : (['taxable', 'cgst', 'sgst', 'igst'] as const))
       .filter((k) => !near(book[k], fileFigures[k]))
       .map((k) => `${k === 'taxable' ? 'Taxable' : k.toUpperCase()} ${formatMoney(fileFigures[k])} on the GST site, ${formatMoney(book[k])} in the books`);
     rows.push({
@@ -227,6 +230,7 @@ export function matchGstr2b({
       file: fileFigures,
       fileValue: inv.value,
       tax: taxOf(fileFigures),
+      reverseCharge: inv.reverseCharge,
       note: [...differs, ...flags].join(' · '),
       tagged: tagged.get(found.voucherId),
     });
@@ -240,6 +244,20 @@ export function matchGstr2b({
   }
   const order: Readonly<Record<Gstr2bStatus, number>> = { mismatch: 0, 'not-in-books': 1, 'not-on-portal': 2, matched: 3 };
   return rows.sort((a, b) => order[a.status] - order[b.status] || a.supplier.localeCompare(b.supplier) || a.number.localeCompare(b.number));
+}
+
+/** The GST rates invoices are charged at. */
+const GST_RATES = ['0.1', '0.25', '1', '1.5', '3', '5', '6', '7.5', '12', '18', '28'] as const;
+
+/**
+ * The one rate an invoice's tax implies: the GST rate whose tax on the taxable value is the file's, within a rupee. Undefined when no rate
+ * fits (an invoice at two rates, say) or there is no tax.
+ */
+export function gstRateOfFigures(f: Gstr2bFigures): string | undefined {
+  const tax = f.cgst + f.sgst + f.igst;
+  if (f.taxable <= 0n || tax <= 0n) return undefined;
+  // rates in thousandths of a percent, so 0.25 is exact
+  return GST_RATES.find((r) => near((f.taxable * BigInt(Math.round(Number(r) * 1000))) / 100_000n, tax));
 }
 
 /** How many rows, and how much input tax, each status holds. */

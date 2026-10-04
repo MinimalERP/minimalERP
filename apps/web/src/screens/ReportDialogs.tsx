@@ -92,6 +92,8 @@ export interface InputField {
   readonly label: string;
   readonly value: string;
   readonly hint?: string;
+  /** A field that names one of these: what is typed lists the ones that match, and Enter (or a click) takes the one on top. */
+  readonly options?: readonly string[];
 }
 
 export function FieldsDialog(props: {
@@ -103,6 +105,8 @@ export function FieldsDialog(props: {
   enterOnly?: boolean;
   /** The field the cursor starts on (default: the first) — the Period dialog starts on From, with the Financial year one ↑ above. */
   initial?: string | undefined;
+  /** Shown under the fields, from what is typed in them now (what applying would do). */
+  below?: (values: Record<string, string>) => preact.ComponentChildren;
 }) {
   useScope(SCOPE, 'overlay', true);
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(props.fields.map((f) => [f.key, f.value])));
@@ -125,7 +129,21 @@ export function FieldsDialog(props: {
     }
     props.onDone(values);
   };
-  const forward = () => (at < props.fields.length - 1 ? setAt(at + 1) : apply(), true);
+  /** The options of a field that match what is typed in it (none while it is empty, or already names one exactly). */
+  const matchesOf = (f: InputField, typed: string): readonly string[] => {
+    const t = typed.trim().toLowerCase();
+    if (!f.options || t === '' || f.options.some((o) => o.toLowerCase() === t)) return [];
+    return [...f.options.filter((o) => o.toLowerCase().startsWith(t)), ...f.options.filter((o) => !o.toLowerCase().startsWith(t) && o.toLowerCase().includes(t))].slice(0, 8);
+  };
+  const forward = () => {
+    // leaving a field that lists options takes the one on top
+    const f = props.fields[at];
+    const top = f ? matchesOf(f, values[f.key] ?? '')[0] : undefined;
+    if (f && top !== undefined) setValues({ ...values, [f.key]: top });
+    if (at < props.fields.length - 1) setAt(at + 1);
+    else if (top === undefined) apply();
+    return true;
+  };
   useCommandHandler(SCOPE, 'field.next', () => (setAt(Math.min(props.fields.length - 1, at + 1)), true));
   useCommandHandler(SCOPE, 'field.prev', () => (setAt(Math.max(0, at - 1)), true));
   useCommandHandler(SCOPE, 'nav.down', () => (setAt(Math.min(props.fields.length - 1, at + 1)), true));
@@ -172,9 +190,31 @@ export function FieldsDialog(props: {
                 </span>
               )}
               {!errors[f.key] && f.hint && i === at && <span class="field-hint">{f.hint}</span>}
+              {i === at && matchesOf(f, values[f.key] ?? '').length > 0 && (
+                <div class="picker" data-testid="picker">
+                  <ul class="list" role="listbox" aria-label={f.label}>
+                    {matchesOf(f, values[f.key] ?? '').map((o, n) => (
+                      <li
+                        key={o}
+                        role="option"
+                        aria-selected={n === 0}
+                        class={n === 0 ? 'list-row selected' : 'list-row'}
+                        onMouseDown={(e) => {
+                          e.preventDefault(); // keep the field's focus
+                          setValues({ ...values, [f.key]: o });
+                          setErrors({ ...errors, [f.key]: '' });
+                        }}
+                      >
+                        {o}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
         ))}
+        {props.below?.(values)}
       </div>
     </Frame>
   );

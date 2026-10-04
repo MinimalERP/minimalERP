@@ -37,7 +37,9 @@ import type { ReportKind, ScreenRef } from '../shell/router';
 import { DataGrid } from '../ui/DataGrid';
 import { downloadText } from '../ui/download';
 import { Kbd } from '../ui/Kbd';
-import { formatAmount, todayText } from '../vouchers/format';
+import { bulkPurchases, optionByName, templateOf } from '../reports/gstr2bBulk';
+import { formatAmount, formatDate, todayText } from '../vouchers/format';
+import { paidFromOptions, paymentForPurchase, salesLedgerOptions } from '../vouchers/salesModel';
 import { FieldsDialog } from './ReportDialogs';
 
 const SCOPE = 'screen:report';
@@ -261,6 +263,62 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
   };
   const totals2b = show2b ? gstr2bTotals(rows2b) : undefined;
 
+  // ---- GSTR-2B: every missing invoice of the supplier under the cursor, posted in one go (the same one line each) ----
+  /** The GSTIN whose missing invoices are being posted (its window is open). */
+  const [bulkOf, setBulkOf] = useState<string | undefined>(undefined);
+  const [posting, setPosting] = useState(false);
+  const cursorRow = show2b ? (rows[safeRow] as Gstr2bGridRow | undefined) : undefined;
+  const canBulk = cursorRow?.rowType === 'gstr2b' && cursorRow.status === 'not-in-books' && !posting;
+  const bulkRows = bulkOf === undefined ? [] : rows2b.filter((r) => r.status === 'not-in-books' && r.gstin === bulkOf);
+  const bulkTemplate = useMemo(() => (bulkOf === undefined ? undefined : templateOf(books.vouchers, masters, bulkOf)), [bulkOf, books.vouchers, masters]);
+  const purchaseLedgers = useMemo(() => salesLedgerOptions(masters, 'purchase'), [masters]);
+  const payFrom = useMemo(() => paidFromOptions(masters), [masters]);
+  /** What the window's fields, as typed, would post. */
+  const bulkOfValues = (v: Record<string, string>) => {
+    const ledger = optionByName(purchaseLedgers, v['ledger'] ?? '');
+    return bulkPurchases({
+      rows: bulkRows,
+      entry: { text: v['text'] ?? '', unit: bulkTemplate?.unit ?? '', hsn: v['hsn'] ?? '', ledgerId: ledger?.id ?? '', ledgerLabel: ledger?.name ?? '' },
+      masters,
+      stock: books.stock,
+      orders: books.orders,
+      vouchers: books.vouchers,
+      newId: () => crypto.randomUUID(),
+    });
+  };
+  const postBulk = async (v: Record<string, string>) => {
+    const { ready } = bulkOfValues(v);
+    const from = optionByName(payFrom, v['paidFrom'] ?? '');
+    const supplier = bulkRows[0]?.supplier ?? '';
+    setBulkOf(undefined);
+    setPosting(true);
+    let posted = 0;
+    let paid = 0;
+    const refused: string[] = [];
+    try {
+      for (const one of ready) {
+        const r = await books.post(one.draft);
+        if (!r.ok) {
+          refused.push(`${one.row.number}: ${r.issues[0]?.message ?? 'refused'}`);
+          continue;
+        }
+        posted += 1;
+        if (!from) continue;
+        const payment = paymentForPurchase(masters, r.value.voucher, from.id, crypto.randomUUID());
+        const p = payment ? await books.post(payment) : undefined;
+        if (p?.ok) paid += 1;
+        else refused.push(`${one.row.number}: saved, but NOT paid — ${p?.issues[0]?.message ?? 'there is no Payment voucher type'}`);
+      }
+    } finally {
+      setPosting(false);
+    }
+    setRow(0);
+    setNotice({
+      tone: refused.length > 0 ? 'error' : 'ok',
+      text: `${posted} purchase${posted === 1 ? '' : 's'} of ${supplier} posted${from ? ` and ${paid} paid from ${from.name}` : ''}.${refused.length > 0 ? ` Not done — ${refused.join('; ')}.` : ''}`,
+    });
+  };
+
   const chord = (id: string) => keymapStore.keymap.chordsFor(id)[0];
   const title = report === 'gstr1' ? (view === 'hsn' ? 'GSTR-1: HSN summary' : 'GSTR-1') : report === 'gstr3b' ? 'GSTR-3B' : show2b && file2b ? `GST Purchases: GSTR-2B ${gstr2bPeriodLabel(file2b.period)} matching` : 'GST Purchases';
 
@@ -428,10 +486,75 @@ export function GstScreen({ frame, report, kind }: { frame: Frame<ScreenRef>; re
         <>
           <Only scope={SCOPE} command="gst.load2b" run={load2b} />
           {books.canTagGst && toTag.length > 0 && <Only scope={SCOPE} command="gst.tag2b" run={tag2b} />}
+          {canBulk && bulkOf === undefined && <Only scope={SCOPE} command="gst.post2b" run={() => (setBulkOf(cursorRow?.gstin), true)} />}
           <input ref={fileRef} type="file" accept=".json,application/json" hidden data-testid="gst-2b-file" onChange={(e) => on2bFile((e.target as HTMLInputElement).files?.[0])} />
         </>
       )}
 
+      {bulkOf !== undefined && bulkRows.length > 0 && (
+        <FieldsDialog
+          title={`Post ${bulkRows.length} purchase invoice${bulkRows.length === 1 ? '' : 's'} of ${bulkRows[0]?.supplier ?? ''}`}
+          fields={[
+            { key: 'text', label: 'Line', value: bulkTemplate?.text ?? '', hint: bulkTemplate ? `as on ${bulkTemplate.from}, this supplier’s last purchase` : 'what is bought — the one line every invoice gets' },
+            { key: 'hsn', label: 'HSN / SAC', value: bulkTemplate?.hsn ?? '', hint: '4 to 8 digits' },
+            { key: 'ledger', label: 'Purchase ledger', value: bulkTemplate?.ledgerLabel || (purchaseLedgers.length === 1 ? (purchaseLedgers[0]?.name ?? '') : ''), hint: 'type a few letters of the ledger', options: purchaseLedgers.map((o) => o.name) },
+            { key: 'paidFrom', label: 'Paid from', value: '', hint: 'empty = on credit — or type a few letters of the cash or bank ledger', options: payFrom.map((o) => o.name) },
+          ]}
+          validate={(v) => {
+            const errs: Record<string, string> = {};
+            if ((v['text'] ?? '').trim() === '') errs['text'] = 'Write what is bought';
+            if (!optionByName(purchaseLedgers, v['ledger'] ?? '')) errs['ledger'] = 'That is not a ledger under Purchase Accounts';
+            if ((v['paidFrom'] ?? '').trim() !== '' && !optionByName(payFrom, v['paidFrom'] ?? '')) errs['paidFrom'] = 'That is not a cash or bank ledger';
+            if (Object.keys(errs).length === 0 && bulkOfValues(v).ready.length === 0) errs['text'] = 'None of these invoices can be posted: the reasons are listed below';
+            return errs;
+          }}
+          below={(v) => {
+            const { ready, leftOut } = bulkOfValues(v);
+            return (
+              <div class="bulk-list" data-testid="gst-2b-bulk">
+                {ready.length > 0 && (
+                  <table class="data-grid">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Inv no.</th>
+                        <th class="num">Taxable</th>
+                        <th class="num">GST</th>
+                        <th class="num">Total</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ready.map((one) => (
+                        <tr key={one.row.key}>
+                          <td>{one.row.fileDate ? formatDate(one.row.fileDate) : ''}</td>
+                          <td>{one.row.number}</td>
+                          <td class="num">{formatAmount(one.taxable)}</td>
+                          <td class="num">{one.tax === 0n ? '—' : formatAmount(one.tax)}</td>
+                          <td class="num">{formatAmount(one.total)}</td>
+                          <td>{one.row.reverseCharge ? 'reverse charge' : ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                {leftOut.length > 0 && (
+                  <p class="notice" data-testid="gst-2b-left-out">
+                    <strong>Left out: {leftOut.length}</strong>
+                    {leftOut.map((x) => (
+                      <span key={x.row.key}>
+                        <br />
+                        {x.row.number} — {x.reason}
+                      </span>
+                    ))}
+                  </p>
+                )}
+              </div>
+            );
+          }}
+          onDone={(v) => (v ? void postBulk(v) : setBulkOf(undefined))}
+        />
+      )}
       {asking && (
         <FieldsDialog
           title="Period"

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { localDate } from '../dates';
 import { money } from '../money';
 import type { GstInvoice } from '../reports/gst';
-import { type Gstr2bFile, gstr2bFromJson, gstr2bPeriodLabel, gstr2bTotals, matchGstr2b, normaliseInvoiceNo } from './gstr2b';
+import { type Gstr2bFile, gstRateOfFigures, gstr2bFromJson, gstr2bPeriodLabel, gstr2bTotals, matchGstr2b, normaliseInvoiceNo } from './gstr2b';
 
 /** The shape the GST portal's GSTR-2B JSON has (figures on the invoice, as its summary download writes them). */
 const portal = {
@@ -104,7 +104,8 @@ describe('the file against the books', () => {
       ['matched', 'SSC/26-27/224', 'v1'],
     ]);
     expect(rows[0]?.note).toBe('Taxable 5000.00 on the GST site, 4500.00 in the books');
-    expect(rows[1]?.note).toBe('Reverse charge · The portal says ITC is not available');
+    expect(rows[1]?.note).toBe('Reverse charge: the GST is paid by you, not on the voucher · The portal says ITC is not available');
+    expect(rows[1]?.reverseCharge).toBe(true);
     const t = gstr2bTotals(rows);
     expect(t.matched).toEqual({ count: 1, tax: 977_760n });
     expect(t['not-in-books']).toEqual({ count: 1, tax: 18_000n });
@@ -119,6 +120,22 @@ describe('the file against the books', () => {
     const rows = matchGstr2b({ file: file(), purchases, range, tagged: new Map([['v3', '052026'], ['v1', '062026']]) });
     expect(rows.filter((r) => r.status === 'not-on-portal')).toEqual([]);
     expect(rows.find((r) => r.voucherId === 'v1')).toMatchObject({ status: 'matched', tagged: '062026' });
+  });
+
+  it('a reverse-charge invoice matches a purchase entered without GST: the taxable value is what agrees', () => {
+    const f: Gstr2bFile = { ...file(), invoices: [file().invoices[1]!] }; // SSC/26-27/301: taxable 1,000, reverse charge
+    const without = purchase({ voucherId: 'r1', billNo: 'SSC/26-27/301', gstin: '27BKYPC9399H1Z5', taxable: money(100_000n), cgst: money(0n), sgst: money(0n), tax: money(0n) });
+    expect(matchGstr2b({ file: f, purchases: [without], range })[0]).toMatchObject({ status: 'matched', voucherId: 'r1' });
+    const wrong = purchase({ voucherId: 'r2', billNo: 'SSC/26-27/301', gstin: '27BKYPC9399H1Z5', taxable: money(90_000n), cgst: money(0n), sgst: money(0n), tax: money(0n) });
+    expect(matchGstr2b({ file: f, purchases: [wrong], range })[0]).toMatchObject({ status: 'mismatch' });
+  });
+
+  it('the rate a tax implies: 5% as CGST + SGST, 18% as IGST, 0.25%; none when no rate fits or there is no tax', () => {
+    expect(gstRateOfFigures({ taxable: money(24_500n), cgst: money(613n), sgst: money(612n), igst: money(0n) })).toBe('5');
+    expect(gstRateOfFigures({ taxable: money(130_000n), cgst: money(0n), sgst: money(0n), igst: money(23_400n) })).toBe('18');
+    expect(gstRateOfFigures({ taxable: money(10_000_000n), cgst: money(0n), sgst: money(0n), igst: money(25_000n) })).toBe('0.25');
+    expect(gstRateOfFigures({ taxable: money(100_000n), cgst: money(0n), sgst: money(0n), igst: money(17_000n) })).toBeUndefined();
+    expect(gstRateOfFigures({ taxable: money(100_000n), cgst: money(0n), sgst: money(0n), igst: money(0n) })).toBeUndefined();
   });
 
   it('two purchases with one number take one file invoice each, never the same one twice', () => {

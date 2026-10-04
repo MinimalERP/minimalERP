@@ -397,6 +397,51 @@ test.describe('GSTR-2B matching on GST Purchases', () => {
     await expect(banner(app)).toContainText('From GSTR-2B');
   });
 
+  test('“Post all of this supplier”: every missing invoice of the supplier is posted with the one line, and paid from cash', async ({ app }) => {
+    await loadDemo(app);
+    await chargeGst(app);
+    await goTo(app, 'company settings');
+    await app.keyboard.press('Enter');
+    const own = await app.locator('[data-field="gstin"]').inputValue();
+    await app.keyboard.press('Escape');
+    // Steel Supplies' GSTIN, from its party
+    await goTo(app, 'steel supplies');
+    await app.keyboard.press('Enter');
+    const supplier = await app.locator('[data-field="gstin"]').inputValue();
+    expect(supplier).toHaveLength(15);
+    await app.keyboard.press('Escape');
+
+    await openReport(app, 'GST Purchases');
+    const now = new Date();
+    const two = (n: number) => String(n).padStart(2, '0');
+    const dt = `${two(now.getDate())}-${two(now.getMonth() + 1)}-${now.getFullYear()}`;
+    const inv = (inum: string, txval: number, rev = 'N') => ({ inum, dt, val: txval * 1.18, txval, igst: txval * 0.18, cgst: 0, sgst: 0, rev, itcavl: 'Y' });
+    const file = { data: { gstin: own, rtnprd: `${two(now.getMonth() + 1)}${now.getFullYear()}`, docdata: { b2b: [{ ctin: supplier, trdnm: 'STEEL SUPPLIES PRIVATE LIMITED', inv: [inv('GW-1', 1300), inv('GW-2', 1300), inv('GW-3', 250, 'Y')] }] } } };
+    await app.getByTestId('gst-2b-file').setInputFiles({ name: 'returns_R2B.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file)) });
+    await expect(gridRows(app)).toHaveCount(3);
+
+    await app.getByTestId('action-panel').getByRole('button', { name: /Post all of this supplier/ }).click();
+    const dialog = app.getByTestId('report-dialog');
+    await expect(dialog).toContainText('Post 3 purchase invoices of STEEL SUPPLIES PRIVATE LIMITED');
+    await dialog.getByLabel('Line').fill('Workspace subscription');
+    await dialog.getByLabel('HSN / SAC').fill('998315');
+    // a few letters list the ledgers that match; Enter takes the one on top
+    await dialog.getByLabel('Paid from').fill('ca');
+    await expect(dialog.getByTestId('picker')).toContainText('Cash');
+    await expect(dialog.getByTestId('picker')).toContainText('Petty Cash Box');
+    await app.keyboard.press('Enter');
+    await expect(dialog.getByLabel('Paid from')).toHaveValue('Cash');
+    const list = app.getByTestId('gst-2b-bulk');
+    await expect(list.getByRole('row').filter({ hasText: 'GW-1' })).toContainText('1,534.00'); // 1,300 + 18% IGST
+    await expect(list.getByRole('row').filter({ hasText: 'GW-3' })).toContainText('reverse charge');
+    await expect(list.getByRole('row').filter({ hasText: 'GW-3' })).toContainText('250.00');
+    await app.keyboard.press('Control+a');
+
+    await expect(app.getByTestId('gst-notice')).toContainText('3 purchases of STEEL SUPPLIES PRIVATE LIMITED posted and 3 paid from Cash.');
+    await expect(gridRows(app).filter({ hasText: 'Matched' })).toHaveCount(3);
+    await expect(gridRows(app).filter({ hasText: 'Not in books' })).toHaveCount(0);
+  });
+
   test('a GSTR-1 file is refused by name', async ({ app }) => {
     await loadDemo(app);
     await openReport(app, 'GST Purchases');
