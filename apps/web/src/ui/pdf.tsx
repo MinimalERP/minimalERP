@@ -35,15 +35,15 @@ function inlineStyles(copy: Document): void {
   copy.head.appendChild(style);
 }
 
-/** The PDF as base64 (what a mail carries). One unlabelled copy of each document. */
-export async function pdfOf(docs: readonly PrintDoc[], company: PrintCompany, layouts?: PrintLayouts): Promise<string> {
+/** The PDF as base64 (what a mail carries). One unlabelled copy of each document, unless `copies` names them (`['ORIGINAL']`: the Original copy, as Print labels it). */
+export async function pdfOf(docs: readonly PrintDoc[], company: PrintCompany, layouts?: PrintLayouts, copies: readonly string[] = ['']): Promise<string> {
   const [{ jsPDF }, { default: html2canvas }] = await Promise.all([import('jspdf'), import('html2canvas-pro')]);
   const host = document.createElement('div');
   host.className = 'pdf-render';
   host.setAttribute('aria-hidden', 'true');
   document.body.appendChild(host);
   try {
-    render(<PrintView docs={docs} company={company} copies={['']} layouts={layouts} />, host);
+    render(<PrintView docs={docs} company={company} copies={copies} layouts={layouts} />, host);
     await document.fonts?.ready;
     const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
     let first = true;

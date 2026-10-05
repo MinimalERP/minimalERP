@@ -108,6 +108,14 @@ test.describe('emailing a voucher to its party', () => {
     await expect(app.getByTestId('mail-attached')).toHaveCount(3);
     await dialog.getByRole('button', { name: 'Remove drawing.pdf' }).click();
     await expect(app.getByTestId('mail-attached')).toHaveText([/QT-signed\.pdf/, /rates\.xlsx/]);
+
+    // Attach PDF: the voucher's own Original copy, made here and added to the others (pressed again, it is not added twice)
+    await app.getByTestId('mail-attach-pdf').click();
+    await expect(app.getByTestId('mail-attached')).toHaveText([/QT-signed\.pdf/, /rates\.xlsx/, /^QT-.+\.pdf/], { timeout: 20_000 });
+    await expect(app.getByTestId('mail-making')).toHaveCount(0);
+    await app.getByTestId('mail-attach-pdf').click();
+    await expect(app.getByTestId('mail-making')).toHaveCount(0, { timeout: 20_000 });
+    await expect(app.getByTestId('mail-attached')).toHaveCount(3);
     await app.getByTestId('mail-send').click();
     // these books live in the browser: sending needs the online books (and your Gmail script)
     await expect(dialog.getByRole('alert')).toContainText('Emailing needs the online books');

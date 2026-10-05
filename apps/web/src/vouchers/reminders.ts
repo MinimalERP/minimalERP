@@ -6,7 +6,7 @@ import type { PrintCoordinator } from '../ui/printCoordinator';
 import type { PrintDoc, ReportDoc } from '../ui/printDocs';
 import { printCompanyOf } from '../ui/printing';
 import type { MailWindowProps } from './MailDialog';
-import { formatAmount, formatDate, todayText } from './format';
+import { fileName, formatAmount, formatDate, todayText } from './format';
 import { invoiceDocFromBooks } from './invoicePrint';
 
 /**
@@ -18,7 +18,6 @@ import { invoiceDocFromBooks } from './invoicePrint';
 
 type Reminder = Pick<MailWindowProps, 'title' | 'addresses' | 'subject' | 'body' | 'bodyHint' | 'fileHint' | 'makeFile' | 'printFile' | 'problems' | 'send'>;
 
-const fileName = (s: string): string => s.replace(/[\\/:*?"<>|]+/g, '-').trim();
 const rupees = (m: bigint): string => `₹${formatAmount(m)}`;
 const overdueText = (days: number): string => (days > 0 ? ` (${days} day${days === 1 ? '' : 's'} overdue)` : '');
 /** The customer's PO a bill was raised against (the invoice's "Cust PO / ref"), if it has one. */

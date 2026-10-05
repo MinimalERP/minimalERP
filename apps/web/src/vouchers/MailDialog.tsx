@@ -3,7 +3,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { Hint } from '../shell/Hint';
 import { saveInApp } from '../ui/nativeApp';
+import { pdfOf } from '../ui/pdf';
+import { COPY_LABELS } from '../ui/printCoordinator';
+import { printCompanyOf } from '../ui/printing';
 import { useCommandHandler, useScope } from '../shell/hooks';
+import { fileName } from './format';
+import { invoiceDocFromBooks } from './invoicePrint';
 
 const SCOPE = 'overlay:mail';
 
@@ -43,11 +48,16 @@ const sizeText = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1
 
 /**
  * Email a saved voucher to its party, from the company's Gmail: the party's own addresses (ticked, and nothing else offered), the subject
- * and message from that kind's template (editable), and the PDF you choose — for example the one you printed and signed with your DSC.
- * Ctrl+A sends, Esc leaves. Nothing is kept but the audit line.
+ * and message from that kind's template (editable), and the PDF you choose — for example the one you printed and signed with your DSC — or
+ * “Attach PDF”, which makes the voucher's Original copy (as Print gives it) and attaches it. Ctrl+A sends, Esc leaves. Nothing is kept but the audit line.
  */
 export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: Voucher; onDone: (sentTo: readonly string[] | undefined) => void }) {
   const start = voucherMail(voucher, books.masters);
+  const attachPdf = async () => {
+    const doc = invoiceDocFromBooks(voucher, books);
+    if (!doc) throw new Error('The voucher could not be read back');
+    return { name: `${fileName(voucher.number)}.pdf`, base64: await pdfOf([doc], printCompanyOf(books.masters), books.printLayouts, COPY_LABELS['1']) };
+  };
   return (
     <MailWindow
       title={`Email ${start?.docName ?? 'voucher'} ${voucher.number}`}
@@ -55,7 +65,8 @@ export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: 
       subject={start?.subject ?? ''}
       body={start?.body ?? ''}
       bodyHint="Sent in the voucher’s own typewriter style, with the document’s number, date and amount above it."
-      fileHint="The voucher’s PDF (printed, signed with your DSC if you like) and any supporting documents — several at once."
+      fileHint="Attach PDF adds the voucher’s Original copy; or choose your own (signed with your DSC if you like) and any supporting documents — several at once."
+      attachPdf={attachPdf}
       problems={(req) => voucherMailProblems(voucher, books.masters, req)}
       send={(req) => books.sendVoucherMail({ voucherId: voucher.id, ...req })}
       onDone={onDone}
@@ -80,6 +91,8 @@ export interface MailWindowProps {
   readonly fileHint: string;
   /** A file made for this mail (a payment reminder's PDF): attached as soon as it is ready, removable like any other. */
   readonly makeFile?: (() => Promise<{ readonly name: string; readonly base64: string }>) | undefined;
+  /** The voucher's own PDF (its Original copy), made and attached only when “Attach PDF” is pressed. */
+  readonly attachPdf?: (() => Promise<{ readonly name: string; readonly base64: string }>) | undefined;
   /** Prints that same document through the browser's print dialog (to check it, print it, or Save as PDF and sign it). */
   readonly printFile?: (() => void) | undefined;
   readonly problems: (req: MailRequest) => Issue[];
@@ -88,7 +101,7 @@ export interface MailWindowProps {
 }
 
 /** The mail window every mail from the books goes through: a voucher's (Email) and a payment reminder's. */
-export function MailWindow({ title, addresses, subject: startSubject, body: startBody, bodyHint, fileHint, makeFile, printFile, problems: problemsOf, send: sendIt, onDone }: MailWindowProps) {
+export function MailWindow({ title, addresses, subject: startSubject, body: startBody, bodyHint, fileHint, makeFile, attachPdf, printFile, problems: problemsOf, send: sendIt, onDone }: MailWindowProps) {
   useScope(SCOPE, 'overlay', true);
   const [picked, setPicked] = useState<readonly string[]>(addresses);
   const [subject, setSubject] = useState(startSubject);
@@ -143,6 +156,26 @@ export function MailWindow({ title, addresses, subject: startSubject, body: star
     setErrors((e) => ({ ...e, attachment: '' }));
     setWarnNoFile(false);
     if (file.current) file.current.value = ''; // choosing the same file again (after removing it) fires again
+  };
+
+  /** “Attach PDF”: the voucher's Original copy, made here and added to the files (pressed again, it replaces the one it made before). */
+  const attachOwnPdf = async (): Promise<void> => {
+    if (!attachPdf || making) return;
+    setMaking(true);
+    setErrors((e) => ({ ...e, attachment: '' }));
+    try {
+      const f = await attachPdf();
+      const made = { ...f, size: mailFileSize(f.base64) };
+      const next = [...attached.filter((a) => a.name !== made.name), made];
+      if (next.length > MAX_MAIL_FILES) return setErrors((e) => ({ ...e, attachment: `Attach at most ${MAX_MAIL_FILES} files` }));
+      if (next.reduce((t, a) => t + a.size, 0) > MAX_MAIL_TOTAL_BYTES) return setErrors((e) => ({ ...e, attachment: 'The files come to more than 18 MB together' }));
+      setAttached((a) => [...a.filter((x) => x.name !== made.name), made]);
+      setWarnNoFile(false);
+    } catch {
+      setErrors((e) => ({ ...e, attachment: 'The PDF could not be made: attach it yourself (Print, save as PDF).' }));
+    } finally {
+      setMaking(false);
+    }
   };
 
   const send = async (): Promise<void> => {
@@ -268,6 +301,13 @@ export function MailWindow({ title, addresses, subject: startSubject, body: star
               <button type="button" class="button" data-mf onClick={() => file.current?.click()}>
                 {attached.length > 0 ? 'Add more files…' : 'Choose files…'}
               </button>{' '}
+              {attachPdf && (
+                <>
+                  <button type="button" class="button" data-mf data-testid="mail-attach-pdf" title="Make this voucher’s PDF (its Original copy) and attach it" onClick={() => void attachOwnPdf()} disabled={making}>
+                    Attach PDF
+                  </button>{' '}
+                </>
+              )}
               {printFile && (
                 <>
                   <button type="button" class="button" data-mf data-testid="mail-print" title="Print this copy, or choose Save as PDF in the print window" onClick={printFile}>

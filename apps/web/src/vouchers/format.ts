@@ -118,6 +118,9 @@ export function normalizeAmount(text: string): string | undefined {
   return m ? `${m[1]}.${(m[2] ?? '').padEnd(2, '0')}` : undefined;
 }
 
+/** A name a file can carry: what no file system takes (the "/" of a voucher number) becomes "-". */
+export const fileName = (s: string): string => s.replace(/[\\/:*?"<>|]+/g, '-').trim();
+
 /**
  * Today's date where the person is, as YYYY-MM-DD. Never `new Date().toISOString()`: that is the date in UTC, which in India is still
  * yesterday from midnight to 5:30 in the morning.
