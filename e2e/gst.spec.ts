@@ -463,10 +463,11 @@ test.describe('GSTR-2B matching on GST Purchases', () => {
   });
 });
 
-/** Ctrl+A on an invoice: saved, and the window has closed back to where it was opened. */
+/** Ctrl+A on an invoice opened by its key (fast entry): saved, the same window fresh for the next one — Esc then leaves, back to where it was opened. */
 async function save(page: Page): Promise<void> {
   await page.keyboard.press('Control+a');
-  await expect(heading(page)).not.toHaveText('New Sales Voucher');
+  await expect(heading(page)).toHaveText('New Sales Voucher');
+  await page.keyboard.press('Escape');
 }
 
 test.describe('the check before the GSTR-1 export', () => {

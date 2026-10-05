@@ -4,7 +4,7 @@
  * "Close and leave?" when Esc is pressed with something entered, and a voucher window that reads as a compact sheet.
  */
 import type { Locator, Page } from '@playwright/test';
-import { expect, goTo, heading, test } from './support';
+import { expect, goTo, heading, leaveByEscape, test } from './support';
 
 const panel = (page: Page) => page.getByTestId('action-panel');
 const action = (page: Page, command: string): Locator => panel(page).locator(`[data-command="${command}"]`);
@@ -66,7 +66,7 @@ test.describe('the action panel', () => {
     await expect(app.locator('[data-vf="l0.amount"]')).toHaveValue('700');
   });
 
-  test('a click on Date focuses the date; a click on Accept saves the voucher and closes the window back to where it was opened from', async ({ app }) => {
+  test('a click on Date focuses the date; a click on Accept saves the voucher — opened by F5 (fast entry), so it stays, fresh, until Esc leaves it', async ({ app }) => {
     await app.keyboard.press('F5');
     await app.keyboard.type('hdfc');
     await app.keyboard.press('Enter');
@@ -76,7 +76,8 @@ test.describe('the action panel', () => {
     await action(app, 'voucher.changeDate').click();
     await expect(focused(app)).toHaveAttribute('data-vf', 'date');
     await action(app, 'voucher.accept').click();
-    await expect(heading(app)).toHaveText('Gateway'); // opened by F5 from the Gateway: saved, and back there
+    await expect(heading(app)).toHaveText('New Payment Voucher'); // opened by its key: fast entry — saved, the same window fresh for the next one
+    await leaveByEscape(app, 'Gateway'); // an empty window: Esc leaves (the account carried over, so it takes a few presses)
   });
 
   test('a click never steals focus from the field being edited', async ({ app }) => {

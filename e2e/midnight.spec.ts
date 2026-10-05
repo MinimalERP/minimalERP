@@ -4,7 +4,7 @@
  * purchase bill typed that night was not in Outstanding Payables.)
  */
 import type { Page } from '@playwright/test';
-import { expect, goTo, heading, test } from './support';
+import { expect, goTo, heading, leaveByEscape, test } from './support';
 
 test.use({ timezoneId: 'Asia/Kolkata' });
 
@@ -37,7 +37,8 @@ test('at 01:30 India time, a purchase bill entered "today" is in Outstanding Pay
   await app.keyboard.type('60');
   await expect(app.getByTestId('total-amount')).toHaveText('6,000.00');
   await app.keyboard.press('Control+a');
-  await expect(heading(app)).toHaveText('Gateway');
+  await expect(heading(app)).toHaveText('New Purchase Voucher'); // opened by F9: fast entry — saved, the same window fresh for the next one
+  await leaveByEscape(app, 'Gateway');
 
   await app.getByRole('option', { name: /^Reports/ }).click();
   await app.getByRole('option', { name: /^Outstanding Payables/ }).click();

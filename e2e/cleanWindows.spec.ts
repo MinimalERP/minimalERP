@@ -4,7 +4,7 @@
  * party pulls nothing in from its orders — an invoice is a regular invoice until an order is chosen.
  */
 import type { Page } from '@playwright/test';
-import { expect, goTo, heading, test } from './support';
+import { expect, goTo, heading, leaveByEscape, test } from './support';
 
 async function loadDemo(page: Page): Promise<void> {
   await goTo(page, 'demo company');
@@ -165,6 +165,7 @@ test.describe('an invoice is a regular invoice until an order is chosen', () => 
     await app.keyboard.press('Enter');
     await app.keyboard.type('250');
     await app.keyboard.press('Control+a');
-    await expect(heading(app)).toHaveText('Gateway'); // saved
+    await expect(heading(app)).toHaveText('New Sales Voucher'); // opened by F8: fast entry — saved, the same window fresh for the next one
+    await leaveByEscape(app, 'Gateway');
   });
 });

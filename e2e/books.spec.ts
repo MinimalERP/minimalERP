@@ -4,7 +4,7 @@
  * and the mouse where the plan promised them.
  */
 import type { Page } from '@playwright/test';
-import { expect, goTo, heading, test } from './support';
+import { expect, goTo, heading, leaveByEscape, test } from './support';
 
 const panel = (page: Page) => page.getByTestId('action-panel');
 const gridRows = (page: Page) => page.getByRole('grid').getByRole('row').filter({ has: page.locator('td') });
@@ -315,7 +315,8 @@ test.describe('Outstanding receivables and payables', () => {
     await app.keyboard.press('Enter'); // takes the highlighted (oldest) bill
     await app.keyboard.press('Enter'); // amount → done
     await app.keyboard.press('Control+a');
-    await expect(heading(app)).toHaveText('Gateway'); // saving closes back to where it was opened
+    await expect(heading(app)).toHaveText('New Payment Voucher'); // opened by F5: fast entry — saved, the same window fresh for the next one
+    await leaveByEscape(app, 'Gateway');
 
     await openReport(app, 'Outstanding Payables');
     await expect(gridRows(app)).toHaveCount(1);
