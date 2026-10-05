@@ -113,7 +113,7 @@ function fieldsOf(form: SalesForm, kind: ItemDocKind, masters: Masters, gstOn = 
       if (!l.challanId) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
       out.push({ key: `l${i}.ord`, kind: 'ord', line: i });
     }
-    else if (p.challan) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
+    else if (p.challan && !l.oneTime) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
     else if (p.order) out.push({ key: `l${i}.ldue`, kind: 'ldue', line: i });
     out.push({ key: `l${i}.qty`, kind: 'qty', line: i }, { key: `l${i}.rate`, kind: 'rate', line: i });
     if (gstOn) out.push({ key: `l${i}.gst`, kind: 'gst', line: i });
@@ -234,6 +234,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const p = docProfile(kind);
   /** A company that charges GST: each invoice or quotation line has a GST %, and the tax is stated under the grid. */
   const gstOn = (p.invoice || p.quote || p.challan) && masters.company.chargeGst === true;
+  /** Where a written (Alt+T) line is offered: an invoice, a quotation, or a delivery challan (not returnable — its lines come back). */
+  const oneTimeHere = p.invoice || p.quote || (p.challan && !p.returnable);
   const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
   const type = masters.voucherType(form.typeId as never);
   const fields = fieldsOf(form, kind, masters, gstOn);
@@ -620,7 +622,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
               ? `No such ${p.noun} — press Alt+C to create it`
               : pickerKind === 'paidfrom'
                 ? 'No such cash or bank ledger — leave it empty for a purchase on credit'
-              : pickerKind === 'item' && (p.invoice || p.quote)
+              : pickerKind === 'item' && oneTimeHere
                 ? 'No match — Alt+C creates the item, Alt+T writes it as a one-time line'
                 : 'No match — press Alt+C to create it',
       }));
@@ -706,11 +708,12 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     return true;
   };
   /**
-   * Alt+T on an invoice or quotation line's item cell: the typed text becomes a ONE-TIME line (no stock item, no godown, no stock moved —
-   * billed and taxed like any line), or back to an item line. For what is sold or bought once and is not worth an item master.
+   * Alt+T on an invoice, quotation or delivery-challan line's item cell: the typed text becomes a ONE-TIME line (no stock item, no godown,
+   * no stock moved — billed and taxed like any line, on a challan printed with it alone), or back to an item line. For what is sold or
+   * bought once — or, on a challan, sent out once — and is not worth an item master.
    */
   const openOneTime = (): boolean => {
-    if (readOnly || !(p.invoice || p.quote) || current.kind !== 'item' || current.line === undefined) return false;
+    if (readOnly || !oneTimeHere || current.kind !== 'item' || current.line === undefined) return false;
     setOneTimeFor(current.line);
     return true;
   };
@@ -994,7 +997,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         meta={(o) => pickerKind === 'item' && <span class="row-meta amt">{stockOf(o.id)}</span>}
         hint={
           <>
-            {pickerKind === 'item' && (p.invoice || p.quote) && (
+            {pickerKind === 'item' && oneTimeHere && (
               <>
                 {' '}
                 · <Kbd chord={chord('voucher.oneTimeLine') ?? 'Alt+T'} /> writes it as a one-time line
@@ -1104,7 +1107,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             </div>
           </>
         ) : p.challan ? (
-          <div class="vc-godown">{pickerInput(`l${i}.wh`, `Line ${i + 1} godown`, l.warehouseLabel, (v) => setLine(i, { warehouseLabel: v }), `line.${i}.wh`)}</div>
+          l.oneTime ? (
+            <div class="vc-godown vcell-none" aria-hidden="true" title="A written line has no godown">—</div>
+          ) : (
+            <div class="vc-godown">{pickerInput(`l${i}.wh`, `Line ${i + 1} godown`, l.warehouseLabel, (v) => setLine(i, { warehouseLabel: v }), `line.${i}.wh`)}</div>
+          )
         ) : p.quote ? null : (
           <div class="vc-due">
             <Cell
@@ -1215,7 +1222,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       {!readOnly && mode === 'create' && kind === 'purchase' && <Only scope={SCOPE} command="voucher.paidFrom" run={askPaidFrom} />}
       {!readOnly && <Only scope={SCOPE} command="voucher.partyDetails" run={openPartyDetails} />}
       {!readOnly && p.invoice && <Only scope={SCOPE} command="voucher.againstOrder" run={againstOrder} />}
-      {!readOnly && (p.invoice || p.quote) && current.kind === 'item' && oneTimeFor === undefined && <Only scope={SCOPE} command="voucher.oneTimeLine" run={openOneTime} />}
+      {!readOnly && oneTimeHere && current.kind === 'item' && oneTimeFor === undefined && <Only scope={SCOPE} command="voucher.oneTimeLine" run={openOneTime} />}
       {oneTimeFor !== undefined && (
         <FieldsDialog
           title={`Line ${oneTimeFor + 1}: one-time line (not a stock item)`}

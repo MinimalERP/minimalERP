@@ -197,15 +197,19 @@ interface ChallanContent {
   lines?: { id?: string; itemId?: string; qty?: string; rate?: string; gstRate?: string; hsn?: string; challanRef?: { challanId?: string; lineId?: string } }[];
 }
 
-/** A posted delivery challan as the book sees it (or undefined if what is stored is not one). */
+/**
+ * A posted delivery challan as the book sees it (or undefined if what is stored is not one). A written line (no item: a non-stock extra
+ * that went out with the shipment, printed on the challan alone) is left out — it moves no stock and is never billed against.
+ */
 export function challanDocOf(voucher: Voucher): ChallanDoc | undefined {
   const c = voucher.content as unknown as ChallanContent;
   if (typeof c.partyId !== 'string' || !Array.isArray(c.lines)) return undefined;
   const lines: ChallanLineDoc[] = [];
   for (const l of c.lines) {
+    if (typeof l.itemId !== 'string') continue;
     const q = typeof l.qty === 'string' ? parseQty(l.qty) : undefined;
     const r = typeof l.rate === 'string' ? parseRate(l.rate) : undefined;
-    if (typeof l.id !== 'string' || typeof l.itemId !== 'string' || q === undefined || r === undefined) return undefined;
+    if (typeof l.id !== 'string' || q === undefined || r === undefined) return undefined;
     lines.push({ id: l.id, itemId: l.itemId as StockItemId, qty: q, rate: r, gstRate: l.gstRate, hsn: l.hsn });
   }
   return {
