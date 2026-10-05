@@ -31,14 +31,14 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
     });
   const foc = kind === 'deliveryChallan' && form.purpose === 'foc';
   const returnable = kind === 'returnableChallan';
-  const challan = kind === 'deliveryChallan' || returnable;
+  const delivery = kind === 'deliveryChallan';
   return {
     kind: 'invoice',
     voucherKind: kind,
-    // a challan's title is its name alone, centred; what kind of challan it is (free of charge, goods returned) is said in the narration
-    docTitle: kind === 'sales' && masters.company.chargeGst === true ? 'Tax Invoice' : type.name,
-    ...(challan ? { titleCentred: true, poLabel: 'PO / Ref.' } : {}),
-    numberLabel: kind === 'sales' ? 'Invoice No.' : challan ? 'Challan No.' : undefined,
+    // a delivery challan's title is its name alone, centred; that it is free of charge is said in the narration
+    docTitle: kind === 'sales' && masters.company.chargeGst === true ? 'Tax Invoice' : returnable && form.returnOf ? `${type.name} – Goods Returned` : type.name,
+    ...(delivery ? { titleCentred: true, poLabel: 'PO / Ref.' } : {}),
+    numberLabel: kind === 'sales' ? 'Invoice No.' : delivery || returnable ? 'Challan No.' : undefined,
     number: voucher.number,
     date: voucher.date,
     poNo: form.reference || undefined,
@@ -52,14 +52,7 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
     roundOff: preview.roundOff,
     grandTotal: preview.grand,
     // a free-of-charge challan says so on its face: the value is stated, nothing is to be paid
-    narration:
-      [
-        foc ? 'Free of charge (FOC) – not for sale.' : '',
-        returnable ? (form.returnOf ? 'Goods returned.' : 'Returnable – to be returned to us after the work.') : '',
-        form.narration,
-      ]
-        .filter(Boolean)
-        .join(' ') || undefined,
+    narration: [foc ? 'Free of charge (FOC) – not for sale.' : '', returnable && !form.returnOf ? 'Returnable – to be returned to us after the work.' : '', form.narration].filter(Boolean).join(' ') || undefined,
   };
 }
 

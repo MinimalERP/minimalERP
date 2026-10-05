@@ -183,6 +183,16 @@ test.describe('the Delivery Challan window', () => {
 
     await app.keyboard.press('Enter');
     await expect(app.getByTestId('returnable-status')).toHaveText('Out');
+
+    // it prints as it always has: its title in the corner with the number and date (only the Delivery Challan's is centred)
+    await app.evaluate(() => void (window.print = () => {}));
+    await app.keyboard.press('Control+p');
+    await app.keyboard.press('Enter'); // 1 copy
+    const copy = app.locator('.print-root .print-copy').first();
+    await expect(copy.locator('.inv-doc .title')).toHaveText('Returnable Challan');
+    await expect(copy.getByTestId('print-title-centre')).toHaveCount(0);
+    await expect(copy.locator('.inv-narration')).toContainText('Returnable – to be returned to us after the work.');
+
     await panel(app).locator('[data-command="challan.markReturned"]').click();
     await expect(app.getByTestId('returnable-status')).toHaveText(/^Returned · RC\//);
     await expect(panel(app).locator('[data-command="challan.markReturned"]')).toHaveCount(0);
