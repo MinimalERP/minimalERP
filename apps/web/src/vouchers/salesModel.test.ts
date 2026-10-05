@@ -530,7 +530,7 @@ describe('a service item on an invoice', () => {
     return { m, amc, custId, salesLedgerId, type: (base: string) => m.voucherTypes.find((t) => t.baseKind === base)?.id as string };
   }
 
-  it('is offered by itemOptions only when allowService is asked for (an invoice line), not by default (an order, quote or challan line)', () => {
+  it('is offered by itemOptions only when allowService is asked for (an invoice or order line), not by default (a quote or challan line)', () => {
     const c = serviceCompany();
     expect(itemOptions(c.m).some((o) => o.id === c.amc)).toBe(false);
     expect(itemOptions(c.m, true).some((o) => o.id === c.amc)).toBe(true);
@@ -553,6 +553,33 @@ describe('a service item on an invoice', () => {
     };
     const preview = previewSales(form, 'sales', c.m, StockBook.empty, new OrderBook([], []));
     expect(preview.issues).not.toContainEqual(expect.objectContaining({ field: 'line.0.wh' }));
+    expect(preview.issues).toEqual([]);
+    expect(preview.draft).not.toHaveProperty('lines.0.warehouseId');
+  });
+
+  it('a sales order line for it is accepted too: an order has no godown to begin with', () => {
+    const c = serviceCompany();
+    const form: SalesForm = {
+      ...blankSalesForm('v2', c.type('salesOrder'), '2026-05-01', 'k1'),
+      partyId: c.custId,
+      partyLabel: 'Cust',
+      partyDetails: { partyId: c.custId, mailingName: 'Cust', placeOfSupply: '27' },
+      lines: [{ ...blankSalesLine('l1'), itemId: c.amc, itemLabel: 'AMC', qty: '1', rate: '1000', due: '2026-06-01', dueText: '1-Jun-2026' }],
+    };
+    const preview = previewSales(form, 'salesOrder', c.m, StockBook.empty, new OrderBook([], []));
+    expect(preview.issues).toEqual([]);
+  });
+
+  it('a delivery challan line for it is accepted too: job work on a part that was never our own stock', () => {
+    const c = serviceCompany();
+    const form: SalesForm = {
+      ...blankSalesForm('v3', c.type('deliveryChallan'), '2026-05-01', 'k1'),
+      partyId: c.custId,
+      partyLabel: 'Cust',
+      partyDetails: { partyId: c.custId, mailingName: 'Cust', placeOfSupply: '27' },
+      lines: [{ ...blankSalesLine('l1'), itemId: c.amc, itemLabel: 'AMC', qty: '1', rate: '1000' }],
+    };
+    const preview = previewSales(form, 'deliveryChallan', c.m, StockBook.empty, new OrderBook([], []));
     expect(preview.issues).toEqual([]);
     expect(preview.draft).not.toHaveProperty('lines.0.warehouseId');
   });

@@ -64,16 +64,18 @@ export function totalsOf(lines: readonly { side: Side; amount: Money }[]): { deb
  * Failing here means a posting rule is buggy — the voucher is refused, never posted.
  * (The database repeats the Dr = Cr check in a deferred constraint trigger.)
  */
-export function checkPlanInvariants(plan: PostingPlan, opts: { readonly document?: boolean; readonly linkDirection?: 'in' | 'out' } = {}): Issue[] {
+export function checkPlanInvariants(plan: PostingPlan, opts: { readonly document?: boolean; readonly noJournal?: boolean; readonly linkDirection?: 'in' | 'out' } = {}): Issue[] {
   const problems: Issue[] = [];
   const lines = plan.journal;
   const stockOnly = lines.length === 0 && plan.stock.length > 0;
   const document = opts.document === true;
+  // a kind whose post() is always []: an empty journal is never a sign of a missing posting rule, whatever its stock does
+  const neverPosts = opts.noJournal === true && lines.length === 0;
 
   if (document && (lines.length > 0 || plan.stock.length > 0)) {
     problems.push(issue(IssueCode.PlanInconsistentLines, 'A document posts no journal or stock lines'));
   }
-  if (lines.length < 2 && !stockOnly && !document) {
+  if (lines.length < 2 && !stockOnly && !document && !neverPosts) {
     problems.push(issue(IssueCode.PlanTooFewLines, `A posting needs at least two journal lines, got ${lines.length}`));
   }
   for (const l of lines) {

@@ -113,7 +113,7 @@ function fieldsOf(form: SalesForm, kind: ItemDocKind, masters: Masters, gstOn = 
       if (!l.challanId) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
       out.push({ key: `l${i}.ord`, kind: 'ord', line: i });
     }
-    else if (p.challan && !l.oneTime) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
+    else if (p.challan && !l.oneTime && !isService) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
     else if (p.order) out.push({ key: `l${i}.ldue`, kind: 'ldue', line: i });
     out.push({ key: `l${i}.qty`, kind: 'qty', line: i }, { key: `l${i}.rate`, kind: 'rate', line: i });
     if (gstOn) out.push({ key: `l${i}.gst`, kind: 'gst', line: i });
@@ -236,12 +236,15 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const gstOn = (p.invoice || p.quote || p.challan) && masters.company.chargeGst === true;
   /** Where a written (Alt+T) line is offered: an invoice, a quotation, or a delivery challan (not returnable — its lines come back). */
   const oneTimeHere = p.invoice || p.quote || (p.challan && !p.returnable);
+  /** Where a service item is offered: an invoice (it is billed), an order (it has no godown and moves nothing itself), or a delivery
+   * challan (not returnable) — job work on a part that was never our own stock, so nothing of ours leaves on it either. */
+  const serviceHere = p.invoice || p.order || (p.challan && !p.returnable);
   const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
   const type = masters.voucherType(form.typeId as never);
   const fields = fieldsOf(form, kind, masters, gstOn);
   const picker = usePickerState(focusKey);
   // a dialog (party details) has the focus while it is open; the field gets it back when it closes
-  const { current, go, nextKey, prevKey, isFocus } = useFieldFocus({ fields, focusKey, setFocusKey, rootRef, idle, wake, paused: partyOpen || mailOpen || reminding || docketOpen, deps: [mode, form.lines.length], onGo: picker.reset });
+  const { current, go, prevKey, isFocus } = useFieldFocus({ fields, focusKey, setFocusKey, rootRef, idle, wake, paused: partyOpen || mailOpen || reminding || docketOpen, deps: [mode, form.lines.length], onGo: picker.reset });
 
   const fresh = (): SalesForm => (frame.state.get('form') as SalesForm | undefined) ?? form;
   const update = (fn: (f: SalesForm) => SalesForm) => setFormState(fn(fresh()));
@@ -299,7 +302,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const parties = useMemo(() => customerOptions(masters, p.role === 'vendor' ? 'purchase' : 'sales'), [masters, p.role]);
   const salesLedgers = useMemo(() => salesLedgerOptions(masters, p.side), [masters, p.side]);
   const paidFrom = useMemo(() => paidFromOptions(masters), [masters]);
-  const items = useMemo(() => itemOptions(masters, p.invoice), [masters, p.invoice]);
+  const items = useMemo(() => itemOptions(masters, serviceHere), [masters, serviceHere]);
   /** A service item has no godown and moves no stock: true only on an invoice line that names one. */
   const isServiceItem = (itemId: string): boolean => itemId !== '' && masters.stockItem(itemId as never)?.itemType === 'service';
   const godowns: Option[] = useMemo(() => masters.warehouses.filter((w) => w.isActive).map((w) => ({ id: w.id, name: w.name, sub: '' })), [masters]);
@@ -632,9 +635,19 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   };
 
   // ---- moving around ----
+  /**
+   * The key after the one just settled — computed from the FRESH form, not the fields this render started with. Settling a field can
+   * change what the rest of the line has (picking a service item drops its godown, a challan's its too) — those fields are gone from the
+   * NEXT render, so advancing by the stale array can land on a key that no longer exists (and fall back to the very first field).
+   */
+  const nextKeyFresh = (): string | undefined => {
+    const freshFields = fieldsOf(fresh(), kind, masters, gstOn);
+    const at = freshFields.findIndex((f) => f.key === current.key);
+    return at >= 0 ? freshFields[at + 1]?.key : undefined;
+  };
   const next = (): boolean => {
     if (!settle()) return true;
-    const k = nextKey();
+    const k = nextKeyFresh();
     if (k) go(k);
     return true;
   };
@@ -674,7 +687,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       finishLine(current.line);
       return true;
     }
-    const k = nextKey();
+    const k = nextKeyFresh();
     if (k) go(k);
     return true;
   };
@@ -1003,7 +1016,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
                 · <Kbd chord={chord('voucher.oneTimeLine') ?? 'Alt+T'} /> writes it as a one-time line
               </>
             )}
-            {pickerKind === 'item' && hiddenItemReason(masters, typedLabel, p.invoice) && <div data-testid="hidden-item">{hiddenItemReason(masters, typedLabel, p.invoice)}</div>}
+            {pickerKind === 'item' && hiddenItemReason(masters, typedLabel, serviceHere) && <div data-testid="hidden-item">{hiddenItemReason(masters, typedLabel, serviceHere)}</div>}
           </>
         }
       />
@@ -1107,8 +1120,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             </div>
           </>
         ) : p.challan ? (
-          l.oneTime ? (
-            <div class="vc-godown vcell-none" aria-hidden="true" title="A written line has no godown">—</div>
+          l.oneTime || isService ? (
+            <div class="vc-godown vcell-none" aria-hidden="true" title={isService ? 'A service item has no godown' : 'A written line has no godown'}>—</div>
           ) : (
             <div class="vc-godown">{pickerInput(`l${i}.wh`, `Line ${i + 1} godown`, l.warehouseLabel, (v) => setLine(i, { warehouseLabel: v }), `line.${i}.wh`)}</div>
           )

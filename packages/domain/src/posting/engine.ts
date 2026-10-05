@@ -100,7 +100,7 @@ export function planVoucher(
   if (businessIssues.length > 0) return failWith(businessIssues);
 
   const plan = stampPlan(draft.id, draft.date, kind.post(draft, ctx), kind.postStock(draft, ctx), kind.postLinks(draft, ctx));
-  const invariantIssues = checkPlanInvariants(plan, { document: kind.document, linkDirection: voucherType.baseKind === 'purchase' ? 'in' : 'out' });
+  const invariantIssues = checkPlanInvariants(plan, { document: kind.document, noJournal: kind.noJournal, linkDirection: voucherType.baseKind === 'purchase' ? 'in' : 'out' });
   if (invariantIssues.length > 0) return failWith(invariantIssues);
 
   return ok({ draft, voucherType, financialYear, plan });

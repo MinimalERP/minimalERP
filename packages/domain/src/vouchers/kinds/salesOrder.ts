@@ -40,7 +40,7 @@ export const salesOrderKind = defineVoucherKind<SalesOrderDraft>({
       const path = `lines.${i}`;
       if (ids.has(l.id)) problems.push(issue(IssueCode.SalesDocInvalid, 'Two lines carry the same id', `${path}.id`));
       ids.add(l.id);
-      problems.push(...itemQtyProblems(l.itemId, l.qty, masters, path));
+      problems.push(...itemQtyProblems(l.itemId, l.qty, masters, path, { allowService: true }));
       problems.push(...lineValueProblems(l, path));
       if (l.dueDate < draft.date) {
         problems.push(issue(IssueCode.SalesDocInvalid, `The due date is before the order date (${draft.date})`, `${path}.dueDate`));
