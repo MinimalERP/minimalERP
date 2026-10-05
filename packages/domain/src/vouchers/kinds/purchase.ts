@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { type Issue, IssueCode, issue } from '../../errors';
 import type { VoucherId, WarehouseId } from '../../ids';
+import type { Masters } from '../../masters/masters';
 import type { PlannedLine } from '../../posting/plan';
 import { draftBaseShape, ledgerIdSchema, localDateSchema } from '../drafts';
 import { defineVoucherKind } from '../kind';
@@ -15,6 +16,7 @@ import {
   onInvoiceLines,
   partyProblems,
   plannedLinksOf,
+  stockLinesOf,
   vendorLedgerOf,
 } from './documents';
 import { grandTotalParts, gstHeaderSchema, invoiceGst, roundOffPosting, roundOffProblems, taxPostings } from './gstDoc';
@@ -44,10 +46,10 @@ export const purchaseDraftSchema = z.object({
 export type PurchaseDraft = z.output<typeof purchaseDraftSchema>;
 
 /** A purchase brings goods IN, valued at the line's rate. */
-const asEntries = (lines: PurchaseDraft['lines']) =>
-  itemLinesOf(lines).map(({ line: l }) => ({ itemId: l.itemId, warehouseId: l.warehouseId as WarehouseId, direction: 'in' as const, qty: l.qty, rate: l.rate }));
-/** Where each stock entry sits on the invoice (one-time lines have none). */
-const placesOf = (lines: PurchaseDraft['lines']) => itemLinesOf(lines).map((x) => x.at);
+const asEntries = (lines: PurchaseDraft['lines'], masters: Masters) =>
+  stockLinesOf(lines, masters).map(({ line: l }) => ({ itemId: l.itemId, warehouseId: l.warehouseId as WarehouseId, direction: 'in' as const, qty: l.qty, rate: l.rate }));
+/** Where each stock entry sits on the invoice (one-time and service lines have none). */
+const placesOf = (lines: PurchaseDraft['lines'], masters: Masters) => stockLinesOf(lines, masters).map((x) => x.at);
 
 export const purchaseKind = defineVoucherKind<PurchaseDraft>({
   base: 'purchase',
@@ -68,14 +70,14 @@ export const purchaseKind = defineVoucherKind<PurchaseDraft>({
     if (draft.dueDate < draft.date) {
       problems.push(issue(IssueCode.SalesDocInvalid, `The due date is before the invoice date (${draft.date})`, 'dueDate'));
     }
-    const places = placesOf(draft.lines);
+    const places = placesOf(draft.lines, masters);
     draft.lines.forEach((line, i) => {
-      problems.push(...lineKindProblems(line, `lines.${i}`));
+      problems.push(...lineKindProblems(line, `lines.${i}`, masters));
       if (line.challanRef) problems.push(issue(IssueCode.OrderRefInvalid, 'A purchase line is not billed against a delivery challan', `lines.${i}.challanRef`));
       problems.push(...lineValueProblems(line, `lines.${i}`));
     });
     if (problems.length === 0) {
-      asEntries(draft.lines).forEach((e, k) => problems.push(...onInvoiceLines(stockEntryProblems(e, masters, `lines.${k}`), places)));
+      asEntries(draft.lines, masters).forEach((e, k) => problems.push(...onInvoiceLines(stockEntryProblems(e, masters, `lines.${k}`), places)));
     }
     if (problems.length === 0 && invoiceTotal(draft.lines) <= 0n) {
       problems.push(issue(IssueCode.AmountNotPositive, 'The invoice comes to nothing: enter the rates', 'lines'));
@@ -84,7 +86,7 @@ export const purchaseKind = defineVoucherKind<PurchaseDraft>({
     return [
       ...deliveryProblems(draft, masters, orders, 'purchase'),
       // an alteration that lowers what came in can leave a later day short
-      ...onInvoiceLines(shortfallProblems(asEntries(draft.lines), draft.id, draft.date, masters, stock, 'lines'), placesOf(draft.lines)),
+      ...onInvoiceLines(shortfallProblems(asEntries(draft.lines, masters), draft.id, draft.date, masters, stock, 'lines'), placesOf(draft.lines, masters)),
     ];
   },
 
@@ -97,8 +99,8 @@ export const purchaseKind = defineVoucherKind<PurchaseDraft>({
       ...roundOffPosting(masters, 'purchase', roundOff),
     ];
   },
-  postStock: (draft) => plannedStockOf(asEntries(draft.lines)),
+  postStock: (draft, { masters }) => plannedStockOf(asEntries(draft.lines, masters)),
   stockItems: (draft) => [...new Set(itemLinesOf(draft.lines).map((x) => x.line.itemId))],
-  postLinks: (draft) => plannedLinksOf(draft.lines),
+  postLinks: (draft, { masters }) => plannedLinksOf(draft.lines, masters),
   orderIds: (draft) => [...new Set(draft.lines.flatMap((l) => (l.orderRef ? [l.orderRef.orderId as VoucherId] : [])))],
 });

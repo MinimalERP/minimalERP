@@ -1,5 +1,16 @@
 import { MemoryBackend } from '@minimalerp/adapter-memory';
-import { IssueCode, type Voucher, deterministicUuid, formatQty } from '@minimalerp/domain';
+import {
+  IssueCode,
+  type Masters,
+  OrderBook,
+  StockBook,
+  type Voucher,
+  deterministicUuid,
+  formatQty,
+  localDate,
+  prepareMasterCommand,
+  seedCompany,
+} from '@minimalerp/domain';
 import { describe, expect, it } from 'vitest';
 import { type Books, BooksHost, type LocalBackend } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
@@ -17,10 +28,12 @@ import {
   formToSalesDraft,
   godownWithStock,
   hasNoLines,
+  hiddenItemReason,
   invoiceFormFromOrder,
   invoiceFormFromChallan,
   returnDraftOf,
   isBlankSales,
+  itemOptions,
   openOrderLines,
   openOrdersOf,
   orderCallName,
@@ -496,5 +509,51 @@ describe('the returnable challan', () => {
     // cancelling the return puts it back out
     expect((await books.cancel(back.value.voucher.id, back.value.voucher.version)).ok).toBe(true);
     expect(books.orders.challans.returnOf(challan.id)).toBeUndefined();
+  });
+});
+
+describe('a service item on an invoice', () => {
+  function serviceCompany() {
+    const newId = (n: string) => deterministicUuid(`svc|${n}`);
+    let m: Masters = seedCompany({ name: 'Micro Components', fyStart: localDate('2026-04-01'), stateCode: '27', newId });
+    const run = (kind: string, id: string, data: unknown) => {
+      const r = prepareMasterCommand({ op: 'create', kind, id, data }, m);
+      if (!r.ok) throw new Error(JSON.stringify(r.issues));
+      m = r.value.masters;
+    };
+    const amc = newId('amc');
+    const custId = newId('cust');
+    const salesLedgerId = newId('sales');
+    run('stockItem', amc, { name: 'AMC', unitId: m.units.find((u) => u.symbol === 'Nos')?.id, itemType: 'service' });
+    run('party', custId, { name: 'Cust', roles: ['customer'], stateCode: '27' });
+    run('ledger', salesLedgerId, { name: 'Sales', groupId: newId('group:sales-accounts') });
+    return { m, amc, custId, salesLedgerId, type: (base: string) => m.voucherTypes.find((t) => t.baseKind === base)?.id as string };
+  }
+
+  it('is offered by itemOptions only when allowService is asked for (an invoice line), not by default (an order, quote or challan line)', () => {
+    const c = serviceCompany();
+    expect(itemOptions(c.m).some((o) => o.id === c.amc)).toBe(false);
+    expect(itemOptions(c.m, true).some((o) => o.id === c.amc)).toBe(true);
+  });
+
+  it('hiddenItemReason explains it is a service outside an invoice, and says nothing for it on one', () => {
+    const c = serviceCompany();
+    expect(hiddenItemReason(c.m, 'AMC')).toMatch(/is a service/);
+    expect(hiddenItemReason(c.m, 'AMC', true)).toBeUndefined();
+  });
+
+  it('a sales invoice line for it needs no godown', () => {
+    const c = serviceCompany();
+    const form: SalesForm = {
+      ...blankSalesForm('v1', c.type('sales'), '2026-05-01', 'k1', { salesLedger: { id: c.salesLedgerId, label: 'Sales' } }),
+      partyId: c.custId,
+      partyLabel: 'Cust',
+      partyDetails: { partyId: c.custId, mailingName: 'Cust', placeOfSupply: '27' },
+      lines: [{ ...blankSalesLine('l1'), itemId: c.amc, itemLabel: 'AMC', qty: '1', rate: '1000' }],
+    };
+    const preview = previewSales(form, 'sales', c.m, StockBook.empty, new OrderBook([], []));
+    expect(preview.issues).not.toContainEqual(expect.objectContaining({ field: 'line.0.wh' }));
+    expect(preview.issues).toEqual([]);
+    expect(preview.draft).not.toHaveProperty('lines.0.warehouseId');
   });
 });

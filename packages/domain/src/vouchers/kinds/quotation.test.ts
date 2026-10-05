@@ -65,4 +65,36 @@ describe('quotationKind', () => {
     expect(r.ok).toBe(false);
     expect(r.ok ? [] : r.issues.map((i) => i.code)).toContain(IssueCode.PartyDetailsInvalid);
   });
+
+  it('accepts a one-time (written) line beside a stock item line (Alt+T): no itemId, just a description, quantity and rate', () => {
+    const { masters, partyId, itemId, typeId } = company();
+    const r = prepareVoucher(
+      {
+        id: newId('v3'),
+        voucherTypeId: typeId,
+        date: '2024-05-01',
+        partyId,
+        partyDetails: { partyId, mailingName: 'Acme Ltd' },
+        lines: [
+          { id: 'a', itemId, qty: '2', rate: '100' },
+          { id: 'b', description: 'Installation', unit: 'Nos', qty: '1', rate: '500' },
+        ],
+      },
+      masters,
+      kinds,
+    );
+    expect(r.ok, r.ok ? '' : r.issues.map((i) => i.message).join('; ')).toBe(true);
+  });
+
+  it('refuses a written line that is also an item, or neither, or with no quantity', () => {
+    const { masters, partyId, itemId, typeId } = company();
+    const base = { id: newId('v4'), voucherTypeId: typeId, date: '2024-05-01', partyId, partyDetails: { partyId, mailingName: 'Acme Ltd' } };
+    const codes = (lines: unknown[]) => {
+      const r = prepareVoucher({ ...base, lines }, masters, kinds);
+      return r.ok ? [] : r.issues.map((i) => i.path);
+    };
+    expect(codes([{ id: 'a', itemId, description: 'x', qty: '1', rate: '1' }])).toContain('lines.0.itemId');
+    expect(codes([{ id: 'a', qty: '1', rate: '1' }])).toContain('lines.0.itemId');
+    expect(codes([{ id: 'a', description: 'x', qty: '0', rate: '1' }])).toContain('lines.0.qty');
+  });
 });
