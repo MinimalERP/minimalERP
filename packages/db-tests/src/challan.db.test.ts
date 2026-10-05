@@ -79,6 +79,24 @@ describe('the Delivery Challan', () => {
     expect(journal.rows[0]?.n).toBe(0);
   });
 
+  it('a written-only challan posts with no stock and no journal: closing out job work where nothing of ours moves', async () => {
+    const written = {
+      id: a.uuid('v:dc-written'),
+      voucherTypeId: a.uuid('type:deliveryChallan'),
+      date: '2024-05-01',
+      partyId: a.uuid('party:acme'),
+      partyDetails: { partyId: a.uuid('party:acme'), mailingName: 'Acme Ltd' },
+      purpose: 'foc',
+      lines: [{ id: 'l1', description: 'Machining job 44 closed, part returned', unit: 'Nos', qty: '1', rate: '0' }],
+    };
+    const posted = mustOk(await a.backend.post({ companyId: a.companyId, draft: written }));
+    const stock = await db.pool.query(`select count(*)::int n from public.stock_movements where voucher_id = $1`, [a.uuid('v:dc-written')]);
+    const journal = await db.pool.query(`select count(*)::int n from public.journal_lines where voucher_id = $1`, [a.uuid('v:dc-written')]);
+    expect(stock.rows[0]?.n).toBe(0);
+    expect(journal.rows[0]?.n).toBe(0);
+    expect(posted.voucher.status).toBe('posted');
+  });
+
   it('a clerk may post a challan but not alter or cancel one', async () => {
     const can = async (permission: string) => (await db.pool.query('select public.actor_can($1, $2, $3) as ok', [clerk, a.companyId, permission])).rows[0]?.ok;
     expect(await can('voucher.deliveryChallan.post')).toBe(true);

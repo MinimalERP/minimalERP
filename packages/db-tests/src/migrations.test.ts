@@ -55,6 +55,15 @@ describe('migrations', () => {
     expect(names.every((n) => /^\d{14}_[a-z0-9_]+\.sql$/.test(n))).toBe(true);
   });
 
+  // Supabase's remote migration history is keyed by this 14-digit prefix alone, not the full file name: two files sharing one collide
+  // there — the older one wins and the newer file is silently never applied — even though it applies fine here, where every file in the
+  // directory is just run in order with nothing keyed by version.
+  it('each have a timestamp no other migration uses', () => {
+    const versions = migrationFiles().map((m) => m.name.slice(0, 14));
+    const dupes = versions.filter((v, i) => versions.indexOf(v) !== i);
+    expect(dupes).toEqual([]);
+  });
+
   it('seed the four roles and their permissions', async () => {
     const perms = await db.pool.query(
       `select role, count(*)::int as n from role_permissions group by role order by role`,
