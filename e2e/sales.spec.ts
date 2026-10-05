@@ -22,7 +22,7 @@ async function loadDemo(page: Page): Promise<void> {
   await expect(page.getByTestId('company-name')).toHaveText('Demo Manufacturing Pvt Ltd');
 }
 
-/** The register with every line: it opens on open, undelivered lines by due date, and Alt+K clears those filters. */
+/** The register with every line: it opens on open orders' pending lines by due date, and Alt+K clears those filters. */
 async function openRegister(page: Page): Promise<void> {
   await goTo(page, 'sales order register');
   await page.keyboard.press('Enter');
@@ -484,6 +484,16 @@ test.describe('from an order to an invoice, and between the two documents', () =
     await expect(heading(app)).toHaveText('New Sales Voucher');
     await expect(app.locator('[data-vf="party"]')).toHaveValue('Sharma Traders');
   });
+});
+
+test('the Sales Order Register opens on what is still to deliver: open orders, something pending, earliest due first', async ({ app }) => {
+  await loadDemo(app);
+  await goTo(app, 'sales order register');
+  await app.keyboard.press('Enter');
+  await expect(heading(app)).toHaveText('Sales Order Register');
+  await expect(app.getByTestId('chip')).toHaveText([/Status: Open/, /Pending ≥ 1/]);
+  await expect(app.getByRole('columnheader', { name: /Due/ })).toHaveAttribute('aria-sort', 'ascending');
+  await expect(gridRows(app)).toHaveCount(3); // the lines still to deliver; the line delivered in full and the closed order are left out
 });
 
 test.describe('the Sales Order Register', () => {

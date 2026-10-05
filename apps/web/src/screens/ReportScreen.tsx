@@ -142,7 +142,7 @@ function ReportBody({
         sort: [{ column: 'due', dir: 'asc' }],
         filters: {
           status: { kind: 'in', values: ['Open'] },
-          fill: { kind: 'range', max: 0 },
+          pending: { kind: 'range', min: 1 },
         },
       }
     : EMPTY_QUERY;
