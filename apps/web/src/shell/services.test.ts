@@ -125,7 +125,7 @@ describe('the shipped configuration is internally consistent', () => {
       expect(s.registry.get(id)?.badge, id).toBeUndefined();
       s.app.goHome();
       expect(s.registry.run(id), id).toBe(true);
-      expect(top(s), id).toEqual({ type: 'voucher', mode: 'create', typeKey: kind });
+      expect(top(s), id).toEqual({ type: 'voucher', mode: 'create', typeKey: kind, fast: true });
     }
     expect(s.keymapStore.keymap.chordsFor('voucher.new.purchase')).toEqual(['F9']);
     expect(s.keymapStore.keymap.chordsFor('voucher.new.purchaseOrder')).toEqual(['Shift+F9']);
