@@ -59,6 +59,7 @@ import { FieldsDialog } from '../../screens/ReportDialogs';
 import { MailDialog, MailWindow } from '../MailDialog';
 import { billReminder } from '../reminders';
 import { SendViaErp } from '../SendViaErp';
+import { ApplyCredit } from '../ApplyCreditButton';
 import { DocketDialog } from '../DocketDialog';
 import type { CreatedMaster } from '../../screens/MasterFormScreen';
 import type { InvoiceDoc } from '../../ui/PrintView';
@@ -1253,6 +1254,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       {mode !== 'create' && voucher?.status === 'posted' && isMailKind(kind) && !mailOpen && <Only scope={SCOPE} command="voucher.email" run={() => (setMailOpen(true), true)} />}
       {mode === 'display' && reminder && !reminding && <Only scope={SCOPE} command="voucher.remind" run={() => (setReminding(true), true)} />}
       {mode !== 'create' && <SendViaErp books={books} voucher={voucher} scope={SCOPE} onDone={setBanner} />}
+      {mode === 'display' && kind === 'purchase' && <ApplyCredit books={books} voucher={voucher} scope={SCOPE} onDone={setBanner} />}
       {mode !== 'create' && voucher?.status === 'posted' && kind === 'sales' && !docketOpen && <Only scope={SCOPE} command="voucher.docket" run={() => (setDocketOpen(true), true)} />}
       {docketOpen && voucher && (
         <DocketDialog

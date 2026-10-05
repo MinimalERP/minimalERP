@@ -338,3 +338,71 @@ test.describe('the Purchase Order and receiving against it', () => {
     await expect(panel(app).locator('[data-command="list.new.sales"]')).toHaveCount(0);
   });
 });
+
+test.describe('an advance paid to a supplier, set against its bills', () => {
+  test.beforeEach(async ({ app }) => {
+    await loadDemo(app);
+  });
+
+  /** 1,000 paid to Bharat Chemicals from HDFC as an Advance, from the Payment Vouchers list. Ends back on the list. */
+  async function payAdvance(page: Page): Promise<void> {
+    await openList(page, 'Payment Vouchers');
+    await page.keyboard.press('F5'); // the list's own New
+    await page.keyboard.type('hdfc');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('bharat');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('1000');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-vf="a0.0.kind"]')).toBeFocused();
+    await page.keyboard.press('ArrowDown'); // Against ref → Advance
+    await expect(page.locator('[data-vf="a0.0.kind"]')).toHaveValue('Advance');
+    await page.keyboard.press('Enter'); // type → reference
+    await page.keyboard.press('Enter'); // reference (none) → amount
+    await page.keyboard.press('Enter'); // amount → done
+    await page.keyboard.press('Control+a');
+    await expect(heading(page)).toHaveText('Payment Vouchers');
+  }
+
+  test('“Apply to bills” on the Payment: the advance goes against the open bill, and is offered no more', async ({ app }) => {
+    await payAdvance(app);
+    await gridRows(app).filter({ hasText: 'Bharat Chemicals' }).click();
+    await expect(heading(app)).toHaveText(/^Display Payment /);
+    await panel(app).getByRole('button', { name: /Apply to bills/ }).click();
+    await expect(app.getByTestId('report-dialog')).toContainText('BC-77'); // the freight bill of 1,500 still open
+    await app.keyboard.press('Control+a');
+    await expect(banner(app)).toContainText('1,000.00 applied to bill BC-77.');
+    await expect(panel(app).getByRole('button', { name: /Apply to bills/ })).toHaveCount(0);
+    await app.keyboard.press('Escape');
+    await app.keyboard.press('Escape');
+    await app.keyboard.press('Escape');
+
+    await openReport(app, 'Outstanding Payables');
+    await expect(gridRows(app).filter({ hasText: 'Bharat Chemicals' })).toContainText('500.00'); // 1,500 less the advance
+  });
+
+  test('“Apply credit” on the Purchase bill: the supplier’s advance settles that much of it', async ({ app }) => {
+    await payAdvance(app);
+    await app.keyboard.press('Escape');
+    await app.keyboard.press('Escape');
+    await openList(app, 'Purchase Vouchers');
+    await app.keyboard.press('F9');
+    await fillBharat(app, 'BC-201');
+    await app.keyboard.press('Control+a');
+    await expect(heading(app)).toHaveText('Purchase Vouchers');
+    await app.keyboard.press('Escape');
+    await app.keyboard.press('Escape');
+
+    await openReport(app, 'Outstanding Payables');
+    await gridRows(app).filter({ hasText: 'Bharat Chemicals' }).click();
+    await gridRows(app).filter({ hasText: 'BC-201' }).click();
+    await expect(heading(app)).toHaveText(/^Display Purchase /);
+    await panel(app).getByRole('button', { name: /Apply credit/ }).click();
+    await expect(app.getByTestId('report-dialog')).toContainText('1,000.00');
+    await app.keyboard.press('Control+a');
+    await expect(banner(app)).toContainText('1,000.00 of credit applied to bill BC-201.');
+    await expect(panel(app).getByRole('button', { name: /Apply credit/ })).toHaveCount(0);
+    await app.keyboard.press('Escape');
+    await expect(gridRows(app).filter({ hasText: 'BC-201' })).toContainText('5,000.00'); // 6,000 less the advance
+  });
+});
