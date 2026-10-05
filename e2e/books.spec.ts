@@ -32,9 +32,9 @@ test.describe('the Reports menu', () => {
     await loadDemo(app);
   });
 
-  test('is grouped — Statements, Books, Outstanding, Inventory & Sales, GST — and every row is a real report', async ({ app }) => {
+  test('is grouped — Inventory & Sales, Statements, Books, Outstanding, GST — and every row is a real report', async ({ app }) => {
     await app.getByRole('option', { name: /^Reports/ }).click();
-    await expect(app.getByTestId('menu-group').locator('.menu-group-title')).toHaveText(['Statements', 'Books', 'Outstanding', 'Inventory & Sales', 'GST']);
+    await expect(app.getByTestId('menu-group').locator('.menu-group-title')).toHaveText(['Inventory & Sales', 'Statements', 'Books', 'Outstanding', 'GST']);
     const group = (name: string) => app.getByTestId('menu-group').filter({ has: app.locator('.menu-group-title', { hasText: name }) });
     await expect(group('Statements').getByRole('option')).toHaveText([/Trial Balance/, /Profit & Loss/, /Balance Sheet/]);
     await expect(group('Books').getByRole('option')).toHaveText([/Day Book/, /Ledger/, /Cash Book/, /Bank Book/]);

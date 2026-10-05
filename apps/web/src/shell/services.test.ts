@@ -142,10 +142,10 @@ describe('the shipped configuration is internally consistent', () => {
     expect(top(s)).toEqual({ type: 'report', report: 'purchase-orders' });
   });
 
-  it('the Reports menu is grouped: Statements, Books, Outstanding, Inventory & Sales, GST', () => {
+  it('the Reports menu is grouped: Inventory & Sales, Statements, Books, Outstanding, GST', () => {
     const { services: s } = boot();
     const items = s.registry.menuItems('reports');
-    expect([...new Set(items.map((i) => i.group))]).toEqual(['Statements', 'Books', 'Outstanding', 'Inventory & Sales', 'GST']);
+    expect([...new Set(items.map((i) => i.group))]).toEqual(['Inventory & Sales', 'Statements', 'Books', 'Outstanding', 'GST']);
   });
 
   it('every planned command opens the planned screen for itself', () => {
