@@ -209,6 +209,8 @@ const commands: Command<AppContext>[] = [
   contextual('voucher.acceptAndNew', 'Save and start a new one', { label: 'Save & new', group: 'Actions', order: 11.5, on: ['voucher'] }),
   contextual('voucher.againstOrder', 'Deliver or receive against an order', { label: 'Against order', group: 'Actions', order: 12, on: ['voucher'] }),
   contextual('voucher.paidFrom', 'Paid from: pay this purchase now from cash or a bank (a Payment is saved with it)', { label: 'Paid from', group: 'Actions', order: 12.5, on: ['voucher'], hideWhenUnavailable: true }),
+  contextual('voucher.applyCredit', 'Apply credit: set the advances paid to this supplier against this bill', { label: 'Apply credit', group: 'Actions', order: 12.6, on: ['voucher'], hideWhenUnavailable: true }),
+  contextual('voucher.applyToBills', 'Apply to bills: set this advance against the supplier’s open bills', { label: 'Apply to bills', group: 'Actions', order: 12.7, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('order.invoice','Create an invoice for the pending items of this order', { label: 'Invoice pending', group: 'Actions', order: 15, on: ['voucher'], fold: 'Inventory' }),
   contextual('challan.markReturned', 'Mark returned: the goods have come back from the supplier', { label: 'Mark returned', group: 'Actions', order: 15.2, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('quotation.order', 'Create a sales order from this quotation', { label: 'Sales order', group: 'Actions', order: 15.5, on: ['voucher'], hideWhenUnavailable: true }),

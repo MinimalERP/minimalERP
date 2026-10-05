@@ -5,6 +5,7 @@ import type { Books } from '../../books/books';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../../shell/hooks';
 import { Only } from '../../shell/Only';
 import { SendViaErp } from '../SendViaErp';
+import { ApplyCredit } from '../ApplyCreditButton';
 import { useIdleOnBlankClick } from '../../shell/idle';
 import { useLeaveGuard } from '../../shell/useLeaveGuard';
 import type { InboxItem } from '@minimalerp/ports';
@@ -1028,6 +1029,7 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
           {pickerOn && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
           {!readOnly && <Only scope={SCOPE} command="voucher.partyDetails" run={openPartyDetails} />}
           {readOnly && <SendViaErp books={books} voucher={voucher} scope={SCOPE} onDone={setBanner} />}
+          {readOnly && <ApplyCredit books={books} voucher={voucher} scope={SCOPE} onDone={setBanner} onAltered={(v) => setFormState(formFromVoucher(v, masters))} />}
           {!readOnly && current.line !== undefined && (form.lines.length > 1 || current.part !== undefined) && <Only scope={SCOPE} command="voucher.removeLine" run={removeLine} />}
           {voucher && (
             <Only
