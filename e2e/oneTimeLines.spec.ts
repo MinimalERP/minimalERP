@@ -130,15 +130,16 @@ test.describe('one-time lines', () => {
     await leaveByEscape(app, 'Gateway');
   });
 
-  test('a Delivery Challan with only a written line is refused: nothing would actually leave', async ({ app }) => {
+  test('a Delivery Challan made up only of written lines is allowed: closing out job work with no stock of ours moving at all', async ({ app }) => {
     await app.keyboard.press('Alt+F8');
     await app.keyboard.type('abc ind');
     await app.keyboard.press('Enter');
     await app.keyboard.press('Enter');
-    await app.keyboard.press('Enter'); // purpose
-    await writeOneTimeLine(app, 'Packing material', '', '1', '');
+    await app.keyboard.press('Enter'); // purpose stays Sale
+    await writeOneTimeLine(app, 'Machining job 44 closed, part returned', '', '1', '');
     await app.keyboard.type('0');
     await app.keyboard.press('Control+a');
-    await expect(app.getByText('A challan needs at least one item line')).toBeVisible();
+    await expect(heading(app)).toHaveText('New Delivery Challan'); // opened by Alt+F8: fast entry — saved, fresh for the next one
+    await leaveByEscape(app, 'Gateway');
   });
 });

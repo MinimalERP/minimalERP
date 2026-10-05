@@ -60,8 +60,8 @@ export const deliveryChallanKind = defineVoucherKind<DeliveryChallanDraft>({
   base: 'deliveryChallan',
   layout: 'item-invoice',
   schema: deliveryChallanDraftSchema,
-  // it never posts a journal — so a challan of service items alone (nothing of ours leaves) is not the "missing posting rule" the engine
-  // otherwise guards against; only the "at least one item line" check above still asks for real content.
+  // it never posts a journal — so a challan of service or written lines alone (nothing of ours leaves) is not the "missing posting rule"
+  // the engine otherwise guards against: a job-work closing challan can be all text, with no stock movement at all.
   noJournal: true,
 
   ledgerRefs: () => [],
@@ -69,9 +69,6 @@ export const deliveryChallanKind = defineVoucherKind<DeliveryChallanDraft>({
   validate(draft, { masters, stock, orders }) {
     const problems: Issue[] = customerProblems(draft, masters);
     if (draft.lines.length === 0) problems.push(issue(IssueCode.TooFewLines, 'A challan needs at least one line', 'lines'));
-    else if (draft.lines.every((l) => l.itemId === undefined)) {
-      problems.push(issue(IssueCode.TooFewLines, 'A challan needs at least one item line: a written line alone moves nothing', 'lines'));
-    }
     problems.push(...invoiceGst(draft, masters, 'sales').problems);
     problems.push(...roundOffProblems(masters, grandTotalParts(draft.lines, draft.gst).roundOff));
 
