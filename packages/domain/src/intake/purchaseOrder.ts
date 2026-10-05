@@ -13,7 +13,9 @@ import type { Extraction } from './extraction';
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const NUM = String.raw`(\d[\d,]*\.\d+)`;
-const ROW = new RegExp(String.raw`^(\d+) (\S+) ${NUM} ([A-Z]+) ${NUM} ?\/ ?(\d[\d,]*)? ?[A-Z]+ ${NUM} [YN]$`, 'gm');
+// A line charge (a modification, a service) prints with no Material column at all — the row goes straight from the item number to the
+// quantity — so the code is optional: when present it takes the row's usual shape, when absent the row is one field shorter.
+const ROW = new RegExp(String.raw`^(\d+) (?:(\S+) )?${NUM} ([A-Z]+) ${NUM} ?\/ ?(\d[\d,]*)? ?[A-Z]+ ${NUM} [YN]$`, 'gm');
 
 /** Letters only, upper case: PDF text breaks words at odd places. */
 const squeezed = (text: string): string => text.toUpperCase().replace(/[^A-Z]/g, '');
@@ -55,7 +57,7 @@ function eclipsePurchaseOrder(text: string): Extraction | undefined {
     const hsn = /HSN\/SAC Code\s*:\s*(\d{4,8})/.exec(block)?.[1];
     const dueDate = isoDate(/Honeywell Request Date\s*:\s*(\d{1,2}-[A-Za-z]{3}-\d{4})/.exec(block)?.[1]);
     lines.push({
-      code: code as string,
+      ...(code ? { code } : {}),
       ...(description ? { description: description.slice(0, 200) } : {}),
       ...(hsn ? { hsn } : {}),
       qty: plain(qty as string),
