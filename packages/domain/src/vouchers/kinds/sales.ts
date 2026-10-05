@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { type Issue, IssueCode, issue } from '../../errors';
 import type { VoucherId, WarehouseId } from '../../ids';
+import type { Masters } from '../../masters/masters';
 import type { PlannedLine } from '../../posting/plan';
 import { draftBaseShape, ledgerIdSchema, localDateSchema } from '../drafts';
 import { defineVoucherKind } from '../kind';
@@ -17,6 +18,7 @@ import {
   lineValueProblems,
   onInvoiceLines,
   plannedLinksOf,
+  stockLinesOf,
 } from './documents';
 import { grandTotalParts, gstHeaderSchema, invoiceGst, roundOffPosting, roundOffProblems, taxPostings } from './gstDoc';
 import { itemQtyProblems, plannedStockOf, shortfallProblems, stockEntryProblems } from './stockJournal';
@@ -45,10 +47,10 @@ export const salesDraftSchema = z.object({
 });
 export type SalesDraft = z.output<typeof salesDraftSchema>;
 
-const asEntries = (lines: SalesDraft['lines']) =>
-  itemLinesOf(lines).map(({ line: l }) => ({ itemId: l.itemId, warehouseId: l.warehouseId as WarehouseId, direction: 'out' as const, qty: l.qty }));
-/** Where each stock entry sits on the invoice (one-time lines have none). */
-const placesOf = (lines: SalesDraft['lines']) => itemLinesOf(lines).map((x) => x.at);
+const asEntries = (lines: SalesDraft['lines'], masters: Masters) =>
+  stockLinesOf(lines, masters).map(({ line: l }) => ({ itemId: l.itemId, warehouseId: l.warehouseId as WarehouseId, direction: 'out' as const, qty: l.qty }));
+/** Where each stock entry sits on the invoice (one-time and service lines have none). */
+const placesOf = (lines: SalesDraft['lines'], masters: Masters) => stockLinesOf(lines, masters).map((x) => x.at);
 
 export const salesKind = defineVoucherKind<SalesDraft>({
   base: 'sales',
@@ -69,13 +71,13 @@ export const salesKind = defineVoucherKind<SalesDraft>({
     if (draft.dueDate < draft.date) {
       problems.push(issue(IssueCode.SalesDocInvalid, `The due date is before the invoice date (${draft.date})`, 'dueDate'));
     }
-    const places = placesOf(draft.lines);
+    const places = placesOf(draft.lines, masters);
     draft.lines.forEach((line, i) => {
-      problems.push(...lineKindProblems(line, `lines.${i}`));
+      problems.push(...lineKindProblems(line, `lines.${i}`, masters));
       problems.push(...lineValueProblems(line, `lines.${i}`));
     });
     if (problems.length === 0) {
-      asEntries(draft.lines).forEach((e, k) => problems.push(...onInvoiceLines(stockEntryProblems(e, masters, `lines.${k}`), places)));
+      asEntries(draft.lines, masters).forEach((e, k) => problems.push(...onInvoiceLines(stockEntryProblems(e, masters, `lines.${k}`), places)));
       draft.lines.forEach((l, i) => {
         if (l.challanRef && l.itemId !== undefined) problems.push(...itemQtyProblems(l.itemId, l.qty, masters, `lines.${i}`));
       });
@@ -87,7 +89,7 @@ export const salesKind = defineVoucherKind<SalesDraft>({
     return [
       ...deliveryProblems(draft, masters, orders),
       ...challanProblems(draft, masters, orders.challans),
-      ...onInvoiceLines(shortfallProblems(asEntries(draft.lines), draft.id, draft.date, masters, stock, 'lines'), placesOf(draft.lines)),
+      ...onInvoiceLines(shortfallProblems(asEntries(draft.lines, masters), draft.id, draft.date, masters, stock, 'lines'), placesOf(draft.lines, masters)),
     ];
   },
 
@@ -100,9 +102,9 @@ export const salesKind = defineVoucherKind<SalesDraft>({
       ...roundOffPosting(masters, 'sales', roundOff),
     ];
   },
-  postStock: (draft) => plannedStockOf(asEntries(draft.lines)),
+  postStock: (draft, { masters }) => plannedStockOf(asEntries(draft.lines, masters)),
   stockItems: (draft) => [...new Set(itemLinesOf(draft.lines).map((x) => x.line.itemId))],
-  postLinks: (draft) => plannedLinksOf(draft.lines),
+  postLinks: (draft, { masters }) => plannedLinksOf(draft.lines, masters),
   // the orders it fills and the challans it bills: a backend loads both into the order book
   orderIds: (draft) => [...new Set(draft.lines.flatMap((l) => [...(l.orderRef ? [l.orderRef.orderId as VoucherId] : []), ...(l.challanRef ? [l.challanRef.challanId as VoucherId] : [])]))],
 });

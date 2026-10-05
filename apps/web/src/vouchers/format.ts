@@ -48,6 +48,12 @@ export function formatDate(date: string): string {
   return m ? `${Number(m[3])}-${MONTHS[Number(m[2]) - 1]}-${m[1]}` : date;
 }
 
+/** "27-Sep-2026 19:46", in India: when a document was last emailed. */
+export function mailedWhen(iso: string): string {
+  const t = new Date(Date.parse(iso) + 330 * 60_000).toISOString();
+  return `${formatDate(t.slice(0, 10))} ${t.slice(11, 16)}`;
+}
+
 /** "2024-05-10" → "Fri". */
 export function weekday(date: string): string {
   const d = parseLocalDate(date);

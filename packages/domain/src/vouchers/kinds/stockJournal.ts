@@ -71,16 +71,17 @@ export function stockEntryProblems(
 
 /**
  * The item and quantity of any stock line: the item exists, is active and holds stock, and the quantity is above zero, fits what the
- * books can hold and uses no more decimals than the item's unit allows. (Shared by every kind that names an item and a quantity.)
+ * books can hold and uses no more decimals than the item's unit allows. (Shared by every kind that names an item and a quantity.) A line
+ * that bills a service rather than moving stock passes `allowService`, so the one thing it is not checked for is holding stock.
  */
-export function itemQtyProblems(itemId: StockItemId, quantity: string, masters: Masters, path: string): Issue[] {
+export function itemQtyProblems(itemId: StockItemId, quantity: string, masters: Masters, path: string, opts: { allowService?: boolean } = {}): Issue[] {
   const problems: Issue[] = [];
   const at = (field: string): string => (path === '' ? field : `${path}.${field}`);
   const item = masters.stockItem(itemId);
   if (!item) problems.push(issue(IssueCode.StockLineInvalid, 'That stock item does not exist', at('itemId')));
   else {
     if (!item.isActive) problems.push(issue(IssueCode.StockLineInvalid, `"${item.name}" is inactive`, at('itemId')));
-    if (item.itemType === 'service') problems.push(issue(IssueCode.StockLineInvalid, `"${item.name}" is a service: it has no stock`, at('itemId')));
+    if (item.itemType === 'service' && !opts.allowService) problems.push(issue(IssueCode.StockLineInvalid, `"${item.name}" is a service: it has no stock`, at('itemId')));
   }
   const q = parseQty(quantity) ?? 0n;
   if (q <= 0n) problems.push(issue(IssueCode.StockLineInvalid, 'Enter a quantity above zero', at('qty')));

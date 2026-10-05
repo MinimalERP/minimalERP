@@ -1,5 +1,5 @@
 import type { Frame } from '@minimalerp/command';
-import { type ChallanPurpose, type Voucher, billStatusOf, gstr2bPeriodLabel, isMailKind, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type ChallanPurpose, type Masters, type Voucher, billStatusOf, gstr2bPeriodLabel, isMailKind, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { Only } from '../../shell/Only';
@@ -11,7 +11,7 @@ import { inboxBanner, itemSeedOf, partySeedOf, salesFormFromProposal } from '../
 import { useLeaveGuard } from '../../shell/useLeaveGuard';
 import { Kbd } from '../../ui/Kbd';
 import { defaultDate, resolveTypeId } from '../entryHelpers';
-import { addDays, formatAmount, formatDate, formatQuantity, parseDateInput } from '../format';
+import { addDays, formatAmount, formatDate, formatQuantity, mailedWhen, parseDateInput } from '../format';
 import { CHALLAN_STATUS, ENTRY_KINDS, type ItemDocKind, type SalesKind, docProfile, invoiceKindOf, isSalesKind } from '../kinds';
 import {
   type Option,
@@ -88,7 +88,7 @@ interface Field {
  * on a purchase, the supplier's invoice number — and the date the bill falls due, and each line for a godown and (optionally) the order line
  * it fills; an order asks each line for its own due date.
  */
-function fieldsOf(form: SalesForm, kind: ItemDocKind, gstOn = false): Field[] {
+function fieldsOf(form: SalesForm, kind: ItemDocKind, masters: Masters, gstOn = false): Field[] {
   const p = docProfile(kind);
   const out: Field[] = [
     { key: 'date', kind: 'date' },
@@ -106,7 +106,9 @@ function fieldsOf(form: SalesForm, kind: ItemDocKind, gstOn = false): Field[] {
   }
   form.lines.forEach((l, i) => {
     out.push({ key: `l${i}.item`, kind: 'item', line: i });
-    if (p.invoice && !l.oneTime) {
+    // a service item has no godown and fills no order or challan, like a one-time line
+    const isService = !l.oneTime && l.itemId !== '' && masters.stockItem(l.itemId as never)?.itemType === 'service';
+    if (p.invoice && !l.oneTime && !isService) {
       // a line billed against a challan has no godown: its goods left on the challan
       if (!l.challanId) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
       out.push({ key: `l${i}.ord`, kind: 'ord', line: i });
@@ -234,7 +236,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const gstOn = (p.invoice || p.quote || p.challan) && masters.company.chargeGst === true;
   const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
   const type = masters.voucherType(form.typeId as never);
-  const fields = fieldsOf(form, kind, gstOn);
+  const fields = fieldsOf(form, kind, masters, gstOn);
   const picker = usePickerState(focusKey);
   // a dialog (party details) has the focus while it is open; the field gets it back when it closes
   const { current, go, nextKey, prevKey, isFocus } = useFieldFocus({ fields, focusKey, setFocusKey, rootRef, idle, wake, paused: partyOpen || mailOpen || reminding || docketOpen, deps: [mode, form.lines.length], onGo: picker.reset });
@@ -295,7 +297,9 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const parties = useMemo(() => customerOptions(masters, p.role === 'vendor' ? 'purchase' : 'sales'), [masters, p.role]);
   const salesLedgers = useMemo(() => salesLedgerOptions(masters, p.side), [masters, p.side]);
   const paidFrom = useMemo(() => paidFromOptions(masters), [masters]);
-  const items = useMemo(() => itemOptions(masters), [masters]);
+  const items = useMemo(() => itemOptions(masters, p.invoice), [masters, p.invoice]);
+  /** A service item has no godown and moves no stock: true only on an invoice line that names one. */
+  const isServiceItem = (itemId: string): boolean => itemId !== '' && masters.stockItem(itemId as never)?.itemType === 'service';
   const godowns: Option[] = useMemo(() => masters.warehouses.filter((w) => w.isActive).map((w) => ({ id: w.id, name: w.name, sub: '' })), [masters]);
   const shownDue = (d: string): string => formatDate(d).replace(/-20(\d\d)$/, '-$1');
   const orderChoices: OrderOption[] = useMemo(
@@ -475,20 +479,21 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     if (f.line === undefined) return;
     if (f.kind === 'item') {
       const l = fresh().lines[f.line] as SalesLineForm;
+      const isService = isServiceItem(o.id);
       // an order reference is only good for the item it was for
-      const stillFits = l.orderId !== '' && books.orders.order(l.orderId as never)?.lines.find((x) => x.id === l.orderLineId)?.itemId === o.id;
-      // an invoice line starts in the godown that holds the goods
-      const w = p.side === 'sales' && p.moves ? godownFor(o.id, parseQty(l.qty.trim()) ?? 1n) : undefined;
+      const stillFits = !isService && l.orderId !== '' && books.orders.order(l.orderId as never)?.lines.find((x) => x.id === l.orderLineId)?.itemId === o.id;
+      // an invoice line starts in the godown that holds the goods; a service item has no godown
+      const w = !isService && p.side === 'sales' && p.moves ? godownFor(o.id, parseQty(l.qty.trim()) ?? 1n) : undefined;
       const here = l.warehouseId !== '' && (p.side === 'purchase' || base.qtyAt(o.id as never, l.warehouseId as never, fresh().date as never) >= (parseQty(l.qty.trim()) ?? 1n));
       // a challan reference is only good for the item it went out as
-      const challanFits = !!l.challanId && books.orders.challans.challan(l.challanId as never)?.lines.find((x) => x.id === l.challanLineId)?.itemId === o.id;
+      const challanFits = !isService && !!l.challanId && books.orders.challans.challan(l.challanId as never)?.lines.find((x) => x.id === l.challanLineId)?.itemId === o.id;
       setLine(f.line, {
         itemId: o.id,
         itemLabel: o.name,
         ...(gstOn ? gstDefaults(masters, o.id) : {}),
         ...(l.orderId !== '' && !stillFits ? { orderId: '', orderLineId: '', orderLabel: '' } : {}),
         ...(l.challanId && !challanFits ? { challanId: undefined, challanLineId: undefined, orderLabel: '' } : {}),
-        ...(w && !here ? { warehouseId: w.id, warehouseLabel: w.label } : {}),
+        ...(isService ? { warehouseId: '', warehouseLabel: '' } : w && !here ? { warehouseId: w.id, warehouseLabel: w.label } : {}),
       });
       clearError(`line.${f.line}.item`);
     } else if (f.kind === 'wh') {
@@ -615,7 +620,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
               ? `No such ${p.noun} — press Alt+C to create it`
               : pickerKind === 'paidfrom'
                 ? 'No such cash or bank ledger — leave it empty for a purchase on credit'
-              : pickerKind === 'item' && p.invoice
+              : pickerKind === 'item' && (p.invoice || p.quote)
                 ? 'No match — Alt+C creates the item, Alt+T writes it as a one-time line'
                 : 'No match — press Alt+C to create it',
       }));
@@ -701,11 +706,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     return true;
   };
   /**
-   * Alt+T on an invoice line's item cell: the typed text becomes a ONE-TIME line (no stock item, no godown, no stock moved — billed and taxed
-   * like any line), or back to an item line. For what is sold or bought once and is not worth an item master.
+   * Alt+T on an invoice or quotation line's item cell: the typed text becomes a ONE-TIME line (no stock item, no godown, no stock moved —
+   * billed and taxed like any line), or back to an item line. For what is sold or bought once and is not worth an item master.
    */
   const openOneTime = (): boolean => {
-    if (readOnly || !p.invoice || current.kind !== 'item' || current.line === undefined) return false;
+    if (readOnly || !(p.invoice || p.quote) || current.kind !== 'item' || current.line === undefined) return false;
     setOneTimeFor(current.line);
     return true;
   };
@@ -989,13 +994,13 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         meta={(o) => pickerKind === 'item' && <span class="row-meta amt">{stockOf(o.id)}</span>}
         hint={
           <>
-            {pickerKind === 'item' && p.invoice && (
+            {pickerKind === 'item' && (p.invoice || p.quote) && (
               <>
                 {' '}
                 · <Kbd chord={chord('voucher.oneTimeLine') ?? 'Alt+T'} /> writes it as a one-time line
               </>
             )}
-            {pickerKind === 'item' && hiddenItemReason(masters, typedLabel) && <div data-testid="hidden-item">{hiddenItemReason(masters, typedLabel)}</div>}
+            {pickerKind === 'item' && hiddenItemReason(masters, typedLabel, p.invoice) && <div data-testid="hidden-item">{hiddenItemReason(masters, typedLabel, p.invoice)}</div>}
           </>
         }
       />
@@ -1023,7 +1028,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   );
 
   const lineRow = (l: SalesLineForm, i: number) => {
-    const stock = p.moves && l.itemId !== '' && !l.challanId ? stockOf(l.itemId) : undefined;
+    const isService = isServiceItem(l.itemId);
+    const stock = p.moves && l.itemId !== '' && !l.challanId && !isService ? stockOf(l.itemId) : undefined;
     const billedLine = l.challanId ? books.orders.challans.withChange({ removeLinksOf: [form.id as never] }).state(l.challanId as never)?.lines.find((s) => s.line.id === l.challanLineId) : undefined;
     const amount = preview.amounts.get(i);
     const linked = l.orderId !== '' ? books.orders.state(l.orderId as never)?.lines.find((s) => s.line.id === l.orderLineId) : undefined;
@@ -1056,6 +1062,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           ) : (
             pickerInput(`l${i}.item`, `Line ${i + 1} stock item`, l.itemLabel, (v) => setLine(i, { itemLabel: v }), `line.${i}.item`)
           )}
+          {isService && !isFocus(`l${i}.item`) && (
+            <div class="vbal" data-testid="service-note">
+              service · no stock, no godown
+            </div>
+          )}
           {stock && !isFocus(`l${i}.item`) && (
             <div class="vbal" data-testid="stock-note">
               Stock: {stock}
@@ -1063,9 +1074,9 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             </div>
           )}
         </div>
-        {p.invoice && l.oneTime ? (
+        {p.invoice && (l.oneTime || isService) ? (
           <>
-            <div class="vc-godown vcell-none" aria-hidden="true">—</div>
+            <div class="vc-godown vcell-none" aria-hidden="true" title={isService ? 'A service holds no stock: this line has no godown' : undefined}>—</div>
             <div class="vc-order vcell-none" aria-hidden="true">—</div>
           </>
         ) : p.invoice ? (
@@ -1204,7 +1215,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       {!readOnly && mode === 'create' && kind === 'purchase' && <Only scope={SCOPE} command="voucher.paidFrom" run={askPaidFrom} />}
       {!readOnly && <Only scope={SCOPE} command="voucher.partyDetails" run={openPartyDetails} />}
       {!readOnly && p.invoice && <Only scope={SCOPE} command="voucher.againstOrder" run={againstOrder} />}
-      {!readOnly && p.invoice && current.kind === 'item' && oneTimeFor === undefined && <Only scope={SCOPE} command="voucher.oneTimeLine" run={openOneTime} />}
+      {!readOnly && (p.invoice || p.quote) && current.kind === 'item' && oneTimeFor === undefined && <Only scope={SCOPE} command="voucher.oneTimeLine" run={openOneTime} />}
       {oneTimeFor !== undefined && (
         <FieldsDialog
           title={`Line ${oneTimeFor + 1}: one-time line (not a stock item)`}
@@ -1608,12 +1619,6 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
 const godownOf = (g: { id: string; label: string } | undefined): { warehouseId?: string; warehouseLabel?: string } => (g ? { warehouseId: g.id, warehouseLabel: g.label } : {});
 
 /** The main godown: the first active one, which a new invoice line starts in. */
-/** "27-Sep-2026 19:46", in India: when a document was last emailed. */
-function mailedWhen(iso: string): string {
-  const t = new Date(Date.parse(iso) + 330 * 60_000).toISOString();
-  return `${formatDate(t.slice(0, 10))} ${t.slice(11, 16)}`;
-}
-
 function defaultGodown(books: Books): { id: string; label: string } | undefined {
   const w = books.masters.warehouses.find((x) => x.isActive);
   return w ? { id: w.id, label: w.name } : undefined;

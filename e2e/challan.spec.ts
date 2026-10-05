@@ -3,7 +3,7 @@
  * purpose — sale (invoiced later) or free of cost — is a field on it. Each line leaves a godown; nothing is posted to the accounts.
  */
 import type { Page } from '@playwright/test';
-import { expect, goTo, heading, test } from './support';
+import { expect, goTo, heading, leaveByEscape, test } from './support';
 
 const panel = (page: Page) => page.getByTestId('action-panel');
 const gridRows = (page: Page) => page.getByRole('grid').getByRole('row').filter({ has: page.locator('td') });
@@ -100,6 +100,7 @@ test.describe('the Delivery Challan window', () => {
     await app.keyboard.type('38');
     await app.keyboard.press('Control+a');
     await expect(app.getByRole('status').or(app.locator('.notice')).first()).toBeVisible();
+    await leaveByEscape(app, 'Gateway'); // opened by Alt+F8: fast entry — saved, fresh; Esc leaves
 
     await app.getByRole('option', { name: /^Transactions/ }).click();
     await app.getByRole('option', { name: /^Delivery Challans/ }).click();

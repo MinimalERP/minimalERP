@@ -6,14 +6,22 @@ import { customerProblems, documentShape, lineValueProblems } from './documents'
 import { grandTotalParts, gstHeaderSchema, invoiceGst, roundOffProblems } from './gstDoc';
 import { itemQtyProblems } from './stockJournal';
 import { percentSchema } from '../../gst/tax';
+import { parseQty } from '../../stock/quantity';
 import { itemIdSchema, qtySchema, rateSchema } from './stockJournal';
 
 const lineIdSchema = z.string().trim().min(1).max(40);
 
-/** A line on a quotation: item, quantity and rate (and optional GST for what the customer reads). */
+/**
+ * A line on a quotation: a stock item — or, written (Alt+T), free text with no stock item, for what is offered once and is not worth an
+ * item master — a quantity and a rate (and optional GST for what the customer reads).
+ */
 const quoteLineSchema = z.object({
   id: lineIdSchema,
-  itemId: itemIdSchema,
+  itemId: itemIdSchema.optional(),
+  /** A ONE-TIME line: written text instead of a stock item. */
+  description: z.string().trim().min(1).max(200).optional(),
+  /** A one-time line's unit (a unit master's symbol: "Nos", "Kg"…), for the printed quote and GST's unit code. */
+  unit: z.string().trim().min(1).max(20).optional(),
   qty: qtySchema,
   rate: rateSchema,
   gstRate: percentSchema.optional(),
@@ -51,7 +59,16 @@ export const quotationKind = defineVoucherKind<QuotationDraft>({
       const path = `lines.${i}`;
       if (ids.has(l.id)) problems.push(issue(IssueCode.SalesDocInvalid, 'Two lines carry the same id', `${path}.id`));
       ids.add(l.id);
-      problems.push(...itemQtyProblems(l.itemId, l.qty, masters, path));
+      if (l.itemId !== undefined && l.description !== undefined) {
+        problems.push(issue(IssueCode.SalesDocInvalid, 'A line is either a stock item or written text, not both', `${path}.itemId`));
+      } else if (l.itemId === undefined && l.description === undefined) {
+        problems.push(issue(IssueCode.SalesDocInvalid, 'Choose a stock item — or write the line and press Alt+T', `${path}.itemId`));
+      } else if (l.itemId !== undefined) {
+        problems.push(...itemQtyProblems(l.itemId, l.qty, masters, path));
+        if (l.unit !== undefined) problems.push(issue(IssueCode.SalesDocInvalid, 'A stock item line takes the unit of its item', `${path}.unit`));
+      } else if ((parseQty(l.qty) ?? 0n) <= 0n) {
+        problems.push(issue(IssueCode.StockLineInvalid, 'Enter a quantity above zero', `${path}.qty`));
+      }
       problems.push(...lineValueProblems(l, path));
     });
     return problems;

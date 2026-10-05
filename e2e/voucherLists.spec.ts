@@ -3,7 +3,7 @@
  * window that closes back to where it was opened from (Alt+N = Save and new, for rapid entry).
  */
 import type { Page } from '@playwright/test';
-import { expect, goTo, heading, test } from './support';
+import { expect, goTo, heading, leaveByEscape, test } from './support';
 
 const panel = (page: Page) => page.getByTestId('action-panel');
 const banner = (page: Page) => page.getByTestId('voucher-banner');
@@ -180,11 +180,12 @@ test.describe('creating from a list, and closing back to it', () => {
     await expect(gridRows(app)).toHaveCount(3);
   });
 
-  test('a window opened from the Gateway (F8) closes back to the Gateway', async ({ app }) => {
+  test('a window opened from the Gateway (F8) is in fast entry: Ctrl+A saves and starts the next one; Esc then closes back to the Gateway', async ({ app }) => {
     await app.keyboard.press('F8');
     await fillInvoice(app);
     await app.keyboard.press('Control+a');
-    await expect(heading(app)).toHaveText('Gateway');
+    await expect(heading(app)).toHaveText('New Sales Voucher'); // opened by its key: fast entry — the same window, fresh, for the next one
+    await leaveByEscape(app, 'Gateway');
   });
 
   test('an accounting voucher closes back to its list too', async ({ app }) => {

@@ -9,7 +9,7 @@ import type { OrderBook, PlannedLink } from '../../orders/orderBook';
 import { formatQty, parseQty, parseRate, valueOf } from '../../stock/quantity';
 import { type PartyDetails, ledgerIdSchema, localDateSchema, voucherIdSchema } from '../drafts';
 import { percentSchema } from '../../gst/tax';
-import { itemIdSchema, qtySchema, rateSchema, warehouseIdSchema } from './stockJournal';
+import { itemIdSchema, itemQtyProblems, qtySchema, rateSchema, warehouseIdSchema } from './stockJournal';
 
 /**
  * What Sales Orders and Sales Invoices share (ADR-0015): the shape of an item line, the customer checks, and the rules for filling an
@@ -135,6 +135,14 @@ export function itemLinesOf<L extends { itemId?: string | undefined; challanRef?
   return lines.flatMap((l, at) => (l.itemId !== undefined && l.challanRef === undefined ? [{ line: l as L & { itemId: StockItemId }, at }] : []));
 }
 
+/** `itemLinesOf`, with a service item's line left out too: a service holds no stock, so it moves none and fills no order. */
+export function stockLinesOf<L extends { itemId?: string | undefined; challanRef?: unknown }>(
+  lines: readonly L[],
+  masters: Masters,
+): { line: L & { itemId: StockItemId }; at: number }[] {
+  return itemLinesOf(lines).filter(({ line }) => masters.stockItem(line.itemId)?.itemType !== 'service');
+}
+
 /** Problems found on the stock lines alone ("lines.1") put back on their place on the invoice ("lines.3"). */
 export function onInvoiceLines(problems: readonly Issue[], places: readonly number[]): Issue[] {
   return problems.map((p) => {
@@ -145,16 +153,24 @@ export function onInvoiceLines(problems: readonly Issue[], places: readonly numb
 }
 
 /**
- * A line is either a stock item or a written one-time line, never both or neither. A one-time line needs its text, a quantity and a rate,
- * and cannot fill an order line (orders are of stock items).
+ * A line is either a stock item, a service item, or a written one-time line, never both or neither. A service line is billed like a stock
+ * item line but moves no stock: it has no godown and cannot be against an order or a challan (both are of stock items). A one-time line
+ * needs its text, a quantity and a rate, and likewise cannot fill an order line.
  */
-export function lineKindProblems(l: InvoiceLine, path: string): Issue[] {
+export function lineKindProblems(l: InvoiceLine, path: string, masters: Masters): Issue[] {
   if (l.itemId !== undefined && l.description !== undefined) return [issue(IssueCode.SalesDocInvalid, 'A line is either a stock item or written text, not both', `${path}.itemId`)];
   if (l.itemId === undefined && l.description === undefined) return [issue(IssueCode.SalesDocInvalid, 'Choose a stock item — or write the line and press Alt+T', `${path}.itemId`)];
   if (l.itemId !== undefined) {
-    const out: Issue[] = [];
-    if (l.warehouseId === undefined && l.challanRef === undefined) out.push(issue(IssueCode.StockLineInvalid, 'Choose the godown', `${path}.warehouseId`));
-    if (l.challanRef && l.orderRef) out.push(issue(IssueCode.OrderRefInvalid, 'A line billed against a challan is not also against an order', `${path}.orderRef`));
+    const isService = masters.stockItem(l.itemId as StockItemId)?.itemType === 'service';
+    const out: Issue[] = isService ? itemQtyProblems(l.itemId as StockItemId, l.qty, masters, path, { allowService: true }) : [];
+    if (isService) {
+      if (l.warehouseId !== undefined) out.push(issue(IssueCode.StockLineInvalid, 'A service item has no godown', `${path}.warehouseId`));
+      if (l.orderRef) out.push(issue(IssueCode.OrderRefInvalid, 'A service line cannot be against an order: an order is of stock items', `${path}.orderRef`));
+      if (l.challanRef) out.push(issue(IssueCode.OrderRefInvalid, 'A service line cannot be against a challan: a challan is of stock items', `${path}.challanRef`));
+    } else {
+      if (l.warehouseId === undefined && l.challanRef === undefined) out.push(issue(IssueCode.StockLineInvalid, 'Choose the godown', `${path}.warehouseId`));
+      if (l.challanRef && l.orderRef) out.push(issue(IssueCode.OrderRefInvalid, 'A line billed against a challan is not also against an order', `${path}.orderRef`));
+    }
     if (l.unit !== undefined) out.push(issue(IssueCode.SalesDocInvalid, 'A stock item line takes the unit of its item', `${path}.unit`));
     return out;
   }
@@ -295,10 +311,10 @@ export function challanProblems(draft: { partyId: PartyId; date: string; lines: 
 }
 
 /** The deliveries an invoice makes: one per line that names an order line, sitting on that line's number. */
-export function plannedLinksOf(lines: readonly InvoiceLine[]): PlannedLink[] {
+export function plannedLinksOf(lines: readonly InvoiceLine[], masters: Masters): PlannedLink[] {
   const out: PlannedLink[] = [];
-  // numbered like the invoice's stock lines (1..n over the item lines): a written line moves no stock and fills no order
-  itemLinesOf(lines).forEach(({ line: l }, k) => {
+  // numbered like the invoice's stock lines (1..n over the item lines): a written or service line moves no stock and fills no order
+  stockLinesOf(lines, masters).forEach(({ line: l }, k) => {
     if (!l.orderRef) return;
     out.push({
       lineNo: k + 1,

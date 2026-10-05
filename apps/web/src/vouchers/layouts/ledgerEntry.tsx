@@ -127,6 +127,8 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
   const drafts = mode === 'create' && !fromInbox && !settling;
 
   const [form, setFormState] = useFrameState<VoucherForm>(frame, 'form', startForm());
+  /** What a blank form looked like when this window last started one — fast entry carries the account over on purpose, so that is not "entered". */
+  const [pristineForm, setPristineForm] = useFrameState<VoucherForm>(frame, 'pristineForm', form);
   const [focusKey, setFocusKey] = useFrameState<string>(
     frame,
     'focus',
@@ -578,7 +580,7 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
       go(`l${i}.amount`);
     } else go(`a${i}.${Math.max(0, j - 1)}.kind`);
   };
-  const dirty = mode !== 'display' && (mode === 'create' ? !isBlank(form) : JSON.stringify(form) !== JSON.stringify(formFromVoucher(voucher as Voucher, masters)));
+  const dirty = mode !== 'display' && (mode === 'create' ? JSON.stringify(form) !== JSON.stringify(pristineForm) : JSON.stringify(form) !== JSON.stringify(formFromVoucher(voucher as Voucher, masters)));
   /**
    * Esc closes ONE thing per press, innermost first: the question being asked (Cancel voucher) → an open popup list → the bill-wise block →
    * the field being edited (back to the previous field, dropping what was typed but not chosen) → and only from the first field the window
@@ -663,8 +665,9 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
     // Ready for the next one: same type, same date, same account; empty lines.
     startNew: () => {
       const f = fresh();
-      const blank = blankForm(crypto.randomUUID(), f.typeId, f.date);
-      setFormState({ ...blank, accountId: f.accountId, accountLabel: f.accountLabel });
+      const blank = { ...blankForm(crypto.randomUUID(), f.typeId, f.date), accountId: f.accountId, accountLabel: f.accountLabel };
+      setFormState(blank);
+      setPristineForm(blank); // the carried-over account is this window's new baseline, not something "entered"
       setBillsFor(undefined);
       setFocusKey(layout === 'double-entry' ? 'l0.side' : f.accountId === '' ? 'account' : 'l0.ledger');
     },

@@ -293,10 +293,13 @@ export function paymentForPurchase(masters: Masters, purchase: Voucher, paidFrom
   };
 }
 
-/** The goods a sales line may name: active items that hold stock. */
-export const itemOptions = (masters: Masters): Option[] =>
+/**
+ * What a sales (or purchase) line may name: active items that hold stock — and, on an invoice, active service items too (an invoice is the
+ * one document that bills a service: an order, quotation or challan is of stock items, since none of them move stock on their own).
+ */
+export const itemOptions = (masters: Masters, allowService = false): Option[] =>
   masters.stockItems
-    .filter((i) => i.isActive && i.itemType !== 'service')
+    .filter((i) => i.isActive && (allowService || i.itemType !== 'service'))
     .map((i) => ({ id: i.id, name: i.name, sub: [masters.unit(i.unitId)?.symbol, i.code].filter(Boolean).join(' · ') }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
@@ -359,8 +362,10 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
   const lines = kept.map((i) => {
     const l = form.lines[i] as SalesLineForm;
     const common = { itemId: l.itemId, qty: l.qty.trim(), rate: l.rate.trim() };
-    if (l.oneTime && docProfile(kind).invoice) {
+    if (l.oneTime && (docProfile(kind).invoice || docProfile(kind).quote)) {
       return {
+        // a quote line carries its own id (there is no godown or order reference to key off instead); an invoice line does not
+        ...(docProfile(kind).quote ? { id: l.key } : {}),
         description: l.itemLabel.trim(),
         ...((l.unit ?? '').trim() !== '' ? { unit: (l.unit ?? '').trim() } : {}),
         qty: l.qty.trim(),
@@ -382,7 +387,8 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
           ? { ...common, challanRef: { challanId: l.challanId, lineId: l.challanLineId ?? '' }, ...taxed }
           : {
             ...common,
-            warehouseId: l.warehouseId,
+            // a service item has no godown: left out, rather than sent as an empty string
+            ...(l.warehouseId !== '' ? { warehouseId: l.warehouseId } : {}),
             ...(l.orderId !== '' && l.orderLineId !== '' ? { orderRef: { orderId: l.orderId, lineId: l.orderLineId } } : {}),
             ...taxed,
           };
@@ -498,7 +504,7 @@ export function lineAmount(l: Pick<SalesLineForm, 'qty' | 'rate'>): Money | unde
 }
 
 /** Problems a person can see without asking the engine — said kindly, on the right cell. */
-function localIssues(form: SalesForm, kind: ItemDocKind, kept: readonly number[]): SalesFormIssue[] {
+function localIssues(form: SalesForm, kind: ItemDocKind, kept: readonly number[], masters: Masters): SalesFormIssue[] {
   const out: SalesFormIssue[] = [];
   const p = docProfile(kind);
   if (form.partyId === '') out.push({ field: 'party', message: `Choose the ${p.noun}` });
@@ -509,11 +515,13 @@ function localIssues(form: SalesForm, kind: ItemDocKind, kept: readonly number[]
   }
   for (const i of kept) {
     const l = form.lines[i] as SalesLineForm;
-    if (l.oneTime && p.invoice) {
+    // only an invoice line may name a service item: the check is skipped for every other kind, so it never needs masters for them
+    const isService = p.invoice && l.itemId !== '' && masters.stockItem(l.itemId as never)?.itemType === 'service';
+    if (l.oneTime && (p.invoice || p.quote)) {
       if (l.itemLabel.trim() === '') out.push({ field: `line.${i}.item`, message: 'Write what this line is' });
     } else {
-      if (l.itemId === '') out.push({ field: `line.${i}.item`, message: p.invoice ? 'Choose a stock item — or press Alt+T to write it as a one-time line' : 'Choose a stock item' });
-      if (p.moves && !l.challanId && l.warehouseId === '') out.push({ field: `line.${i}.wh`, message: 'Choose a godown' });
+      if (l.itemId === '') out.push({ field: `line.${i}.item`, message: p.invoice || p.quote ? 'Choose a stock item — or press Alt+T to write it as a one-time line' : 'Choose a stock item' });
+      if (p.moves && !l.challanId && !isService && l.warehouseId === '') out.push({ field: `line.${i}.wh`, message: 'Choose a godown' });
     }
     if (p.order && l.due === '') out.push({ field: `line.${i}.ldue`, message: 'Enter the due date' });
     if (l.qty.trim() === '') out.push({ field: `line.${i}.qty`, message: 'Enter a quantity' });
@@ -557,7 +565,7 @@ export function previewSales(
     kept.map((i) => form.lines[i] as SalesLineForm),
     gst,
   );
-  const local = localIssues(form, kind, kept);
+  const local = localIssues(form, kind, kept, masters);
   if (local.length > 0) return { ok: false, issues: local, draft, amounts, total, gst, roundOff, grand };
 
   const result = prepareVoucher(
@@ -693,12 +701,15 @@ export function switchSales(
     };
   }
   const hadRefs = form.lines.some((l) => l.orderId !== '' || !!l.challanId);
-  // an order is of stock items: a one-time (written) line cannot come along
+  const isService = (l: SalesLineForm) => !l.oneTime && l.itemId !== '' && masters.stockItem(l.itemId as never)?.itemType === 'service';
+  // an order is of stock items: a one-time (written) line, or a service line, cannot come along
   const written = form.lines.filter((l) => l.oneTime && !isEmptyLine(l)).length;
-  const kept = form.lines.filter((l) => !l.oneTime);
+  const serviced = form.lines.filter((l) => isService(l) && !isEmptyLine(l)).length;
+  const kept = form.lines.filter((l) => !l.oneTime && !isService(l));
   const notes = [
     ...(hadRefs ? [`The order references were cleared: an order is what ${p.side === 'sales' ? 'a customer asks for' : 'we ask a supplier for'}, so it is not against another order.`] : []),
     ...(written > 0 ? [`${written} one-time line${written === 1 ? ' was' : 's were'} left out: an order is of stock items.`] : []),
+    ...(serviced > 0 ? [`${serviced} service line${serviced === 1 ? ' was' : 's were'} left out: an order is of stock items.`] : []),
   ];
   return {
     form: {
@@ -866,7 +877,8 @@ export function orderFormFromQuotation(
   if (masters.voucherType(quote.voucherTypeId)?.baseKind !== 'quotation') return undefined;
   if (quote.status !== 'posted') return undefined;
   const src = salesFormFromVoucher(quote, masters, orderBookOf([], masters));
-  const kept = src.lines.filter((l) => !isEmptyLine(l));
+  // an order is of stock items: a one-time (written) line on the quote does not come along
+  const kept = src.lines.filter((l) => !isEmptyLine(l) && !l.oneTime);
   if (kept.length === 0) return undefined;
   const date = args.date < quote.date ? quote.date : args.date;
   const blank = blankSalesForm(args.id, args.typeId, date, args.newKey());
@@ -1031,13 +1043,14 @@ export function invoiceFormFromChallan(
 }
 
 /**
- * Why an item the person typed is not offered: it exists but is inactive, or is a service (services hold no stock, so they are not on a
- * stock or sales line). Undefined when nothing hidden matches — so "No match" is honest, and "it's there, but…" is said when it is.
+ * Why an item the person typed is not offered: it exists but is inactive, or (outside an invoice) is a service — services hold no stock,
+ * so an order, quotation or challan does not offer them, only an invoice does. Undefined when nothing hidden matches — so "No match" is
+ * honest, and "it's there, but…" is said when it is.
  */
-export function hiddenItemReason(masters: Masters, typed: string): string | undefined {
+export function hiddenItemReason(masters: Masters, typed: string, allowService = false): string | undefined {
   const t = typed.trim().toLowerCase();
   if (t.length < 2) return undefined;
-  const hit = masters.stockItems.find((i) => (!i.isActive || i.itemType === 'service') && (i.name.toLowerCase().includes(t) || (i.code ?? '').toLowerCase() === t));
+  const hit = masters.stockItems.find((i) => (!i.isActive || (!allowService && i.itemType === 'service')) && (i.name.toLowerCase().includes(t) || (i.code ?? '').toLowerCase() === t));
   if (!hit) return undefined;
-  return hit.isActive ? `“${hit.name}” exists but is a service — services hold no stock, so they are not offered here. Change its type in the item to offer it.` : `“${hit.name}” exists but is inactive — reactivate it in its item form to offer it.`;
+  return hit.isActive ? `“${hit.name}” exists but is a service — services hold no stock, so they are not offered here. Choose it on an invoice instead.` : `“${hit.name}” exists but is inactive — reactivate it in its item form to offer it.`;
 }

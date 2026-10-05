@@ -3,7 +3,7 @@
  * small form — description, HSN / SAC, qty, unit — and the line is billed like any other, with no stock moved. The grid itself is the same.
  */
 import type { Page } from '@playwright/test';
-import { expect, goTo, heading, test } from './support';
+import { expect, goTo, heading, leaveByEscape, test } from './support';
 
 const banner = (page: Page) => page.getByTestId('voucher-banner');
 
@@ -102,6 +102,7 @@ test.describe('one-time lines', () => {
     await app.keyboard.type('1200');
     await expect(app.getByTestId('total-amount')).toHaveText('1,200.00');
     await app.keyboard.press('Control+a');
-    await expect(heading(app)).toHaveText('Gateway');
+    await expect(heading(app)).toHaveText('New Purchase Voucher'); // opened by F9: fast entry — saved, the same window fresh for the next one
+    await leaveByEscape(app, 'Gateway');
   });
 });

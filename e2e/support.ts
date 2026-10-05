@@ -58,6 +58,20 @@ export async function goTo(page: Page, text: string): Promise<void> {
   await page.keyboard.type(text);
 }
 
+/**
+ * Leaves a voucher window by pressing Escape until the heading reads `title` (what is behind it). Esc closes one thing per press —
+ * a popup list, a step back a field — so from a window in FAST ENTRY (opened by its key: a save keeps it open, fresh, for the next
+ * one) how many presses that takes depends on what carried over (an account, a party) and how deep the cursor landed. Failing after
+ * `maxPresses` gives a clear assertion instead of a silent timeout.
+ */
+export async function leaveByEscape(page: Page, title: string, maxPresses = 10): Promise<void> {
+  for (let i = 0; i < maxPresses; i++) {
+    if ((await heading(page).textContent()) === title) return;
+    await page.keyboard.press('Escape');
+  }
+  await expect(heading(page)).toHaveText(title);
+}
+
 /** Moves the list cursor down until the selected row contains `text` — keyboard only. */
 export async function moveTo(page: Page, text: string): Promise<void> {
   // Count the rows to go and press ↓ that many times in one go (the shortcut list is a hundred rows long; reading the
