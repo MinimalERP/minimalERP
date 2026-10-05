@@ -135,6 +135,38 @@ describe('a written line on a Delivery Challan (Alt+T): a non-stock extra that g
     expect(r.ok ? [] : r.issues.map((i) => i.path)).toEqual(['lines.1.qty']);
   });
 
+  it('a service item also needs no godown and moves no stock — job work on a part that was never our own stock', () => {
+    const c = company();
+    const svcId = newId('item:svc') as StockItemId;
+    const r0 = prepareMasterCommand({ op: 'create', kind: 'stockItem', id: svcId, data: { name: 'Modification charges', unitId: c.masters.units.find((u) => u.symbol === 'Nos')?.id, itemType: 'service' } }, c.masters);
+    if (!r0.ok) throw new Error(JSON.stringify(r0.issues));
+    const masters = r0.value.masters;
+    const r = prepareVoucher(
+      challan({ ...c, masters }, { lines: [{ id: 'a', itemId: svcId, qty: '1', rate: '2500' }] }),
+      masters,
+      kinds,
+      c.stock,
+    );
+    expect(r.ok, r.ok ? '' : r.issues.map((i) => i.message).join('; ')).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.plan.stock).toEqual([]);
+  });
+
+  it('refuses a godown on a service item line', () => {
+    const c = company();
+    const svcId = newId('item:svc2') as StockItemId;
+    const r0 = prepareMasterCommand({ op: 'create', kind: 'stockItem', id: svcId, data: { name: 'Modification charges 2', unitId: c.masters.units.find((u) => u.symbol === 'Nos')?.id, itemType: 'service' } }, c.masters);
+    if (!r0.ok) throw new Error(JSON.stringify(r0.issues));
+    const masters = r0.value.masters;
+    const r = prepareVoucher(
+      challan({ ...c, masters }, { lines: [{ id: 'a', itemId: svcId, warehouseId: c.godown, qty: '1', rate: '2500' }] }),
+      masters,
+      kinds,
+      c.stock,
+    );
+    expect(r.ok ? [] : r.issues.map((i) => i.path)).toContain('lines.0.warehouseId');
+  });
+
   it('is left out of the challan book: it never shows up as a line to invoice', () => {
     const c = company();
     const draft = challan(c, { lines: [{ id: 'a', itemId: c.itemId, warehouseId: c.godown, qty: '40', rate: '12.5' }, { id: 'b', description: 'Packing material', qty: '1', rate: '0' }] });

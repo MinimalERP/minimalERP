@@ -150,6 +150,31 @@ test.describe('the Sales Order window', () => {
     await app.keyboard.press('Enter');
     await expect(app.getByLabel('Customer PO or reference')).toHaveValue('');
   });
+
+  test('a service item can be ordered too: there is no godown either way, so it changes nothing about the line', async ({ app }) => {
+    await goTo(app, 'create stock item');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText('Create Stock Item');
+    await app.keyboard.type('Installation Service');
+    for (let i = 0; i < 4; i++) await app.keyboard.press('Tab'); // code, alias, group, unit
+    await app.keyboard.type('Nos');
+    await app.keyboard.press('Enter');
+    await app.locator('[data-field="itemType"]').fill('service');
+    await app.keyboard.press('Tab');
+    await app.keyboard.press('Control+a');
+    await expect(app.getByTestId('form-banner')).toContainText('created');
+
+    await app.keyboard.press('Shift+F8');
+    await expect(heading(app)).toHaveText('New Sales Order');
+    await app.keyboard.type('sharma');
+    await app.keyboard.press('Enter');
+    await app.keyboard.press('Enter'); // no PO / ref
+    await orderLine(app, 'installation', '15-12', '1', '5000');
+    await expect(app.getByTestId('total-amount')).toHaveText('5,000.00');
+    await app.keyboard.press('Enter'); // an empty item on the last line: that is all the lines
+    await app.keyboard.press('Alt+n');
+    await expect(banner(app)).toContainText('saved.');
+  });
 });
 
 test.describe('the Sales Invoice window', () => {
@@ -336,6 +361,39 @@ test.describe('the Sales Invoice window', () => {
     await expect(registerRow(app, 'PO-4471', 'ABC Hex Bolt M8')).toContainText('0/2,000');
     await expect(registerRow(app, 'PO-4471', 'ABC Hex Bolt M8')).toHaveClass(/open-line/);
     await expect(registerRow(app, 'PO-4471', 'Mounting Bracket')).toContainText('0/300');
+  });
+
+  test('a service item needs no godown or order — picking one from the list drops both fields and the cursor lands on Qty', async ({ app }) => {
+    await goTo(app, 'create stock item');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText('Create Stock Item');
+    await app.keyboard.type('Installation Service');
+    for (let i = 0; i < 4; i++) await app.keyboard.press('Tab'); // code, alias, group, unit
+    await app.keyboard.type('Nos');
+    await app.keyboard.press('Enter');
+    await app.locator('[data-field="itemType"]').fill('service');
+    await app.keyboard.press('Tab');
+    await app.keyboard.press('Control+a');
+    await expect(app.getByTestId('form-banner')).toContainText('created');
+
+    await app.keyboard.press('F8');
+    await expect(heading(app)).toHaveText('New Sales Voucher');
+    await app.keyboard.type('sharma');
+    await app.keyboard.press('Enter');
+    await app.keyboard.press('Enter'); // PO
+    await app.keyboard.press('Enter'); // E-way Bill No.
+    await app.keyboard.press('Enter'); // sales ledger
+    await app.keyboard.press('Enter'); // bill due
+    await app.keyboard.type('installation');
+    await app.keyboard.press('Enter'); // pick it — no godown, no order field for a service line
+    await expect(app.locator('[data-vf="l0.wh"]')).toHaveCount(0);
+    await expect(app.locator('[data-vf="l0.ord"]')).toHaveCount(0);
+    await expect(app.locator('[data-vf="l0.qty"]')).toBeFocused(); // straight to Qty, not stuck on a field that just vanished
+    await app.keyboard.type('1');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('5000');
+    await app.keyboard.press('Alt+n');
+    await expect(banner(app)).toContainText('saved.');
   });
 });
 

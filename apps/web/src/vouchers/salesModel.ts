@@ -379,7 +379,8 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
       ...((l.gstRate ?? '').trim() !== '' ? { gstRate: (l.gstRate ?? '').trim() } : {}),
       ...((l.hsn ?? '').trim() !== '' ? { hsn: (l.hsn ?? '').trim() } : {}),
     };
-    if (p.challan) return { id: l.key, ...common, warehouseId: l.warehouseId, ...taxed };
+    // a service item (job work on a part that was never our own stock) has no godown: left out, rather than sent as an empty string
+    if (p.challan) return { id: l.key, ...common, ...(l.warehouseId !== '' ? { warehouseId: l.warehouseId } : {}), ...taxed };
     return p.order
       ? { id: l.key, ...common, dueDate: l.due }
       : p.quote
@@ -516,8 +517,8 @@ function localIssues(form: SalesForm, kind: ItemDocKind, kept: readonly number[]
   }
   for (const i of kept) {
     const l = form.lines[i] as SalesLineForm;
-    // only an invoice line may name a service item: the check is skipped for every other kind, so it never needs masters for them
-    const isService = p.invoice && l.itemId !== '' && masters.stockItem(l.itemId as never)?.itemType === 'service';
+    // an invoice, an order, or a (non-returnable) challan line may name a service item: the check is skipped for every other kind
+    const isService = (p.invoice || p.order || (p.challan && !p.returnable)) && l.itemId !== '' && masters?.stockItem(l.itemId as never)?.itemType === 'service';
     const oneTimeHere = p.invoice || p.quote || (p.challan && !p.returnable);
     if (l.oneTime && oneTimeHere) {
       if (l.itemLabel.trim() === '') out.push({ field: `line.${i}.item`, message: 'Write what this line is' });

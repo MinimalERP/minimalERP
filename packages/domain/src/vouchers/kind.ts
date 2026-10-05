@@ -57,6 +57,9 @@ export interface VoucherKindSpec<D extends DraftBase> {
   orderIds?(draft: D): readonly VoucherId[];
   /** A document kind posts nothing to the journal or the stock (a Sales Order): the engine then expects an empty plan. */
   readonly document?: boolean;
+  /** A kind whose `post` is always `[]` (a Delivery Challan): the engine never expects a journal from it, whatever its stock does — a
+   * posting that moves no stock either (every line a service item) is not a bug here, unlike an accounting kind returning nothing. */
+  readonly noJournal?: boolean;
 }
 
 /** A kind with its draft type erased, as stored in the registry. */
@@ -72,6 +75,7 @@ export interface VoucherKind {
   postLinks(draft: DraftBase, ctx: KindContext): readonly PlannedLink[];
   orderIds(draft: DraftBase): readonly VoucherId[];
   readonly document: boolean;
+  readonly noJournal: boolean;
 }
 
 export function defineVoucherKind<D extends DraftBase>(spec: VoucherKindSpec<D>): VoucherKind {
@@ -97,5 +101,6 @@ export function defineVoucherKind<D extends DraftBase>(spec: VoucherKindSpec<D>)
     postLinks: (draft, ctx) => spec.postLinks?.(draft as D, ctx) ?? [],
     orderIds: (draft) => spec.orderIds?.(draft as D) ?? [],
     document: spec.document === true,
+    noJournal: spec.noJournal === true,
   };
 }

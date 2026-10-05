@@ -135,3 +135,35 @@ describe('a service item line on a Purchase Invoice', () => {
     expect(r.value.plan.journal.find((l) => l.ledgerId === vendorLedgerOf(newId('steel') as never))?.amount).toBe(money(118000n));
   });
 });
+
+describe('a service item on a Sales Order / Purchase Order', () => {
+  it('a Sales Order takes a service item: an order has no godown to begin with, so it needs nothing special', () => {
+    const c = company();
+    const r = prepareVoucher(
+      {
+        id: newId('so'), voucherTypeId: c.type('salesOrder'), date: '2026-09-24', partyId: newId('acme'), partyDetails: details(newId('acme')),
+        lines: [{ id: 'a', itemId: c.amc, qty: '1', rate: '5000', dueDate: '2026-10-24' }],
+      },
+      c.m,
+      kinds,
+      c.stock,
+      new OrderBook([], []),
+    );
+    expect(r.ok, r.ok ? '' : r.issues.map((i) => i.message).join('; ')).toBe(true);
+  });
+
+  it('a Purchase Order takes a service item too', () => {
+    const c = company();
+    const r = prepareVoucher(
+      {
+        id: newId('po'), voucherTypeId: c.type('purchaseOrder'), date: '2026-09-24', partyId: newId('steel'), partyDetails: details(newId('steel')),
+        lines: [{ id: 'a', itemId: c.amc, qty: '1', rate: '5000', dueDate: '2026-10-24' }],
+      },
+      c.m,
+      kinds,
+      c.stock,
+      new OrderBook([], []),
+    );
+    expect(r.ok, r.ok ? '' : r.issues.map((i) => i.message).join('; ')).toBe(true);
+  });
+});

@@ -119,6 +119,37 @@ test.describe('the Delivery Challan window', () => {
     await expect(panel(app).locator('[data-command="voucher.cancel"]')).toBeEnabled();
   });
 
+  test('a service item needs no godown: job work on a part that was never our own stock', async ({ app }) => {
+    await goTo(app, 'create stock item');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText('Create Stock Item');
+    await app.keyboard.type('Alloy Tube Modification');
+    for (let i = 0; i < 4; i++) await app.keyboard.press('Tab'); // code, alias, group, unit
+    await app.keyboard.type('Nos');
+    await app.keyboard.press('Enter'); // select the unit
+    await app.locator('[data-field="itemType"]').fill('service');
+    await app.keyboard.press('Tab');
+    await app.keyboard.press('Control+a');
+    await expect(app.getByTestId('form-banner')).toContainText('created');
+
+    await app.keyboard.press('Alt+F8');
+    await expect(heading(app)).toHaveText('New Delivery Challan');
+    await app.keyboard.type('abc ind');
+    await app.keyboard.press('Enter'); // party
+    await app.keyboard.press('Enter'); // no reference
+    await app.keyboard.press('Enter'); // purpose stays Sale
+    await expect(app.locator('[data-vf="l0.item"]')).toBeFocused();
+    await app.keyboard.type('alloy tube');
+    await app.keyboard.press('Enter'); // select the service item
+    await expect(app.locator('[data-vf="l0.wh"]')).toHaveCount(0); // a service item has no godown
+    await app.keyboard.type('1');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('2500');
+    await app.keyboard.press('Control+a');
+    await expect(heading(app)).toHaveText('New Delivery Challan'); // opened by Alt+F8: fast entry — saved, fresh for the next one
+    await leaveByEscape(app, 'Gateway');
+  });
+
   test('a returnable challan goes to a supplier and Mark returned brings it back', async ({ app }) => {
     await app.getByRole('option', { name: /^Transactions/ }).click();
     await app.getByRole('option', { name: /^Returnable Challans/ }).click();

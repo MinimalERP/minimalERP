@@ -190,7 +190,7 @@ describe('a sales order', () => {
     const line = (over: Record<string, unknown>) => ({ id: 'a', itemId: env.bolt, qty: '5', rate: '25', dueDate: '2024-05-20', ...over });
     const at = (l: unknown[]) => env.issues(env.post(env.order({ lines: l }))).map((i) => `${i.path}:${i.code}`);
     expect(at([line({ qty: '2.5' })])).toEqual([`lines.0.qty:${IssueCode.StockLineInvalid}`]); // Nos are whole
-    expect(at([line({ itemId: env.consulting })])).toEqual([`lines.0.itemId:${IssueCode.StockLineInvalid}`]); // a service has no stock
+    expect(at([line({ itemId: env.consulting })])).toEqual([]); // a service has no stock, but an order has no godown either: it is accepted
     expect(at([line({ qty: '0' })])).toEqual([`lines.0.qty:${IssueCode.StockLineInvalid}`]);
     expect(at([line({ dueDate: '2024-04-30' })])).toEqual([`lines.0.dueDate:${IssueCode.SalesDocInvalid}`]); // before the order date
     expect(at([line({}), line({ dueDate: '2024-06-01' })])).toEqual([`lines.1.id:${IssueCode.SalesDocInvalid}`]);
