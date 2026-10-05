@@ -362,10 +362,11 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
   const lines = kept.map((i) => {
     const l = form.lines[i] as SalesLineForm;
     const common = { itemId: l.itemId, qty: l.qty.trim(), rate: l.rate.trim() };
-    if (l.oneTime && (docProfile(kind).invoice || docProfile(kind).quote)) {
+    const p = docProfile(kind);
+    if (l.oneTime && (p.invoice || p.quote || (p.challan && !p.returnable))) {
       return {
-        // a quote line carries its own id (there is no godown or order reference to key off instead); an invoice line does not
-        ...(docProfile(kind).quote ? { id: l.key } : {}),
+        // a quote or challan line carries its own id (there is no godown or order reference to key off instead); an invoice line does not
+        ...(p.quote || p.challan ? { id: l.key } : {}),
         description: l.itemLabel.trim(),
         ...((l.unit ?? '').trim() !== '' ? { unit: (l.unit ?? '').trim() } : {}),
         qty: l.qty.trim(),
@@ -378,10 +379,10 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
       ...((l.gstRate ?? '').trim() !== '' ? { gstRate: (l.gstRate ?? '').trim() } : {}),
       ...((l.hsn ?? '').trim() !== '' ? { hsn: (l.hsn ?? '').trim() } : {}),
     };
-    if (docProfile(kind).challan) return { id: l.key, ...common, warehouseId: l.warehouseId, ...taxed };
-    return docProfile(kind).order
+    if (p.challan) return { id: l.key, ...common, warehouseId: l.warehouseId, ...taxed };
+    return p.order
       ? { id: l.key, ...common, dueDate: l.due }
-      : docProfile(kind).quote
+      : p.quote
         ? { id: l.key, ...common, ...taxed }
         : l.challanId
           ? { ...common, challanRef: { challanId: l.challanId, lineId: l.challanLineId ?? '' }, ...taxed }
@@ -517,10 +518,11 @@ function localIssues(form: SalesForm, kind: ItemDocKind, kept: readonly number[]
     const l = form.lines[i] as SalesLineForm;
     // only an invoice line may name a service item: the check is skipped for every other kind, so it never needs masters for them
     const isService = p.invoice && l.itemId !== '' && masters.stockItem(l.itemId as never)?.itemType === 'service';
-    if (l.oneTime && (p.invoice || p.quote)) {
+    const oneTimeHere = p.invoice || p.quote || (p.challan && !p.returnable);
+    if (l.oneTime && oneTimeHere) {
       if (l.itemLabel.trim() === '') out.push({ field: `line.${i}.item`, message: 'Write what this line is' });
     } else {
-      if (l.itemId === '') out.push({ field: `line.${i}.item`, message: p.invoice || p.quote ? 'Choose a stock item — or press Alt+T to write it as a one-time line' : 'Choose a stock item' });
+      if (l.itemId === '') out.push({ field: `line.${i}.item`, message: oneTimeHere ? 'Choose a stock item — or press Alt+T to write it as a one-time line' : 'Choose a stock item' });
       if (p.moves && !l.challanId && !isService && l.warehouseId === '') out.push({ field: `line.${i}.wh`, message: 'Choose a godown' });
     }
     if (p.order && l.due === '') out.push({ field: `line.${i}.ldue`, message: 'Enter the due date' });

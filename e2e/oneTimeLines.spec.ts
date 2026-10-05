@@ -13,8 +13,8 @@ async function loadDemo(page: Page): Promise<void> {
   await expect(page.getByTestId('company-name')).toHaveText('Demo Manufacturing Pvt Ltd');
 }
 
-/** From the item cell of line 1: write the text, Alt+T, fill the small form, apply — the cursor lands on the rate. */
-async function writeOneTimeLine(page: Page, text: string, hsn: string, qty: string, unit: string): Promise<void> {
+/** From a line's item cell: write the text, Alt+T, fill the small form, apply — the cursor lands on that line's rate. */
+async function writeOneTimeLine(page: Page, text: string, hsn: string, qty: string, unit: string, line = 0): Promise<void> {
   await page.keyboard.type(text);
   await page.keyboard.press('Alt+t');
   await expect(page.getByText('one-time line (not a stock item)')).toBeVisible();
@@ -25,7 +25,7 @@ async function writeOneTimeLine(page: Page, text: string, hsn: string, qty: stri
   await page.keyboard.press('Enter');
   await page.keyboard.type(unit);
   await page.keyboard.press('Enter'); // the last field applies
-  await expect(page.locator('[data-vf="l0.rate"]')).toBeFocused();
+  await expect(page.locator(`[data-vf="l${line}.rate"]`)).toBeFocused();
 }
 
 test.describe('one-time lines', () => {
@@ -104,5 +104,41 @@ test.describe('one-time lines', () => {
     await app.keyboard.press('Control+a');
     await expect(heading(app)).toHaveText('New Purchase Voucher'); // opened by F9: fast entry — saved, the same window fresh for the next one
     await leaveByEscape(app, 'Gateway');
+  });
+
+  test('a Delivery Challan takes a written line too: a non-stock extra alongside the goods, no godown', async ({ app }) => {
+    await app.keyboard.press('Alt+F8');
+    await expect(heading(app)).toHaveText('New Delivery Challan');
+    await app.keyboard.type('abc ind');
+    await app.keyboard.press('Enter'); // party
+    await app.keyboard.press('Enter'); // no reference
+    await app.keyboard.press('Enter'); // purpose stays Sale
+    await expect(app.locator('[data-vf="l0.item"]')).toBeFocused();
+    await app.keyboard.type('mounting');
+    await app.keyboard.press('Enter'); // item
+    await app.keyboard.press('Enter'); // the godown that holds it
+    await app.keyboard.type('5');
+    await app.keyboard.press('Enter'); // qty → rate
+    await app.keyboard.type('38');
+    await app.keyboard.press('Enter'); // rate → the next line's item cell
+    await expect(app.locator('[data-vf="l1.item"]')).toBeFocused();
+    await writeOneTimeLine(app, 'Packing material', '', '1', '', 1);
+    await expect(app.locator('[data-vf="l1.wh"]')).toHaveCount(0); // a written line has no godown
+    await app.keyboard.type('0');
+    await app.keyboard.press('Control+a');
+    await expect(heading(app)).toHaveText('New Delivery Challan'); // opened by Alt+F8: fast entry — saved, fresh for the next one
+    await leaveByEscape(app, 'Gateway');
+  });
+
+  test('a Delivery Challan with only a written line is refused: nothing would actually leave', async ({ app }) => {
+    await app.keyboard.press('Alt+F8');
+    await app.keyboard.type('abc ind');
+    await app.keyboard.press('Enter');
+    await app.keyboard.press('Enter');
+    await app.keyboard.press('Enter'); // purpose
+    await writeOneTimeLine(app, 'Packing material', '', '1', '');
+    await app.keyboard.type('0');
+    await app.keyboard.press('Control+a');
+    await expect(app.getByText('A challan needs at least one item line')).toBeVisible();
   });
 });

@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { localDate } from '../../dates';
 import { IssueCode } from '../../errors';
-import { type StockItemId, type VoucherId, type WarehouseId, deterministicUuid } from '../../ids';
+import { type CompanyId, type StockItemId, type VoucherId, type WarehouseId, asCompanyId, deterministicUuid } from '../../ids';
 import { prepareMasterCommand } from '../../masters/commands';
 import type { Masters } from '../../masters/masters';
 import { seedCompany } from '../../masters/seed';
 import { money } from '../../money';
+import { ChallanBook, challanDocOf } from '../../orders/challanBook';
 import { prepareVoucher } from '../../posting/engine';
 import { StockBook } from '../../stock/book';
 import { parseQty } from '../../stock/quantity';
 import { defaultVoucherKinds } from '../registry';
+import type { Voucher } from '../voucher';
 
 const newId = (n: string) => deterministicUuid(`dc|${n}`);
 const kinds = defaultVoucherKinds();
@@ -92,5 +94,58 @@ describe('deliveryChallanKind', () => {
     expect(bad.ok).toBe(false);
     const noDetails = prepareVoucher(challan(c, { partyDetails: undefined }), c.masters, kinds, c.stock);
     expect(noDetails.ok ? [] : noDetails.issues.map((i) => i.code)).toContain(IssueCode.PartyDetailsInvalid);
+  });
+});
+
+describe('a written line on a Delivery Challan (Alt+T): a non-stock extra that goes out with the shipment', () => {
+  it('moves no stock and has no godown; the item line beside it still leaves the godown', () => {
+    const c = company();
+    const r = prepareVoucher(
+      challan(c, { lines: [{ id: 'a', itemId: c.itemId, warehouseId: c.godown, qty: '40', rate: '12.5' }, { id: 'b', description: 'Packing material', unit: 'Nos', qty: '1', rate: '0' }] }),
+      c.masters,
+      kinds,
+      c.stock,
+    );
+    expect(r.ok, r.ok ? '' : r.issues.map((i) => i.message).join('; ')).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.plan.journal).toHaveLength(0);
+    expect(r.value.plan.stock).toEqual([expect.objectContaining({ itemId: c.itemId, direction: 'out', qty: parseQty('40') })]);
+  });
+
+  it('refuses a godown on a written line, a line that is both an item and written text, and neither', () => {
+    const c = company();
+    const codes = (lines: unknown[]) => {
+      const r = prepareVoucher(challan(c, { lines }), c.masters, kinds, c.stock);
+      return r.ok ? [] : r.issues.map((i) => i.path);
+    };
+    expect(codes([{ id: 'a', description: 'x', warehouseId: c.godown, qty: '1', rate: '0' }])).toContain('lines.0.warehouseId');
+    expect(codes([{ id: 'a', itemId: c.itemId, description: 'x', qty: '1', rate: '0' }])).toContain('lines.0.itemId');
+    expect(codes([{ id: 'a', qty: '1', rate: '0' }])).toContain('lines.0.itemId');
+    expect(codes([{ id: 'a', description: 'x', qty: '0', rate: '0' }])).toContain('lines.0.qty');
+  });
+
+  it("a stock problem on the item line keeps the written line's own place", () => {
+    const c = company();
+    const r = prepareVoucher(
+      challan(c, { lines: [{ id: 'a', description: 'Packing material', qty: '1', rate: '0' }, { id: 'b', itemId: c.itemId, warehouseId: c.godown, qty: '150', rate: '12.5' }] }),
+      c.masters,
+      kinds,
+      c.stock,
+    );
+    expect(r.ok ? [] : r.issues.map((i) => i.path)).toEqual(['lines.1.qty']);
+  });
+
+  it('is left out of the challan book: it never shows up as a line to invoice', () => {
+    const c = company();
+    const draft = challan(c, { lines: [{ id: 'a', itemId: c.itemId, warehouseId: c.godown, qty: '40', rate: '12.5' }, { id: 'b', description: 'Packing material', qty: '1', rate: '0' }] });
+    const r = prepareVoucher(draft, c.masters, kinds, c.stock);
+    if (!r.ok) throw new Error(JSON.stringify(r.issues));
+    const voucher: Voucher = { id: r.value.draft.id, companyId: asCompanyId('co') as CompanyId, voucherTypeId: r.value.voucherType.id, financialYearId: r.value.financialYear.id, number: 'DC/1', date: r.value.draft.date, status: 'posted', version: 1, revision: 0, content: r.value.draft };
+    const doc = challanDocOf(voucher);
+    expect(doc?.lines).toHaveLength(1);
+    expect(doc?.lines[0]?.id).toBe('a');
+    const book = new ChallanBook([doc as NonNullable<typeof doc>]);
+    const state = book.state(voucher.id);
+    expect(state?.lines).toHaveLength(1);
   });
 });
