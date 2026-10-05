@@ -54,6 +54,10 @@ export interface InvoiceDoc {
   readonly numberLabel?: string | undefined;
   /** The customer's own reference (Sales) — shown as "PO No." only when present. */
   readonly poNo?: string | undefined;
+  /** What that row is labelled — "PO No." unless the screen says otherwise ("PO / Ref." on a challan, which is as often sent against a reference). */
+  readonly poLabel?: string | undefined;
+  /** The title printed across the top of the page, centred, rather than in the corner: a challan, so it is not taken for an accounting voucher. */
+  readonly titleCentred?: boolean | undefined;
   /** The E-way Bill number for this invoice's movement of goods (Sales) — shown only when present. */
   readonly ewayBillNo?: string | undefined;
   /** The delivery challans a sales invoice bills ("DC/26-27/0004, DC/26-27/0007") — shown only when present. */

@@ -117,6 +117,9 @@ test.describe('Print', () => {
     await expect(printCopies(app).first()).toContainText('Bill To');
     await expect(printCopies(app).first()).toContainText('Sharma Traders');
     await expect(printCopies(app).first()).toContainText('Machine Oil');
+    // an invoice keeps its title in the corner, with the number and date; only a challan's is centred across the top
+    await expect(printCopies(app).first().locator('.inv-doc .title')).toHaveCount(1);
+    await expect(printCopies(app).first().getByTestId('print-title-centre')).toHaveCount(0);
     await expect.poll(() => printedCount(app)).toBe(1);
   });
 

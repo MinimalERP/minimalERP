@@ -57,6 +57,7 @@ export function layoutData(doc: InvoiceDoc | LedgerDoc, company: PrintCompany, c
     ...common,
     numberLabel: doc.numberLabel ?? 'No.',
     poNo: doc.poNo,
+    poLabel: doc.poLabel ?? 'PO No.',
     ewayBillNo: doc.ewayBillNo,
     dcNo: doc.dcNo,
     placeOfSupply: doc.placeOfSupply,
@@ -80,7 +81,7 @@ export const LAYOUT_PLACEHOLDERS: Readonly<Record<LayoutShape, readonly string[]
   invoice: [
     'company.name', 'company.address', 'company.gstin', 'company.phone', 'company.email', 'company.bankName', 'company.bankAccountNo', 'company.bankIfsc',
     'company.bankBranch', 'company.invoiceNote', '#hasTerms', '#company.terms … text … /company.terms', 'images.logo', 'images.signature', 'copyLabel', 'title',
-    'numberLabel', 'number', 'date', 'poNo', 'ewayBillNo', 'dcNo', 'placeOfSupply', 'party.name', 'party.gstin', '#party.billTo.lines … text …',
+    'numberLabel', 'number', 'date', 'poNo', 'poLabel', 'ewayBillNo', 'dcNo', 'placeOfSupply', 'party.name', 'party.gstin', '#party.billTo.lines … text …',
     '#party.shipTo.lines … text …', '#lines … sno desc hsn qty rate gstRate amount … /lines', 'subtotal', '#gst … cgst sgst igst … /gst', 'roundOff',
     'grandTotal', 'amountInWords', 'narration',
   ],
@@ -177,7 +178,7 @@ const HEAD = `<div class="head">
     <table>
       <tr><td>{{numberLabel}}</td><td>{{number}}</td></tr>
       <tr><td>Date</td><td>{{date}}</td></tr>
-      {{#poNo}}<tr><td>PO No.</td><td>{{poNo}}</td></tr>{{/poNo}}
+      {{#poNo}}<tr><td>{{poLabel}}</td><td>{{poNo}}</td></tr>{{/poNo}}
       {{#ewayBillNo}}<tr><td>E-way Bill No.</td><td>{{ewayBillNo}}</td></tr>{{/ewayBillNo}}
       {{#dcNo}}<tr><td>DC No.</td><td>{{dcNo}}</td></tr>{{/dcNo}}
     </table>

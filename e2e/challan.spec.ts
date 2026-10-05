@@ -65,6 +65,15 @@ test.describe('the Delivery Challan window', () => {
     await expect(dialog.getByLabel('Subject')).toHaveValue(/^Delivery challan DC\/.+ from Demo Manufacturing Pvt Ltd$/);
     await app.keyboard.press('Escape');
     await expect(panel(app).locator('[data-command="voucher.print"]')).toBeEnabled();
+
+    // it prints with its name alone, centred across the top (not in the corner, as an accounting voucher's is); that it is free of charge is in the narration
+    await app.evaluate(() => void (window.print = () => {}));
+    await app.keyboard.press('Control+p');
+    await app.keyboard.press('Enter'); // 1 copy
+    const copy = app.locator('.print-root .print-copy').first();
+    await expect(copy.getByTestId('print-title-centre')).toHaveText('Delivery Challan');
+    await expect(copy.locator('.inv-doc .title')).toHaveCount(0);
+    await expect(copy.locator('.inv-narration')).toContainText('Free of charge (FOC) – not for sale.');
   });
 
   test('cannot send more than the godown holds', async ({ app }) => {

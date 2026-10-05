@@ -65,6 +65,8 @@ function CompanyHead({
   number,
   date,
   poNo,
+  poLabel = 'PO No.',
+  titleCentred,
   ewayBillNo,
   dcNo,
 }: {
@@ -75,14 +77,22 @@ function CompanyHead({
   number: string;
   date: string;
   poNo?: string | undefined;
+  poLabel?: string | undefined;
+  titleCentred?: boolean | undefined;
   ewayBillNo?: string | undefined;
   dcNo?: string | undefined;
 }) {
   return (
+    <>
+    {titleCentred && (
+      <div class="inv-title-centre" data-testid="print-title-centre">
+        {docTitle}
+      </div>
+    )}
     <div class="inv-head">
       <CompanyBlock company={company} />
       <div class="inv-doc">
-        <div class="title">{docTitle}</div>
+        {!titleCentred && <div class="title">{docTitle}</div>}
         {copyLabel && <div class="copy-label">{copyLabel}</div>}
         <table>
           <tbody>
@@ -96,7 +106,7 @@ function CompanyHead({
             </tr>
             {poNo && (
               <tr>
-                <td>PO No.</td>
+                <td>{poLabel}</td>
                 <td>{poNo}</td>
               </tr>
             )}
@@ -116,6 +126,7 @@ function CompanyHead({
         </table>
       </div>
     </div>
+    </>
   );
 }
 
@@ -218,7 +229,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
   const sameAsBilling = !doc.party.shipTo;
   return (
     <>
-      <CompanyHead company={company} docTitle={doc.docTitle} copyLabel={copyLabel} numberLabel={doc.numberLabel} number={doc.number} date={doc.date} poNo={doc.poNo} ewayBillNo={doc.ewayBillNo} dcNo={doc.dcNo} />
+      <CompanyHead company={company} docTitle={doc.docTitle} copyLabel={copyLabel} numberLabel={doc.numberLabel} number={doc.number} date={doc.date} poNo={doc.poNo} poLabel={doc.poLabel} titleCentred={doc.titleCentred} ewayBillNo={doc.ewayBillNo} dcNo={doc.dcNo} />
       <div class="inv-parties">
         <AddressBlock label="Bill To" address={{ name: doc.party.name, ...doc.party.billTo }} gstin={doc.party.gstin} />
         <AddressBlock label="Ship To" address={sameAsBilling ? { name: doc.party.name, ...doc.party.billTo } : { name: doc.party.name, ...doc.party.shipTo }} />
