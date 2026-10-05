@@ -112,6 +112,15 @@ describe('a written line on a Delivery Challan (Alt+T): a non-stock extra that g
     expect(r.value.plan.stock).toEqual([expect.objectContaining({ itemId: c.itemId, direction: 'out', qty: parseQty('40') })]);
   });
 
+  it('a challan of only written lines is allowed: closing out job work with no stock of ours moving at all', () => {
+    const c = company();
+    const r = prepareVoucher(challan(c, { lines: [{ id: 'a', description: 'Machining job 44 closed, part returned', unit: 'Nos', qty: '1', rate: '0' }] }), c.masters, kinds, c.stock);
+    expect(r.ok, r.ok ? '' : r.issues.map((i) => i.message).join('; ')).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.plan.journal).toHaveLength(0);
+    expect(r.value.plan.stock).toHaveLength(0);
+  });
+
   it('refuses a godown on a written line, a line that is both an item and written text, and neither', () => {
     const c = company();
     const codes = (lines: unknown[]) => {
