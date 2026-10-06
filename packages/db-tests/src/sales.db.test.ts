@@ -150,7 +150,7 @@ describe('the database refuses what the rules refuse, even for a direct write', 
     await addStockOut('2');
     expect(await addLink({ qty: '3' })).toBe('PLAN_INCONSISTENT_LINES'); // the stock says 2
     await dropStockOut();
-    expect(await addLink({ qty: '1' })).toMatch(/link_stock_fk/); // no stock line 2 at all
+    expect(await addLink({ qty: '1' })).toBe('PLAN_INCONSISTENT_LINES'); // no stock line 2 at all: goods delivered are goods moved (only a service delivers without)
   });
 
   it('only a sales invoice can deliver', async () => {

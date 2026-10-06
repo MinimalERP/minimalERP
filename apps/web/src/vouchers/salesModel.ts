@@ -793,7 +793,7 @@ function linesFromOrder(
   newKey: () => string,
   warehouseFor: (itemId: string, qty: bigint) => { id: string; label: string } | undefined,
 ): SalesLineForm[] {
-  // a service line is billed with no godown and is not against the order line: an invoice's deliveries are of stock (the order is closed by hand)
+  // a service line is billed with no godown (it holds no stock); it fills its order line all the same
   const isService = (itemId: string) => masters.stockItem(itemId as never)?.itemType === 'service';
   return options.map((o) => ({
     ...blankSalesLine(newKey(), isService(o.itemId) ? undefined : warehouseFor(o.itemId, o.pending)),
@@ -802,7 +802,9 @@ function linesFromOrder(
     itemLabel: masters.stockItem(o.itemId as never)?.name ?? '',
     qty: trimPlaces(formatQty(o.pending, 4)),
     rate: trimPlaces(formatRate(o.rate)),
-    ...(isService(o.itemId) ? {} : { orderId: o.orderId, orderLineId: o.lineId, orderLabel: o.number }),
+    orderId: o.orderId,
+    orderLineId: o.lineId,
+    orderLabel: o.number,
   }));
 }
 

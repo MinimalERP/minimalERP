@@ -583,7 +583,7 @@ describe('a service item on an invoice', () => {
     expect(preview.issues).toEqual([]);
   });
 
-  it('an invoice made from an order of service items can be saved: its lines have no godown and are not against the order', () => {
+  it('an invoice made from an order of service items can be saved: its lines have no godown and fill their order lines', () => {
     const c = serviceCompany();
     const orderForm: SalesForm = {
       ...blankSalesForm('v2', c.type('salesOrder'), '2026-05-01', 'k1'),
@@ -599,11 +599,14 @@ describe('a service item on an invoice', () => {
     const order = { id: draft.id, companyId: 'c', voucherTypeId: c.type('salesOrder'), financialYearId: 'fy', number: 'SO/1', date: draft.date, status: 'posted', version: 1, revision: 0, content: draft };
     const book = orderBookOf([order as never], c.m);
     const form = invoiceFormFromOrder(order as never, book, c.m, { id: 'v9', typeId: c.type('sales'), date: '2026-05-02', newKey: () => crypto.randomUUID(), warehouse: { id: 'w', label: 'Main' }, salesLedger: { id: c.salesLedgerId, label: 'Sales' } }) as SalesForm;
-    expect(form.lines.map((l) => [l.itemLabel, l.qty, l.rate, l.warehouseId, l.orderId])).toEqual([
-      ['AMC', '3', '2500', '', ''],
-      ['AMC', '4', '2500', '', ''],
+    expect(form.lines.map((l) => [l.itemLabel, l.qty, l.rate, l.warehouseId, l.orderId, l.orderLineId])).toEqual([
+      ['AMC', '3', '2500', '', order.id, 'l1'],
+      ['AMC', '4', '2500', '', order.id, 'l2'],
     ]);
-    expect(previewSales(form, 'sales', c.m, StockBook.empty, book).issues).toEqual([]);
+    const preview = previewSales(form, 'sales', c.m, StockBook.empty, book);
+    expect(preview.issues).toEqual([]);
+    expect(preview.draft).toMatchObject({ lines: [{ orderRef: { orderId: order.id, lineId: 'l1' } }, { orderRef: { orderId: order.id, lineId: 'l2' } }] });
+    expect(preview.draft).not.toHaveProperty('lines.0.warehouseId');
   });
 
   it('a delivery challan line for it is accepted too: job work on a part that was never our own stock', () => {

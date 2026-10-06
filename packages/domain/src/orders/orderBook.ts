@@ -213,18 +213,25 @@ export function orderDocOf(voucher: Voucher, side: OrderSide = 'sales'): OrderDo
 }
 
 /** The deliveries a posted sales invoice (or receipts a purchase invoice) makes: one per line that names an order line. */
-export function orderLinksOf(voucher: Voucher): OrderLink[] {
+export function orderLinksOf(voucher: Voucher, masters?: Masters): OrderLink[] {
   const c = voucher.content as unknown as OrderContent;
   const out: OrderLink[] = [];
-  let stockLine = 0; // deliveries sit on the invoice's stock lines, numbered over its item lines (a written line, or one billed against a challan, has none)
+  const isService = (itemId: string) => masters?.stockItem(itemId as StockItemId)?.itemType === 'service';
+  const moves = (l: { itemId?: string; challanRef?: unknown }) => typeof l.itemId === 'string' && l.challanRef === undefined && !isService(l.itemId);
+  // deliveries sit on the invoice's stock lines, numbered over them (a written line, or one billed against a challan, has none); a service
+  // delivered moves no stock, so its delivery is numbered after the stock lines
+  let stockLine = 0;
+  let serviceLine = (c.lines ?? []).filter(moves).length;
   (c.lines ?? []).forEach((l) => {
-    if (typeof l.itemId === 'string' && l.challanRef === undefined) stockLine++;
+    const service = typeof l.itemId === 'string' && l.challanRef === undefined && isService(l.itemId);
+    if (moves(l)) stockLine++;
+    else if (service) serviceLine++;
     const q = typeof l.qty === 'string' ? parseQty(l.qty) : undefined;
     if (!l.orderRef || typeof l.orderRef.orderId !== 'string' || typeof l.orderRef.lineId !== 'string') return;
     if (typeof l.itemId !== 'string' || q === undefined) return;
     out.push({
       voucherId: voucher.id,
-      lineNo: stockLine,
+      lineNo: service ? serviceLine : stockLine,
       date: voucher.date,
       orderId: l.orderRef.orderId as VoucherId,
       orderLineId: l.orderRef.lineId,
@@ -253,7 +260,7 @@ export function orderBookOf(vouchers: readonly Voucher[], masters: Masters): Ord
       const doc = orderDocOf(v, kind === 'salesOrder' ? 'sales' : 'purchase');
       if (doc) orders.push(doc);
     } else if (kind === 'sales' || kind === 'purchase') {
-      links.push(...orderLinksOf(v));
+      links.push(...orderLinksOf(v, masters));
       if (kind === 'sales') billed.push(...challanLinksOf(v));
     } else if (kind === 'deliveryChallan') {
       const doc = challanDocOf(v);

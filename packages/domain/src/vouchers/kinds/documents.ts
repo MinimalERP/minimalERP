@@ -135,7 +135,7 @@ export function itemLinesOf<L extends { itemId?: string | undefined; challanRef?
   return lines.flatMap((l, at) => (l.itemId !== undefined && l.challanRef === undefined ? [{ line: l as L & { itemId: StockItemId }, at }] : []));
 }
 
-/** `itemLinesOf`, with a service item's line left out too: a service holds no stock, so it moves none and fills no order. */
+/** `itemLinesOf`, with a service item's line left out too: a service holds no stock, so it moves none. */
 export function stockLinesOf<L extends { itemId?: string | undefined; challanRef?: unknown }>(
   lines: readonly L[],
   masters: Masters,
@@ -154,7 +154,8 @@ export function onInvoiceLines(problems: readonly Issue[], places: readonly numb
 
 /**
  * A line is either a stock item, a service item, or a written one-time line, never both or neither. A service line is billed like a stock
- * item line but moves no stock: it has no godown and cannot be against an order or a challan (both are of stock items). A one-time line
+ * item line but moves no stock: it has no godown and cannot be against a challan (goods that left) — it CAN be against an order line, which
+ * it fills like any delivery, with nothing leaving a godown. A one-time line
  * needs its text, a quantity and a rate, and likewise cannot fill an order line.
  */
 export function lineKindProblems(l: InvoiceLine, path: string, masters: Masters): Issue[] {
@@ -165,7 +166,6 @@ export function lineKindProblems(l: InvoiceLine, path: string, masters: Masters)
     const out: Issue[] = isService ? itemQtyProblems(l.itemId as StockItemId, l.qty, masters, path, { allowService: true }) : [];
     if (isService) {
       if (l.warehouseId !== undefined) out.push(issue(IssueCode.StockLineInvalid, 'A service item has no godown', `${path}.warehouseId`));
-      if (l.orderRef) out.push(issue(IssueCode.OrderRefInvalid, 'A service line cannot be against an order: an order is of stock items', `${path}.orderRef`));
       if (l.challanRef) out.push(issue(IssueCode.OrderRefInvalid, 'A service line cannot be against a challan: a challan is of stock items', `${path}.challanRef`));
     } else {
       if (l.warehouseId === undefined && l.challanRef === undefined) out.push(issue(IssueCode.StockLineInvalid, 'Choose the godown', `${path}.warehouseId`));
@@ -313,16 +313,17 @@ export function challanProblems(draft: { partyId: PartyId; date: string; lines: 
 /** The deliveries an invoice makes: one per line that names an order line, sitting on that line's number. */
 export function plannedLinksOf(lines: readonly InvoiceLine[], masters: Masters): PlannedLink[] {
   const out: PlannedLink[] = [];
-  // numbered like the invoice's stock lines (1..n over the item lines): a written or service line moves no stock and fills no order
-  stockLinesOf(lines, masters).forEach(({ line: l }, k) => {
+  const link = (l: InvoiceLine & { itemId: StockItemId }, lineNo: number) => {
     if (!l.orderRef) return;
-    out.push({
-      lineNo: k + 1,
-      orderId: l.orderRef.orderId as VoucherId,
-      orderLineId: l.orderRef.lineId,
-      itemId: l.itemId,
-      qty: parseQty(l.qty) ?? (0n as never),
-    });
-  });
+    out.push({ lineNo, orderId: l.orderRef.orderId as VoucherId, orderLineId: l.orderRef.lineId, itemId: l.itemId, qty: parseQty(l.qty) ?? (0n as never) });
+  };
+  // numbered like the invoice's stock lines (1..n over the stock item lines): a written line moves no stock and fills no order
+  const stock = stockLinesOf(lines, masters);
+  stock.forEach(({ line: l }, k) => link(l, k + 1));
+  // a service line fills its order line with nothing leaving a godown: its delivery is numbered after the stock lines
+  const moved = new Set(stock.map((x) => x.at));
+  itemLinesOf(lines)
+    .filter((x) => !moved.has(x.at))
+    .forEach(({ line: l }, k) => link(l, stock.length + k + 1));
   return out;
 }

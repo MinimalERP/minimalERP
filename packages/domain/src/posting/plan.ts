@@ -64,7 +64,10 @@ export function totalsOf(lines: readonly { side: Side; amount: Money }[]): { deb
  * Failing here means a posting rule is buggy — the voucher is refused, never posted.
  * (The database repeats the Dr = Cr check in a deferred constraint trigger.)
  */
-export function checkPlanInvariants(plan: PostingPlan, opts: { readonly document?: boolean; readonly noJournal?: boolean; readonly linkDirection?: 'in' | 'out' } = {}): Issue[] {
+export function checkPlanInvariants(
+  plan: PostingPlan,
+  opts: { readonly document?: boolean; readonly noJournal?: boolean; readonly linkDirection?: 'in' | 'out'; /** Is this item a service (it holds no stock, so its delivery moves none)? */ readonly holdsNoStock?: (itemId: string) => boolean } = {},
+): Issue[] {
   const problems: Issue[] = [];
   const lines = plan.journal;
   const stockOnly = lines.length === 0 && plan.stock.length > 0;
@@ -112,12 +115,15 @@ export function checkPlanInvariants(plan: PostingPlan, opts: { readonly document
     }
   }
   problems.push(...checkStockInvariants(plan.stock));
-  problems.push(...checkLinkInvariants(plan.links, plan.stock, opts.linkDirection ?? 'out'));
+  problems.push(...checkLinkInvariants(plan.links, plan.stock, opts.linkDirection ?? 'out', opts.holdsNoStock ?? (() => false)));
   return problems;
 }
 
-/** What every order link must be: a positive quantity, on a real line of the same voucher's stock, once. */
-function checkLinkInvariants(links: readonly OrderLink[], stock: readonly StockMovement[], direction: 'in' | 'out'): Issue[] {
+/**
+ * What every order link must be: a positive quantity, on a real line of the same voucher's stock, once. A service delivered (or received) moves
+ * no stock: its link sits on a line number of its own, past the stock lines.
+ */
+function checkLinkInvariants(links: readonly OrderLink[], stock: readonly StockMovement[], direction: 'in' | 'out', holdsNoStock: (itemId: string) => boolean): Issue[] {
   const problems: Issue[] = [];
   const seen = new Set<number>();
   links.forEach((l, i) => {
@@ -126,6 +132,10 @@ function checkLinkInvariants(links: readonly OrderLink[], stock: readonly StockM
     if (l.lineNo < 1 || seen.has(l.lineNo)) problems.push(issue(IssueCode.PlanInconsistentLines, 'Each delivery must sit on its own invoice line', path));
     seen.add(l.lineNo);
     const m = stock.find((s) => s.lineNo === l.lineNo);
+    if (holdsNoStock(l.itemId)) {
+      if (m) problems.push(issue(IssueCode.PlanInconsistentLines, 'A service delivered moves no stock: its delivery sits on no stock line', path));
+      return;
+    }
     if (!m || m.direction !== direction || m.itemId !== l.itemId || m.qty !== l.qty) {
       problems.push(
         issue(IssueCode.PlanInconsistentLines, `A ${direction === 'out' ? 'delivery' : 'receipt'} must match the stock going ${direction} on its invoice line`, path),

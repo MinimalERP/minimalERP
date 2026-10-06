@@ -114,6 +114,54 @@ export function salesContract(label: string, makeWorld: MakeMasterWorld): void {
       expect(book.state(so.id)).toMatchObject({ status: 'open' });
     });
 
+    it('a SERVICE line fills its order line with no stock moving; goods beside it still move theirs; over-delivery is refused and a cancellation reopens the order', async () => {
+      mustOk(await w.backend.execute({ companyId: w.companyId, command: { op: 'create', kind: 'stockItem', id: w.uuid('item:rework'), data: { name: 'Modification charges', unitId: w.uuid('unit:Nos'), itemType: 'service' } } }));
+      const rework = w.uuid('item:rework');
+      const so = mustOk(
+        await order('so-svc', {
+          lines: [
+            { id: 'a', itemId: bolt(), qty: '18', rate: '25', dueDate: '2024-05-20' },
+            { id: 's1', itemId: rework, qty: '3', rate: '2500', dueDate: '2024-05-20' },
+            { id: 's2', itemId: rework, qty: '4', rate: '2500', dueDate: '2024-05-20' },
+          ],
+        }),
+      ).voucher;
+      const service = (lineId: string, qty: string) => ({ itemId: rework, qty, rate: '2500', orderRef: { orderId: so.id, lineId } });
+      const state = async () => orderBookOf(await w.backend.list(w.companyId), await w.backend.load(w.companyId)).state(so.id);
+      const stockBefore = await stockOut();
+
+      // an invoice of service lines alone: nothing leaves a godown, both order lines are filled
+      const inv = mustOk(await invoice('inv-svc', [service('s1', '3'), service('s2', '4')]));
+      expect(inv.plan.stock).toEqual([]);
+      expect((await links()).map((l) => [l.lineNo, l.orderLineId, l.qty])).toEqual([[1, 's1', 30000n], [2, 's2', 40000n]]);
+      expect(await stockOut()).toBe(stockBefore);
+      expect((await state())?.lines.map((l) => [l.line.id, l.filled])).toEqual([['a', false], ['s1', true], ['s2', true]]);
+      // delivered in full: no more can be billed against it
+      expect(codesOf(await invoice('inv-svc-over', [service('s1', '1')]))).toContain(IssueCode.OverDelivery);
+
+      // the goods line beside a service line still moves its stock, on its own stock line; the order is then fulfilled
+      const mixed = mustOk(await invoice('inv-goods', [await against(so.id, 'a', '18')]));
+      expect(mixed.plan.stock).toHaveLength(1);
+      expect((await stockOut()) - stockBefore).toBe(180000n);
+      expect(await state()).toMatchObject({ status: 'closed', reason: 'fulfilled' });
+
+      // cancelling the service invoice takes its deliveries back
+      mustOk(await w.backend.cancel({ companyId: w.companyId, voucherId: inv.voucher.id, expectedVersion: inv.voucher.version }));
+      expect((await links()).map((l) => l.orderLineId)).toEqual(['a']);
+      expect(await state()).toMatchObject({ status: 'open' });
+    });
+
+    it('a service line and a goods line on one invoice, each against its order line: the goods delivery sits on its stock line, the service one after it', async () => {
+      mustOk(await w.backend.execute({ companyId: w.companyId, command: { op: 'create', kind: 'stockItem', id: w.uuid('item:rework'), data: { name: 'Modification charges', unitId: w.uuid('unit:Nos'), itemType: 'service' } } }));
+      const rework = w.uuid('item:rework');
+      const so = mustOk(await order('so-mix', { lines: [{ id: 's', itemId: rework, qty: '2', rate: '500', dueDate: '2024-05-20' }, { id: 'a', itemId: bolt(), qty: '18', rate: '25', dueDate: '2024-05-20' }] })).voucher;
+      const inv = mustOk(await invoice('inv-mix', [{ itemId: rework, qty: '2', rate: '500', orderRef: { orderId: so.id, lineId: 's' } }, await against(so.id, 'a', '5')]));
+      expect(inv.plan.stock.map((m) => [m.lineNo, m.itemId, m.qty])).toEqual([[1, bolt(), 50000n]]);
+      expect((await links()).map((l) => [l.lineNo, l.orderLineId]).sort()).toEqual([[1, 'a'], [2, 's']]);
+      // goods are still held to their stock: a goods delivery with no stock behind it is not something an invoice can make
+      expect(codesOf(await invoice('inv-bad', [{ itemId: bolt(), qty: '1', rate: '25', orderRef: { orderId: so.id, lineId: 'a' } }]))).toContain(IssueCode.StockLineInvalid);
+    });
+
     it('Round Off: a total that is not a whole rupee rounds the customer’s debit, and an extra line to the Round Off ledger balances it', async () => {
       // 1 × 100.01 = 100.01, rounded down to 100.00 (nearest rupee, half up): the customer owes 100.00, the sales ledger
       // still keeps the exact 100.01, and the 1-paisa gap is posted to Round Off.

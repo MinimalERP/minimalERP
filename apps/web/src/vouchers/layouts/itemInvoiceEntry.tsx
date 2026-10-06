@@ -106,11 +106,11 @@ function fieldsOf(form: SalesForm, kind: ItemDocKind, masters: Masters, gstOn = 
   }
   form.lines.forEach((l, i) => {
     out.push({ key: `l${i}.item`, kind: 'item', line: i });
-    // a service item has no godown and fills no order or challan, like a one-time line
+    // a service item has no godown (it holds no stock) but can be against an order line; a one-time line has neither
     const isService = !l.oneTime && l.itemId !== '' && masters.stockItem(l.itemId as never)?.itemType === 'service';
-    if (p.invoice && !l.oneTime && !isService) {
+    if (p.invoice && !l.oneTime) {
       // a line billed against a challan has no godown: its goods left on the challan
-      if (!l.challanId) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
+      if (!l.challanId && !isService) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
       out.push({ key: `l${i}.ord`, kind: 'ord', line: i });
     }
     else if (p.challan && !l.oneTime && !isService) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
@@ -517,7 +517,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       const l = fresh().lines[f.line] as SalesLineForm;
       const isService = isServiceItem(o.id);
       // an order reference is only good for the item it was for
-      const stillFits = !isService && l.orderId !== '' && books.orders.order(l.orderId as never)?.lines.find((x) => x.id === l.orderLineId)?.itemId === o.id;
+      const stillFits = l.orderId !== '' && books.orders.order(l.orderId as never)?.lines.find((x) => x.id === l.orderLineId)?.itemId === o.id;
       // an invoice line starts in the godown that holds the goods; a service item has no godown
       const w = !isService && p.side === 'sales' && p.moves ? godownFor(o.id, parseQty(l.qty.trim()) ?? 1n) : undefined;
       const here = l.warehouseId !== '' && (p.side === 'purchase' || base.qtyAt(o.id as never, l.warehouseId as never, fresh().date as never) >= (parseQty(l.qty.trim()) ?? 1n));
@@ -1130,14 +1130,16 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             </div>
           )}
         </div>
-        {p.invoice && (l.oneTime || isService) ? (
+        {p.invoice && l.oneTime ? (
           <>
-            <div class="vc-godown vcell-none" aria-hidden="true" title={isService ? 'A service holds no stock: this line has no godown' : undefined}>—</div>
+            <div class="vc-godown vcell-none" aria-hidden="true">—</div>
             <div class="vc-order vcell-none" aria-hidden="true">—</div>
           </>
         ) : p.invoice ? (
           <>
-            {l.challanId ? (
+            {isService ? (
+              <div class="vc-godown vcell-none" aria-hidden="true" title="A service holds no stock: this line has no godown">—</div>
+            ) : l.challanId ? (
               <div class="vc-godown vcell-none" data-testid="challan-godown" title="The goods left on the delivery challan: this line moves no stock">
                 sent on challan
               </div>

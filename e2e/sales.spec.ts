@@ -363,7 +363,7 @@ test.describe('the Sales Invoice window', () => {
     await expect(registerRow(app, 'PO-4471', 'Mounting Bracket')).toContainText('0/300');
   });
 
-  test('a service item needs no godown or order — picking one from the list drops both fields and the cursor lands on Qty', async ({ app }) => {
+  test('a service item needs no godown — picking one from the list drops that field (it can still be against an order) and the cursor moves on, not back to the date', async ({ app }) => {
     await goTo(app, 'create stock item');
     await app.keyboard.press('Enter');
     await expect(heading(app)).toHaveText('Create Stock Item');
@@ -385,10 +385,12 @@ test.describe('the Sales Invoice window', () => {
     await app.keyboard.press('Enter'); // sales ledger
     await app.keyboard.press('Enter'); // bill due
     await app.keyboard.type('installation');
-    await app.keyboard.press('Enter'); // pick it — no godown, no order field for a service line
+    await app.keyboard.press('Enter'); // pick it — no godown for a service line; the order field stays (a service ordered is billed against its order)
     await expect(app.locator('[data-vf="l0.wh"]')).toHaveCount(0);
-    await expect(app.locator('[data-vf="l0.ord"]')).toHaveCount(0);
-    await expect(app.locator('[data-vf="l0.qty"]')).toBeFocused(); // straight to Qty, not stuck on a field that just vanished
+    await expect(app.locator('[data-vf="l0.ord"]')).toHaveCount(1);
+    await expect(app.locator('[data-vf="l0.ord"]')).toBeFocused(); // on to the next field, not stuck on a field that just vanished
+    await app.keyboard.press('Enter'); // against no order
+    await expect(app.locator('[data-vf="l0.qty"]')).toBeFocused();
     await app.keyboard.type('1');
     await app.keyboard.press('Enter');
     await app.keyboard.type('5000');

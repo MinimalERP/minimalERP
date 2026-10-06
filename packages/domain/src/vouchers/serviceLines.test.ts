@@ -87,7 +87,7 @@ describe('a service item line on a Sales Invoice', () => {
     expect(inv?.tax).toBe(money(99000n));
   });
 
-  it('refuses a godown, an order reference and a challan reference on a service line', () => {
+  it('refuses a godown, an order that does not exist and a challan reference on a service line', () => {
     const c = company();
     const base = { id: newId('bad'), voucherTypeId: c.type('sales'), date: '2026-09-24', partyId: newId('acme'), partyDetails: details(newId('acme')), salesLedgerId: newId('sales'), dueDate: '2026-10-24' };
     const codes = (lines: unknown[]) => {
