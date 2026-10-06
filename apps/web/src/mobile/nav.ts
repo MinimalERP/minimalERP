@@ -15,7 +15,19 @@ export type Page =
   | { readonly page: 'items' }
   | { readonly page: 'item'; readonly itemId: string }
   | { readonly page: 'outstanding'; readonly side: 'receivable' | 'payable' }
-  | { readonly page: 'utilities' };
+  | { readonly page: 'utilities' }
+  /** A new stock item or customer, in the few fields a sale needs (from the Stock / Parties lists). */
+  | { readonly page: 'create'; readonly what: 'item' | 'customer' }
+  /** What can be made on the phone: the list of documents to start. */
+  | { readonly page: 'new' }
+  /**
+   * Entering a document by touch: a new one of `kind` (optionally for a party, or for what an order / challan still has pending), or the
+   * posted `voucherId` being altered.
+   */
+  | { readonly page: 'entry'; readonly kind: EntryKind; readonly voucherId?: string; readonly partyId?: string; readonly fromOrder?: string; /** With `fromOrder`: only these lines of the order. */ readonly fromOrderLines?: readonly string[] };
+
+/** The documents the phone enters (stage 2): the selling side's. Everything else is entered on the desktop. */
+export type EntryKind = 'sales' | 'salesOrder' | 'quotation' | 'deliveryChallan';
 
 interface HistoryWindow {
   readonly history: { pushState(data: unknown, unused: string): void; back(): void };
@@ -24,15 +36,54 @@ interface HistoryWindow {
 
 export class MobileNav {
   private stack: Page[] = [{ page: 'gateway' }];
+  /** What is open OVER the page on top (a picker, a sheet): Back closes the last of these before it closes the page. */
+  private layers: (() => void)[] = [];
+  /** Asked before Back closes the page on top; false keeps the page (it then says why — "Discard changes?"). */
+  private guard: (() => boolean) | undefined;
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly win: HistoryWindow = window) {
     win.addEventListener('popstate', () => {
-      if (this.stack.length > 1) {
-        this.stack = this.stack.slice(0, -1);
-        this.notify();
+      const close = this.layers.pop();
+      if (close) return close();
+      if (this.stack.length <= 1) return;
+      if (this.guard && !this.guard()) {
+        this.win.history.pushState({ m: this.stack.length }, ''); // the entry Back just spent is laid again: the page stays
+        return;
       }
+      this.guard = undefined;
+      this.stack = this.stack.slice(0, -1);
+      this.notify();
     });
+  }
+
+  /** Something opened over the page: the phone's Back (or `closeLayer`) closes it, calling `close`. */
+  openLayer(close: () => void): void {
+    this.layers.push(close);
+    this.win.history.pushState({ layer: this.layers.length }, '');
+  }
+
+  /** The layer on top becomes another (a list's choice opens a sheet in its place): still one Back to close it. */
+  swapLayer(close: () => void): void {
+    if (this.layers.length === 0) return this.openLayer(close);
+    this.layers[this.layers.length - 1] = close;
+  }
+
+  /** Closes the layer on top, exactly as Back would. */
+  closeLayer(): void {
+    if (this.layers.length > 0) this.win.history.back();
+  }
+
+  /** The page on top wants a say before Back closes it (cleared when it does close, or with `undefined`). */
+  setGuard(guard: (() => boolean) | undefined): void {
+    this.guard = guard;
+  }
+
+  /** The page on top becomes another, in place: Back goes where it would have gone (a saved document replaces the form that made it). */
+  replace(page: Page): void {
+    this.guard = undefined;
+    this.stack = [...this.stack.slice(0, -1), page];
+    this.notify();
   }
 
   get top(): Page {
@@ -56,6 +107,7 @@ export class MobileNav {
 
   /** Straight back to the Gateway (another company was opened: nothing of the last one stays on screen). */
   reset(): void {
+    this.guard = undefined;
     this.stack = [{ page: 'gateway' }];
     this.notify();
   }
