@@ -1,0 +1,88 @@
+/*
+ * The mobile interface (mobile/MobileApp.tsx). Every rule sits under .m-app, so nothing here can reach the desktop app, and it is loaded
+ * only with the mobile chunk. Colours, type and spacing are the desktop's own tokens (ui/tokens.css): one product, two interfaces.
+ * Touch first: every row is at least 56px tall, nothing needs a hover, and the page scrolls as one column.
+ */
+.m-app {
+  min-height: 100vh; min-height: 100dvh;
+  display: flex; flex-direction: column;
+  background: var(--c-bg); color: var(--c-text);
+  font-family: var(--font-ui); font-size: 16px; line-height: 1.35;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* the title bar: Back and where you are; it stays while the page scrolls */
+.m-app .m-bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 4px;
+  padding: env(safe-area-inset-top, 0) 8px 0 4px;
+  min-height: 52px;
+  background: var(--c-accent); color: var(--c-accent-text);
+}
+.m-app .m-back {
+  width: 44px; height: 44px; flex: none;
+  border: 0; background: none; color: inherit;
+  font: inherit; font-size: 30px; line-height: 1; padding: 0 0 4px;
+  border-radius: 22px;
+}
+.m-app .m-back:active { background: #ffffff33; }
+.m-app .m-back-none { width: 12px; }
+.m-app .m-title { margin: 0; font-size: 18px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.m-app .m-main { flex: 1; padding: 0 0 calc(24px + env(safe-area-inset-bottom, 0)); }
+/* asked for on a wide screen (a tablet, a desktop trying it): one phone-wide column in the middle, not rows a metre long */
+.m-app .m-main, .m-app .m-bar > .m-title { max-width: 640px; }
+.m-app .m-main { width: 100%; margin: 0 auto; box-sizing: border-box; }
+
+.m-app .m-search {
+  display: block; box-sizing: border-box; width: calc(100% - 24px); margin: 12px;
+  min-height: 48px; padding: 0 14px;
+  font: inherit; color: inherit; background: var(--c-surface);
+  border: 1px solid var(--c-border); border-radius: 10px; outline: none;
+  -webkit-appearance: none; appearance: none;
+}
+.m-app .m-search:focus { border-color: var(--c-accent); }
+
+.m-app .m-group { margin: 0 0 8px; }
+.m-app .m-group-title {
+  margin: 0; padding: 14px 16px 6px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--c-text-muted);
+}
+
+/* one row: what it is on the left, its figure on the right */
+.m-app .m-row {
+  display: flex; align-items: center; gap: 12px; box-sizing: border-box; width: 100%;
+  min-height: 56px; padding: 8px 16px;
+  background: var(--c-surface); color: inherit; font: inherit; text-align: left; text-decoration: none;
+  border: 0; border-bottom: 1px solid var(--c-border);
+}
+.m-app button.m-row { cursor: pointer; }
+.m-app button.m-row:active { background: var(--c-focus-bg); }
+.m-app .m-group > .m-row:first-of-type, .m-app .m-search + .m-row { border-top: 1px solid var(--c-border); }
+.m-app .m-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.m-app .m-row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-app .m-row-sub { font-size: 13px; color: var(--c-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-app .m-row-side { flex: none; max-width: 55%; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+.m-app .m-row-value { font-family: var(--font-figures); font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.m-app .m-row-value.bad, .m-app .m-row-sub.bad, .m-app .m-note.bad { color: var(--c-negative); }
+.m-app .m-row-value.muted { color: var(--c-text-muted); font-weight: 400; }
+
+.m-app .m-empty, .m-app .m-note { margin: 0; padding: 14px 16px; color: var(--c-text-muted); font-size: 14px; }
+.m-app .m-note { white-space: pre-wrap; }
+
+.m-app .m-actions { display: flex; gap: 10px; padding: 12px 16px; }
+.m-app .m-button, .m-app .m-more {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+  min-height: 48px; padding: 0 16px;
+  font: inherit; font-weight: 600; text-decoration: none;
+  color: var(--c-accent); background: var(--c-surface);
+  border: 1px solid var(--c-accent); border-radius: 10px;
+}
+.m-app .m-button:active, .m-app .m-more:active { background: var(--c-focus-bg); }
+.m-app .m-more { display: flex; width: calc(100% - 32px); margin: 12px 16px; }
+
+/* printing: only the document (PrintView renders #print-root as a direct child of .m-app) */
+@media print {
+  .m-app { min-height: 0; background: #ffffff; }
+  .m-app > *:not(#print-root) { display: none !important; }
+}

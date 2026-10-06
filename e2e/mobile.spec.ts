@@ -76,7 +76,7 @@ test.describe('Esc and Enter above the on-screen keyboard', () => {
       Object.assign(fake, { height: 450, offsetTop: 0, width: 390 });
       Object.defineProperty(window, 'visualViewport', { get: () => fake });
     });
-    await page.goto('/');
+    await page.goto('/?ui=desktop'); // the desktop app on a phone: asked for, now that a phone gets the mobile interface by itself
     await expect(page.locator('.shell')).toBeVisible();
     await loadDemo(page);
 
@@ -109,7 +109,7 @@ test.describe('a touch screen reaches what the keys do (no Alt key on a phone)',
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
 
   async function unknownItem(page: Page): Promise<void> {
-    await page.goto('/');
+    await page.goto('/?ui=desktop'); // the desktop app on a phone: asked for, now that a phone gets the mobile interface by itself
     await expect(page.locator('.shell')).toBeVisible();
     await loadDemo(page);
     await page.keyboard.press('F8');
@@ -139,7 +139,7 @@ test.describe('a touch screen reaches what the keys do (no Alt key on a phone)',
   });
 
   test('a key drawn in a hint is pressed by a tap on it: "Alt+C new ledger" on the Ledgers list', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?ui=desktop'); // the desktop app on a phone: asked for, now that a phone gets the mobile interface by itself
     await expect(page.locator('.shell')).toBeVisible();
     await loadDemo(page);
     await goTo(page, 'ledgers');
@@ -151,7 +151,7 @@ test.describe('a touch screen reaches what the keys do (no Alt key on a phone)',
 });
 
 test('the phone\'s Back is Esc inside the app, and leaves only from the Gateway', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?ui=desktop'); // the desktop app on a phone: asked for, now that a phone gets the mobile interface by itself
   await expect(page.locator('.shell')).toBeVisible();
   await loadDemo(page);
   await goTo(page, 'ledgers');
@@ -186,7 +186,7 @@ test.describe('swipes and the Back button on a phone', () => {
     );
 
   test('a sideways swipe on a displayed voucher turns it, as the ‹ › arrows do; right to left is the next one', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?ui=desktop'); // the desktop app on a phone: asked for, now that a phone gets the mobile interface by itself
     await expect(page.locator('.shell')).toBeVisible();
     await loadDemo(page);
     await openSharmaInvoice(page);
@@ -197,7 +197,7 @@ test.describe('swipes and the Back button on a phone', () => {
   });
 
   test('on the Gateway Back asks "Exit MinimalERP?": Stay keeps the app, and a Back while it asks leaves', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?ui=desktop'); // the desktop app on a phone: asked for, now that a phone gets the mobile interface by itself
     await expect(page.locator('.shell')).toBeVisible();
     await loadDemo(page);
     await expect(page).toHaveURL(/#\/gateway$/);
@@ -213,7 +213,7 @@ test.describe('swipes and the Back button on a phone', () => {
   });
 
   test('inside the app, Back after Back keeps stepping back (Esc) and never drops out of the app', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?ui=desktop'); // the desktop app on a phone: asked for, now that a phone gets the mobile interface by itself
     await expect(page.locator('.shell')).toBeVisible();
     await loadDemo(page);
     await goTo(page, 'ledgers');

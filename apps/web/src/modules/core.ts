@@ -1,4 +1,5 @@
 import type { Command, ModuleManifest } from '@minimalerp/command';
+import { isTouch, switchUi } from '../mobile/device';
 import type { AppContext } from '../shell/services';
 
 /**
@@ -66,6 +67,18 @@ const commands: Command<AppContext>[] = [
     keywords: ['home', 'main menu', 'start'],
     description: 'The main menu',
     run: (app) => app.goHome(),
+  },
+  {
+    // Only where there is a touch screen: the touch interface (look-up and quick entry), remembered on this device. It comes back with
+    // "Desktop version" there.
+    id: 'ui.mobile',
+    title: 'Mobile version',
+    category: 'Settings',
+    keywords: ['mobile', 'phone', 'touch', 'simple'],
+    description: 'The touch interface for a phone: look things up and enter the everyday vouchers',
+    configurable: false,
+    when: () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && isTouch(window),
+    run: () => switchUi('mobile'),
   },
   {
     id: 'settings.keyboard',
@@ -171,6 +184,7 @@ export const coreModule: ModuleManifest<AppContext> = {
   menu: [
     { section: 'utilities', commandId: 'settings.keyboard', order: 1 },
     { section: 'utilities', commandId: 'settings.gatewayShortcuts', order: 2 },
+    { section: 'utilities', commandId: 'ui.mobile', order: 8 },
     { section: 'utilities', commandId: 'account.signOut', order: 9 },
     { section: 'utilities', commandId: 'account.signIn', order: 9 },
   ],
