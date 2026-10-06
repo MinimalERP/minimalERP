@@ -25,7 +25,9 @@
     box-decoration-break: clone; -webkit-box-decoration-break: clone; /* a long voucher: every page gets its own closed frame */
   }
   /* the address box and the item table run edge to edge: their sides are the frame's own line, never a second one beside it */
-  #print-root .print-copy.bordered .inv-parties { margin-left: -4mm; margin-right: -4mm; border-left: 0; border-right: 0; }
+  #print-root .print-copy.bordered .inv-parties { width: calc(100% + 8mm); margin-left: -4mm; margin-right: -4mm; border-left: 0; border-right: 0; }
+  #print-root .print-copy.bordered .inv-narration.ruled { margin: 0 -4mm 10px; padding: 5px 4mm; border-top: 1px solid #000; border-bottom: 1px solid #000; } /* the narration sits between two lines that run frame to frame */
+  #print-root .print-copy.bordered .inv-narration.ruled + .inv-foot { border-top: 0; } /* its lower line is the footer's line */
   #print-root .print-copy.bordered table.items { width: calc(100% + 8mm); margin-left: -4mm; margin-right: -4mm; }
   #print-root .print-copy.bordered table.items tr > :first-child { border-left: 0; }
   #print-root .print-copy.bordered table.items tr > :last-child { border-right: 0; }
@@ -144,7 +146,9 @@
 .pdf-render #print-root { display: block !important; }
 .pdf-render .paper { box-shadow: none; width: 185.8mm; padding: 0; }
 .pdf-render .print-copy.bordered { box-sizing: border-box; min-height: 266.7mm; border: 1.5px solid #000; padding: 4mm; } /* same slack fix as the native print path above */
-.pdf-render .print-copy.bordered .inv-parties { margin-left: -4mm; margin-right: -4mm; border-left: 0; border-right: 0; }
+.pdf-render .print-copy.bordered .inv-parties { width: calc(100% + 8mm); margin-left: -4mm; margin-right: -4mm; border-left: 0; border-right: 0; }
+.pdf-render .print-copy.bordered .inv-narration.ruled { margin: 0 -4mm 10px; padding: 5px 4mm; border-top: 1px solid #000; border-bottom: 1px solid #000; } /* the narration sits between two lines that run frame to frame */
+.pdf-render .print-copy.bordered .inv-narration.ruled + .inv-foot { border-top: 0; } /* its lower line is the footer's line */
 .pdf-render .print-copy.bordered table.items { width: calc(100% + 8mm); margin-left: -4mm; margin-right: -4mm; }
 .pdf-render .print-copy.bordered table.items tr > :first-child { border-left: 0; }
 .pdf-render .print-copy.bordered table.items tr > :last-child { border-right: 0; }

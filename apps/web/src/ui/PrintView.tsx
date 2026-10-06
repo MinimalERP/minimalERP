@@ -34,7 +34,7 @@ function AddressBlock({ label, address, gstin }: { label: string; address: Print
 
 function Narration({ text }: { text: string }) {
   return (
-    <p class="inv-narration">
+    <p class="inv-narration ruled">
       <span class="label">Narration:</span> {text}
     </p>
   );
