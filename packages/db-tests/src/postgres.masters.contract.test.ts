@@ -3,7 +3,7 @@
  * validation by the same domain code, commit through master_apply, opening balances through the posting functions,
  * duplicate names refused even when many requests race, built-ins locked.
  */
-import { gstContract, masterContract, purchaseContract, salesContract, stockContract, voucherDetailsContract } from '@minimalerp/testkit';
+import { gstContract, masterContract, notesContract, purchaseContract, salesContract, stockContract, voucherDetailsContract } from '@minimalerp/testkit';
 import { afterAll, beforeAll } from 'vitest';
 import { asMakeMasterWorld } from './harness/pgMasterWorld';
 import { type TestDb, createTestDb } from './harness/testDb';
@@ -26,3 +26,4 @@ stockContract('postgres', () => make());
 salesContract('postgres', () => make());
 purchaseContract('postgres', () => make());
 gstContract('postgres', () => make());
+notesContract('postgres', () => make());

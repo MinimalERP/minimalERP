@@ -14,7 +14,8 @@ import { breakdownOf, grandTotalParts, gstOfContent, lineGstRate } from '../vouc
 import type { Voucher } from '../vouchers/voucher';
 
 /**
- * GSTR-1 and GSTR-3B, as REPORTS (ADR-0019): pure functions of the posted Sales and Purchase Invoices and the journal — nothing is stored, nothing is
+ * GSTR-1 and GSTR-3B, as REPORTS (ADR-0019): pure functions of the posted Sales and Purchase Invoices — and the Credit and Debit Notes that take
+ * them back (ADR-0026), read as invoices with every figure NEGATIVE, so each total nets them without being told to — and the journal — nothing is stored, nothing is
  * posted, and every figure is the invoice's own (its header and its lines, added up by the same `computeGst` the posting used), so it can be followed
  * back from a report row to the voucher and from the voucher to the ledger. The reports state what the books hold; they do not file anything.
  */
@@ -42,6 +43,11 @@ export interface GstInvoice {
   readonly number: string;
   readonly date: LocalDate;
   readonly side: GstSide;
+  /** A Credit Note (sales) or Debit Note (purchase): every amount and quantity below is NEGATIVE — it takes an invoice back. */
+  readonly note: boolean;
+  /** A note: the invoice it is for, and what that invoice came to when it is one of ours (it decides where an unregistered customer's note is reported). */
+  readonly invoiceRef?: string | undefined;
+  readonly originalValue?: Money | undefined;
   /** A purchase: the supplier's own invoice number — what GSTR-2B knows the invoice by. */
   readonly billNo?: string | undefined;
   readonly partyId: string;
@@ -105,22 +111,41 @@ export function uqcOf(unit: string | undefined, hsn: string | undefined): string
 interface Content {
   partyId?: string;
   billNo?: string;
+  invoiceRef?: string;
   partyDetails?: PartyDetails;
   lines?: { itemId?: string; description?: string; unit?: string; qty: string; rate: string; gstRate?: string; hsn?: string }[];
 }
 
 const inRange = (d: LocalDate, r: DateRange): boolean => (r.from === undefined || d >= r.from) && (r.to === undefined || d <= r.to);
 
-/** The posted invoices of one side dated in the period, oldest first, each read back into its taxable value, tax and lines. */
-export function gstInvoices({ vouchers, masters, side, range }: { vouchers: readonly Voucher[]; masters: Masters; side: GstSide; range: DateRange }): GstInvoice[] {
+/**
+ * The posted invoices of one side dated in the period, oldest first, each read back into its taxable value, tax and lines — and with them the
+ * side's notes (Credit Notes with sales, Debit Notes with purchases), negative, unless `notes` is false (GSTR-2B matches invoices only).
+ */
+export function gstInvoices({ vouchers, masters, side, range, notes = true }: { vouchers: readonly Voucher[]; masters: Masters; side: GstSide; range: DateRange; notes?: boolean }): GstInvoice[] {
   const out: GstInvoice[] = [];
+  const invoiceKind = side === 'sales' ? 'sales' : 'purchase';
+  const noteKind = side === 'sales' ? 'creditNote' : 'debitNote';
+  /** What our own invoice of that number to that customer came to (items and tax), if the books hold it. */
+  const valueOfOurInvoice = (ref: string, partyId: string): Money | undefined => {
+    const original = vouchers.find((o) => o.status === 'posted' && o.number === ref && masters.voucherType(o.voucherTypeId)?.baseKind === 'sales' && (o.content as unknown as Content).partyId === partyId);
+    const oc = original?.content as unknown as Content | undefined;
+    if (!oc || !Array.isArray(oc.lines)) return undefined;
+    const ob = breakdownOf(oc.lines, gstOfContent(original?.content));
+    return money(ob.taxable + ob.tax);
+  };
   for (const v of vouchers) {
     if (v.status !== 'posted' || !inRange(v.date, range)) continue;
-    if (masters.voucherType(v.voucherTypeId)?.baseKind !== (side === 'sales' ? 'sales' : 'purchase')) continue;
+    const baseKind = masters.voucherType(v.voucherTypeId)?.baseKind;
+    const note = baseKind === noteKind;
+    if (baseKind !== invoiceKind && !(note && notes)) continue;
+    const sign = note ? -1n : 1n;
+    const neg = (m: bigint): Money => money(sign * m);
     const c = v.content as unknown as Content;
     if (!Array.isArray(c.lines) || typeof c.partyId !== 'string') continue;
     const header = gstOfContent(v.content);
-    const b = breakdownOf(c.lines, header);
+    const b0 = breakdownOf(c.lines, header);
+    const b = { ...b0, slabs: b0.slabs.map((s) => ({ ...s, taxable: neg(s.taxable), cgst: neg(s.cgst), sgst: neg(s.sgst), igst: neg(s.igst) })), taxable: neg(b0.taxable), cgst: neg(b0.cgst), sgst: neg(b0.sgst), igst: neg(b0.igst), tax: neg(b0.tax) };
     const party = masters.party(c.partyId as never);
     const d = c.partyDetails;
     const gstin = (d?.gstin ?? party?.gstin ?? '').trim();
@@ -139,9 +164,9 @@ export function gstInvoices({ vouchers, masters, side, range }: { vouchers: read
         hsn: (l.hsn ?? item?.hsn ?? '').trim(),
         // a one-time line without a unit: GST's code for "others"
         uqc: uqcOf(unit, l.hsn ?? item?.hsn),
-        qty: (parseQty(l.qty) ?? 0n) as Qty,
+        qty: (sign * (parseQty(l.qty) ?? 0n)) as Qty,
         rate: canonicalPercent(lineGstRate(l)),
-        taxable: lineValue(l),
+        taxable: neg(lineValue(l)),
         cgst: ZERO,
         sgst: ZERO,
         igst: ZERO,
@@ -149,9 +174,10 @@ export function gstInvoices({ vouchers, masters, side, range }: { vouchers: read
     });
     for (const slab of b.slabs) {
       const idx = facts.map((f, i) => (f.rate === slab.rate ? i : -1)).filter((i) => i >= 0);
-      const weights = idx.map((i) => (facts[i] as GstLineFact).taxable);
+      // shared out by size, whichever way the document goes: a note's lines carry the note's (negative) tax
+      const weights = idx.map((i) => sign * (facts[i] as GstLineFact).taxable);
       if (weights.every((w) => w === 0n)) continue;
-      const share = (total: Money): Money[] => (total === 0n ? idx.map(() => ZERO) : allocateMoney(total, weights));
+      const share = (total: Money): Money[] => (total === 0n ? idx.map(() => ZERO) : allocateMoney(money(sign * total), weights).map(neg));
       const [cg, sg, ig] = [share(slab.cgst), share(slab.sgst), share(slab.igst)];
       idx.forEach((i, k) => {
         facts[i] = { ...(facts[i] as GstLineFact), cgst: cg[k] as Money, sgst: sg[k] as Money, igst: ig[k] as Money };
@@ -162,6 +188,9 @@ export function gstInvoices({ vouchers, masters, side, range }: { vouchers: read
       number: v.number,
       date: v.date,
       side,
+      note,
+      ...(note && typeof c.invoiceRef === 'string' && c.invoiceRef.trim() !== '' ? { invoiceRef: c.invoiceRef.trim() } : {}),
+      ...(note && side === 'sales' && typeof c.invoiceRef === 'string' ? { originalValue: valueOfOurInvoice(c.invoiceRef.trim(), c.partyId) } : {}),
       ...(typeof c.billNo === 'string' && c.billNo.trim() !== '' ? { billNo: c.billNo.trim() } : {}),
       partyId: c.partyId,
       party: party?.name ?? d?.mailingName ?? '',
@@ -178,7 +207,7 @@ export function gstInvoices({ vouchers, masters, side, range }: { vouchers: read
       igst: b.igst,
       tax: b.tax,
       value: money(b.taxable + b.tax),
-      billed: grandTotalParts(c.lines, header).rounded,
+      billed: neg(grandTotalParts(c.lines, header).rounded),
       lines: facts.map(({ ...f }) => f),
       unrated: c.lines.flatMap((l, i) => (lineGstRate(l) === undefined ? [i + 1] : [])),
     });
@@ -188,14 +217,17 @@ export function gstInvoices({ vouchers, masters, side, range }: { vouchers: read
 
 // ---- GSTR-1 ------------------------------------------------------------------------------------------------------------
 
-export type Gstr1Section = 'B2B' | 'B2CL' | 'B2CS' | 'Export';
+/** CDNR / CDNUR: a credit note to a registered customer, and one to an unregistered customer whose invoice was reported on its own (B2CL). */
+export type Gstr1Section = 'B2B' | 'B2CL' | 'B2CS' | 'Export' | 'CDNR' | 'CDNUR';
 
 /** An unregistered customer's inter-state invoice above this is reported invoice by invoice (B2CL): ₹2,50,000. */
 export const B2CL_LIMIT: Money = money(25_000_000n);
 
 export function gstr1Section(inv: GstInvoice): Gstr1Section {
   if (inv.registration === 'overseas') return 'Export';
-  if (inv.gstin !== '' && !gstinProblem(inv.gstin)) return 'B2B';
+  if (inv.gstin !== '' && !gstinProblem(inv.gstin)) return inv.note ? 'CDNR' : 'B2B';
+  // a note follows its invoice: reported on its own when the invoice was (B2CL), otherwise it nets the B2CS summary of its own month
+  if (inv.note) return !inv.intra && (inv.originalValue ?? money(-inv.value)) > B2CL_LIMIT ? 'CDNUR' : 'B2CS';
   if (!inv.intra && inv.value > B2CL_LIMIT) return 'B2CL';
   return 'B2CS';
 }
@@ -398,6 +430,8 @@ export const GSTR1_TOOL_VERSION = 'GST3.2.4';
 
 /** One row of Table 13 (documents issued): a numbering series' invoices in the period, cancelled ones included. */
 export interface Gstr1DocumentRow {
+  /** What the series numbers: invoices for outward supply, or credit notes (left out on the invoices' rows). */
+  readonly nature?: 'creditNote' | undefined;
   readonly from: string;
   readonly to: string;
   readonly total: number;
@@ -406,20 +440,24 @@ export interface Gstr1DocumentRow {
 
 const seqOf = (n: string): number => Number(/(\d+)\s*$/.exec(n)?.[1] ?? 0);
 
-/** Table 13: the Sales invoices dated in the period — posted or cancelled — per numbering series (voucher type and year), lowest to highest number. */
+/**
+ * Table 13: the Sales invoices dated in the period — posted or cancelled — per numbering series (voucher type and year), lowest to highest
+ * number; then the Credit Notes, the same way.
+ */
 export function gstr1Documents({ vouchers, masters, range }: { vouchers: readonly Voucher[]; masters: Masters; range: DateRange }): Gstr1DocumentRow[] {
   const by = new Map<string, Voucher[]>();
   for (const v of vouchers) {
-    if (!inRange(v.date, range) || masters.voucherType(v.voucherTypeId)?.baseKind !== 'sales') continue;
-    const key = `${v.voucherTypeId}|${v.financialYearId}`;
+    const base = masters.voucherType(v.voucherTypeId)?.baseKind;
+    if (!inRange(v.date, range) || (base !== 'sales' && base !== 'creditNote')) continue;
+    const key = `${base}|${v.voucherTypeId}|${v.financialYearId}`;
     by.set(key, [...(by.get(key) ?? []), v]);
   }
-  return [...by.values()]
-    .map((vs) => {
+  return [...by.entries()]
+    .map(([key, vs]) => {
       const sorted = [...vs].sort((a, b) => seqOf(a.number) - seqOf(b.number) || (a.number < b.number ? -1 : a.number > b.number ? 1 : 0));
-      return { from: (sorted[0] as Voucher).number, to: (sorted.at(-1) as Voucher).number, total: vs.length, cancelled: vs.filter((v) => v.status === 'cancelled').length };
+      return { ...(key.startsWith('creditNote|') ? { nature: 'creditNote' as const } : {}), from: (sorted[0] as Voucher).number, to: (sorted.at(-1) as Voucher).number, total: vs.length, cancelled: vs.filter((v) => v.status === 'cancelled').length };
     })
-    .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+    .sort((a, b) => (a.nature !== b.nature ? (a.nature === undefined ? -1 : 1) : a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
 }
 
 export interface Gstr1Export {
@@ -448,7 +486,10 @@ export function gstr1Export({
   const last = period.to ?? period.from;
   const fp = `${last.slice(5, 7)}${last.slice(0, 4)}`;
   const sectionOf = (i: GstInvoice) => gstr1Section(i);
-  const items = (inv: GstInvoice) => inv.slabs.map((s, n) => ({ num: n + 1, itm_det: tax(s, s.rate) }));
+  // a note's own figures are stated as positive amounts in its own tables (the table says it is a credit)
+  const items = (inv: GstInvoice) =>
+    inv.slabs.map((s, n) => ({ num: n + 1, itm_det: tax(inv.note ? { taxable: money(-s.taxable), cgst: money(-s.cgst), sgst: money(-s.sgst), igst: money(-s.igst) } : s, s.rate) }));
+  const noteOf = (i: GstInvoice) => ({ ntty: 'C', nt_num: i.number, nt_dt: ddmmyyyy(i.date), val: amt(money(-i.billed)), pos: i.placeOfSupply });
 
   const b2bBy = new Map<string, GstInvoice[]>();
   for (const inv of invoices.filter((i) => sectionOf(i) === 'B2B')) b2bBy.set(inv.gstin, [...(b2bBy.get(inv.gstin) ?? []), inv]);
@@ -461,7 +502,13 @@ export function gstr1Export({
   for (const inv of invoices.filter((i) => sectionOf(i) === 'B2CL')) b2clBy.set(inv.placeOfSupply, [...(b2clBy.get(inv.placeOfSupply) ?? []), inv]);
   const b2cl = [...b2clBy.entries()].map(([pos, invs]) => ({ pos, inv: invs.map((i) => ({ inum: i.number, idt: ddmmyyyy(i.date), val: amt(i.billed), itms: items(i) })) }));
 
-  // B2CS is a summary: by place of supply, rate and whether within the state
+  // Table 9B: credit notes to registered customers, by customer; and to unregistered ones whose invoice was reported on its own
+  const cdnrBy = new Map<string, GstInvoice[]>();
+  for (const inv of invoices.filter((i) => sectionOf(i) === 'CDNR')) cdnrBy.set(inv.gstin, [...(cdnrBy.get(inv.gstin) ?? []), inv]);
+  const cdnr = [...cdnrBy.entries()].map(([ctin, notes]) => ({ ctin, nt: notes.map((i) => ({ ...noteOf(i), rchrg: 'N', inv_typ: 'R', itms: items(i) })) }));
+  const cdnur = invoices.filter((i) => sectionOf(i) === 'CDNUR').map((i) => ({ ...noteOf(i), typ: 'B2CL', itms: items(i) }));
+
+  // B2CS is a summary: by place of supply, rate and whether within the state (a small customer's credit note takes its amounts off it)
   const b2cs = new Map<string, { sply_ty: string; pos: string; rate: string; taxable: bigint; cgst: bigint; sgst: bigint; igst: bigint }>();
   for (const inv of invoices.filter((i) => sectionOf(i) === 'B2CS')) {
     for (const s of inv.slabs) {
@@ -491,9 +538,13 @@ export function gstr1Export({
       samt: amt(h.sgst),
       csamt: 0,
     }));
-  const hsnB2b = hsnTable(invoices.filter((i) => sectionOf(i) === 'B2B'));
-  const hsnB2c = hsnTable(invoices.filter((i) => sectionOf(i) !== 'B2B'));
-  const docs = documents.map((d, n) => ({ num: n + 1, from: d.from, to: d.to, totnum: d.total, cancel: d.cancelled, net_issue: d.total - d.cancelled }));
+  const toRegistered = (i: GstInvoice) => sectionOf(i) === 'B2B' || sectionOf(i) === 'CDNR';
+  const hsnB2b = hsnTable(invoices.filter(toRegistered));
+  const hsnB2c = hsnTable(invoices.filter((i) => !toRegistered(i)));
+  const docsOf = (nature: Gstr1DocumentRow['nature']) =>
+    documents.filter((d) => d.nature === nature).map((d, n) => ({ num: n + 1, from: d.from, to: d.to, totnum: d.total, cancel: d.cancelled, net_issue: d.total - d.cancelled }));
+  // the portal's own numbering of Table 13's natures: 1 = invoices for outward supply, 5 = credit notes
+  const docDet = [{ doc_num: 1, docs: docsOf(undefined) }, { doc_num: 5, docs: docsOf('creditNote') }].filter((d) => d.docs.length > 0);
 
   const invoicesCsv = csvOf([
     ['Invoice no', 'Date', 'Customer', 'GSTIN', 'Place of supply', 'Type', 'Rate %', 'Taxable value', 'CGST', 'SGST', 'IGST', 'Invoice value'],
@@ -509,8 +560,10 @@ export function gstr1Export({
   if (b2b.length > 0) json['b2b'] = b2b;
   if (b2cl.length > 0) json['b2cl'] = b2cl;
   if (b2csRows.length > 0) json['b2cs'] = b2csRows;
+  if (cdnr.length > 0) json['cdnr'] = cdnr;
+  if (cdnur.length > 0) json['cdnur'] = cdnur;
   if (hsnB2b.length > 0 || hsnB2c.length > 0) json['hsn'] = { hsn_b2b: hsnB2b, hsn_b2c: hsnB2c };
-  if (docs.length > 0) json['doc_issue'] = { doc_det: [{ doc_num: 1, docs }] };
+  if (docDet.length > 0) json['doc_issue'] = { doc_det: docDet };
   return { json, invoicesCsv, hsnCsv };
 }
 
@@ -613,11 +666,11 @@ export function gstr3b({ vouchers, lines, masters, range }: { vouchers: readonly
 
   const rows: Gstr3bRow[] = [
     heading('h31', '3.1  Outward supplies (sales) and the tax on them'),
-    row('3.1a', '(a) Taxable outward supplies (rate above 0%)', 'sales', outTaxable),
+    row('3.1a', '(a) Taxable outward supplies (rate above 0%), less credit notes', 'sales', outTaxable),
     row('3.1c', '(c) Outward supplies: nil-rated / exempt', 'sales', { taxable: nil }),
     heading('h4', '4  Input tax on purchases'),
     row('4a-eligible', 'Input tax credit — eligible (none marked)', 'purchase', { taxable: 0n, ...inEligible }),
-    row('4-review', 'Input tax — TO REVIEW (eligibility unknown)', 'purchase', inToReview, true),
+    row('4-review', 'Input tax — TO REVIEW (eligibility unknown), less debit notes', 'purchase', inToReview, true),
     row('5', 'Inward supplies: nil-rated / exempt', 'purchase', { taxable: inNil }),
     heading('hnet', 'Net GST position'),
     row('net-out', 'Output tax', undefined, { cgst: outTaxable.cgst, sgst: outTaxable.sgst, igst: outTaxable.igst }),

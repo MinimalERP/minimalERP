@@ -63,22 +63,23 @@ test.describe('the Gateway', () => {
     await expect(sales).toContainText('F8');
     await expect(sales).not.toContainText('Phase'); // Sales is real now (Phase 6b)
     await expect(app.getByRole('option', { name: /Purchase Vouchers/ })).toContainText('F9'); // Purchase is real now (Phase 8)
-    await expect(app.getByRole('option', { name: /New Debit Note/ })).toContainText('Phase 7'); // the debit note is still planned
+    await expect(app.getByRole('option', { name: /New Receipt Note/ })).toContainText('Phase 8'); // the receipt note is still planned
+    await expect(app.getByRole('option', { name: /^Debit Notes/ })).not.toContainText('Phase'); // credit and debit notes are real now
     await expect(app.getByRole('option', { name: /Payment Vouchers/ })).toContainText('F5');
   });
 });
 
 test.describe('Go To (Alt+G)', () => {
   test('Alt+G → type → Enter → the screen → Esc → back', async ({ app }) => {
-    await goTo(app, 'debit note'); // (GST reports are real now: the credit and debit notes are what is still planned)
-    await expect(resultTitles(app).first()).toHaveText('New Debit Note');
-    await expect(palette(app)).toContainText('Phase 7');
+    await goTo(app, 'receipt note'); // (the credit and debit notes are real now: the receipt note is what is still planned)
+    await expect(resultTitles(app).first()).toHaveText('New Receipt Note');
+    await expect(palette(app)).toContainText('Phase 8');
 
     await app.keyboard.press('Enter');
     await expect(palette(app)).toBeHidden();
-    await expect(heading(app)).toHaveText('New Debit Note');
-    await expect(app.getByTestId('planned-screen')).toContainText('Phase 7');
-    expect(new URL(app.url()).hash).toBe('#/planned/voucher.new.debitNote');
+    await expect(heading(app)).toHaveText('New Receipt Note');
+    await expect(app.getByTestId('planned-screen')).toContainText('Phase 8');
+    expect(new URL(app.url()).hash).toBe('#/planned/voucher.new.receiptNote');
 
     await app.keyboard.press('Escape');
     await expect(heading(app)).toHaveText('Gateway');
@@ -263,8 +264,8 @@ test.describe('function keys', () => {
 
 test.describe('addresses', () => {
   test('a deep link opens the screen, with the Gateway beneath it', async ({ app }) => {
-    await app.goto('/#/planned/voucher.new.debitNote');
-    await expect(heading(app)).toHaveText('New Debit Note');
+    await app.goto('/#/planned/voucher.new.receiptNote');
+    await expect(heading(app)).toHaveText('New Receipt Note');
     await app.keyboard.press('Escape');
     await expect(heading(app)).toHaveText('Gateway');
   });

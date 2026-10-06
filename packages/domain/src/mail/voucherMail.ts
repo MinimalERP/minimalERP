@@ -15,6 +15,7 @@ export function mailValues(voucher: Voucher, masters: Masters): Record<(typeof M
     partyId?: string;
     reference?: string;
     billNo?: string;
+    invoiceRef?: string;
     dueDate?: string;
     partyDetails?: { mailingName?: string };
     lines?: { qty?: string; rate?: string; gstRate?: string }[];
@@ -27,7 +28,8 @@ export function mailValues(voucher: Voucher, masters: Masters): Record<(typeof M
     party: c.partyDetails?.mailingName ?? party?.name ?? '',
     amount: formatMoney(grandTotal(priced.map((l) => ({ qty: String(l.qty), rate: String(l.rate), gstRate: l.gstRate })), gstOfContent(c))),
     due: shownDate(c.dueDate),
-    reference: c.reference ?? c.billNo ?? '',
+    // a credit or debit note is about the invoice it is for
+    reference: c.invoiceRef ?? c.reference ?? c.billNo ?? '',
     company: masters.company.name,
   };
 }
@@ -118,12 +120,13 @@ const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;'
 export function voucherMailHtml(voucher: Voucher, masters: Masters, message: string): string {
   const mail = voucherMail(voucher, masters);
   const v = mailValues(voucher, masters);
+  const note = mail?.kind === 'creditNote' || mail?.kind === 'debitNote';
   const priced = mail && mail.kind !== 'salesOrder' && mail.kind !== 'purchaseOrder' && mail.kind !== 'quotation' && mail.kind !== 'deliveryChallan' && mail.kind !== 'returnableChallan';
   return mailFrame(masters, mail?.docName ?? 'Document', [
     ['Number', v.number, true],
     ['Date', v.date, false],
-    [mail?.kind === 'sales' || mail?.kind === 'salesOrder' || mail?.kind === 'deliveryChallan' ? 'Your PO' : 'Reference', v.reference, false],
-    ...(priced ? ([['Amount', `₹ ${v.amount}`, true], ['Due', v.due, false]] as const) : []),
+    [mail?.kind === 'sales' || mail?.kind === 'salesOrder' || mail?.kind === 'deliveryChallan' ? 'Your PO' : note ? 'Against invoice' : 'Reference', v.reference, false],
+    ...(priced ? ([['Amount', `₹ ${v.amount}`, true], ...(note ? [] : ([['Due', v.due, false]] as const))] as const) : []),
   ], message);
 }
 

@@ -7,6 +7,7 @@ import type { LocalDate } from '../dates';
 import type { BillAllocation, PartyDetails } from './drafts';
 import { customerLedgerOf, vendorLedgerOf } from './kinds/documents';
 import { gstOfContent, grandTotal } from './kinds/gstDoc';
+import { noteSettlementOf } from './kinds/notes';
 import type { Voucher } from './voucher';
 
 /**
@@ -136,6 +137,16 @@ export function allocatedLinesOf(voucher: Voucher, masters: Masters): AllocatedL
       const due = typeof p.dueDate === 'string' ? (p.dueDate as LocalDate) : undefined;
       push(vendorLedgerOf(p.partyId as never), 'credit', [{ kind: 'new', ref: p.billNo.trim(), ...(due ? { dueDate: due } : {}), amount: grandTotal(p.lines, gstOfContent(voucher.content)) }]);
     }
+    return out;
+  }
+  // A credit or debit note sits on the other side of the party's ledger from its invoices: the part set against an invoice settles that
+  // invoice's bill, and the rest is a bill of the note's own, named by its number (derived, like a sales invoice's).
+  const note = noteSettlementOf(kind, voucher.content);
+  if (note) {
+    push(note.ledgerId, note.side, [
+      ...(note.against > 0n && note.invoiceRef !== undefined ? [{ kind: 'against' as const, ref: note.invoiceRef, amount: note.against }] : []),
+      ...(note.open > 0n ? [{ kind: 'new' as const, ref: voucher.number, amount: note.open }] : []),
+    ]);
     return out;
   }
   if (c.entries) for (const e of c.entries) push(e.ledgerId, e.side, e.allocations);

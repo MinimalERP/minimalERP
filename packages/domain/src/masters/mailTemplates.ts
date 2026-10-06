@@ -4,7 +4,7 @@
  */
 
 /** The vouchers that are sent to their party by email: the item documents, each naming its customer or supplier. */
-export const MAIL_KINDS = ['sales', 'salesOrder', 'quotation', 'purchase', 'purchaseOrder', 'deliveryChallan', 'returnableChallan'] as const;
+export const MAIL_KINDS = ['sales', 'salesOrder', 'quotation', 'purchase', 'purchaseOrder', 'deliveryChallan', 'returnableChallan', 'creditNote', 'debitNote'] as const;
 export type MailKind = (typeof MAIL_KINDS)[number];
 export const isMailKind = (s: string | undefined): s is MailKind => (MAIL_KINDS as readonly string[]).includes(s ?? '');
 
@@ -26,6 +26,8 @@ export const MAIL_DOC_NAMES: Readonly<Record<MailKind, string>> = {
   purchaseOrder: 'Purchase order',
   deliveryChallan: 'Delivery challan',
   returnableChallan: 'Returnable challan',
+  creditNote: 'Credit note',
+  debitNote: 'Debit note',
 };
 
 export const DEFAULT_MAIL_TEMPLATES: Readonly<Record<MailKind, MailTemplate>> = {
@@ -56,6 +58,14 @@ export const DEFAULT_MAIL_TEMPLATES: Readonly<Record<MailKind, MailTemplate>> = 
   deliveryChallan: {
     subject: 'Delivery challan {number} from {company}',
     body: 'Dear {party},\n\nPlease find attached our delivery challan {number} dated {date} for the goods sent to you.\nYour PO: {reference}\n\nRegards,\n{company}',
+  },
+  creditNote: {
+    subject: 'Credit note {number} from {company}',
+    body: 'Dear {party},\n\nPlease find attached our credit note {number} dated {date} for ₹{amount}.\nAgainst invoice: {reference}\n\nRegards,\n{company}',
+  },
+  debitNote: {
+    subject: 'Debit note {number} from {company}',
+    body: 'Dear {party},\n\nPlease find attached our debit note {number} dated {date} for ₹{amount}.\nAgainst your invoice: {reference}\n\nRegards,\n{company}',
   },
 };
 

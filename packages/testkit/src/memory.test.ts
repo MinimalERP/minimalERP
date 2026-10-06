@@ -23,7 +23,7 @@ import {
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { arbSpec, scenarioFrom } from './arbitraries';
-import { backendContract, gstContract, masterContract, purchaseContract, salesContract, stockContract, voucherDetailsContract } from './contract';
+import { backendContract, gstContract, masterContract, notesContract, purchaseContract, salesContract, stockContract, voucherDetailsContract } from './contract';
 import { mustOk, postOk } from './helpers';
 import { expectedBalances, payment } from './scenarios';
 import { buildMasterWorld, seedForWorld } from './masterWorld';
@@ -36,6 +36,7 @@ stockContract('memory', buildMasterWorld);
 salesContract('memory', buildMasterWorld);
 purchaseContract('memory', buildMasterWorld);
 gstContract('memory', buildMasterWorld);
+notesContract('memory', buildMasterWorld);
 
 describe('pure domain properties (no backend)', () => {
   const w0 = buildDemoWorld();

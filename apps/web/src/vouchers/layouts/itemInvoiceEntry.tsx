@@ -1,5 +1,5 @@
 import type { Frame } from '@minimalerp/command';
-import { type ChallanPurpose, type Masters, type Voucher, billStatusOf, gstr2bPeriodLabel, isMailKind, formatQty, formatRate, isQtyText, money, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type ChallanPurpose, type Masters, type Voucher, billStatusOf, gstr2bPeriodLabel, isMailKind, formatQty, formatRate, isQtyText, money, noteSettlementOf, parseQty, partyLedgerId } from '@minimalerp/domain';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { Only } from '../../shell/Only';
@@ -12,7 +12,7 @@ import { useLeaveGuard } from '../../shell/useLeaveGuard';
 import { Kbd } from '../../ui/Kbd';
 import { defaultDate, resolveTypeId } from '../entryHelpers';
 import { addDays, formatAmount, formatDate, formatQuantity, mailedWhen, parseDateInput } from '../format';
-import { CHALLAN_STATUS, ENTRY_KINDS, type ItemDocKind, type SalesKind, docProfile, invoiceKindOf, isSalesKind } from '../kinds';
+import { CHALLAN_STATUS, ENTRY_KINDS, type ItemDocKind, type SalesKind, docProfile, invoiceKindOf, isSalesKind, noteKindOf } from '../kinds';
 import {
   type Option,
   type OrderOption,
@@ -37,6 +37,8 @@ import {
   orderOfQuotation,
   isBlankSales,
   itemOptions,
+  noteFormFromInvoice,
+  noteInvoiceOptions,
   openOrderLines,
   openOrdersOf,
   orderCallName,
@@ -97,12 +99,13 @@ function fieldsOf(form: SalesForm, kind: ItemDocKind, masters: Masters, gstOn = 
   ];
   if (p.challan && !p.returnable) out.push({ key: 'purpose', kind: 'purpose' });
   if (p.invoice) {
-    if (p.side === 'sales') out.push({ key: 'eway', kind: 'eway' });
+    if (p.side === 'sales' && !p.note) out.push({ key: 'eway', kind: 'eway' });
     out.push({ key: 'sledger', kind: 'sledger' });
-    if (p.side === 'purchase') out.push({ key: 'billno', kind: 'billno' });
-    out.push({ key: 'due', kind: 'due' });
+    // a purchase names the supplier's invoice; a note the invoice it is for — and raises no bill, so it has no due date
+    if (p.side === 'purchase' || p.note) out.push({ key: 'billno', kind: 'billno' });
+    if (!p.note) out.push({ key: 'due', kind: 'due' });
     // asked for from the panel ("Paid from"): a purchase paid on the spot
-    if (p.side === 'purchase' && form.paidOn) out.push({ key: 'paidfrom', kind: 'paidfrom' });
+    if (p.side === 'purchase' && !p.note && form.paidOn) out.push({ key: 'paidfrom', kind: 'paidfrom' });
   }
   form.lines.forEach((l, i) => {
     out.push({ key: `l${i}.item`, kind: 'item', line: i });
@@ -111,7 +114,8 @@ function fieldsOf(form: SalesForm, kind: ItemDocKind, masters: Masters, gstOn = 
     if (p.invoice && !l.oneTime) {
       // a line billed against a challan has no godown: its goods left on the challan
       if (!l.challanId && !isService) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
-      out.push({ key: `l${i}.ord`, kind: 'ord', line: i });
+      // a note is not against an order
+      if (!p.note) out.push({ key: `l${i}.ord`, kind: 'ord', line: i });
     }
     else if (p.challan && !l.oneTime && !isService) out.push({ key: `l${i}.wh`, kind: 'wh', line: i });
     else if (p.order) out.push({ key: `l${i}.ldue`, kind: 'ldue', line: i });
@@ -143,12 +147,20 @@ interface Props {
   readonly fromOrder?: string | undefined;
   /** With `fromOrder`: only these order lines (ticked on the order). */
   readonly fromOrderLines?: readonly string[] | undefined;
+  /** A new credit (debit) note starts with the lines of this posted Sales (Purchase) invoice, named for it. */
+  readonly fromInvoice?: string | undefined;
   /** A new document made from an AI Inbox proposal (ADR-0023): it posts under the proposal's id. */
   readonly fromInbox?: InboxItem | undefined;
   /** A new Purchase invoice for an invoice GSTR-2B has and the books do not. */
   readonly from2b?: PurchasePrefill | undefined;
   /** Fast entry: a save starts the next one instead of closing the window. */
   readonly stay?: boolean | undefined;
+}
+
+/** While a posted Purchase invoice is shown: the scope that makes the panel's "Credit note" read "Debit note". */
+function PurchaseInvoiceShown() {
+  useScope('voucher:purchase-invoice', 'region');
+  return null;
 }
 
 /** While order lines are ticked: the scope that makes the panel's "Invoice pending" read "Invoice selected". */
@@ -164,7 +176,7 @@ function LinesSelected() {
  * header, the entry grid straight under it, narration at the foot, its actions in the panel — and an invoice and its order switch into each
  * other in place (F8 / Shift+F8, F9 / Shift+F9) keeping the party, the reference and the lines. What differs between the four is in `docProfile`.
  */
-export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrder, fromOrderLines, fromQuotation, fromInbox, from2b, stay }: Props) {
+export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrder, fromOrderLines, fromInvoice, fromQuotation, fromInbox, from2b, stay }: Props) {
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books, keymapStore);
   const masters = books.masters;
@@ -190,6 +202,10 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     }
     return order ? invoiceFormFromOrder(order, books.orders, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID(), stock: books.stock, onlyLines: fromOrderLines, ...extra() }) : undefined;
   };
+  const fromInvoiceForm = (): SalesForm | undefined => {
+    const invoice = fromInvoice ? books.voucher(fromInvoice) : undefined;
+    return invoice ? noteFormFromInvoice(invoice, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID(), warehouse: defaultGodown(books) }) : undefined;
+  };
   const inboxForm = (): SalesForm | undefined =>
     fromInbox
       ? salesFormFromProposal(fromInbox, masters, {
@@ -204,9 +220,9 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const startForm = (): SalesForm =>
     voucher
       ? salesFormFromVoucher(voucher, masters, books.orders)
-      : (mode === 'create' && (inboxForm() ?? fromQuotationForm() ?? fromOrderForm() ?? (from2b ? withPurchasePrefill(blankForm(), from2b, masters) : undefined))) || blankForm();
+      : (mode === 'create' && (inboxForm() ?? fromQuotationForm() ?? fromOrderForm() ?? fromInvoiceForm() ?? (from2b ? withPurchasePrefill(blankForm(), from2b, masters) : undefined))) || blankForm();
   /** A proposal is its own starting point: it neither loads nor leaves a half-entered draft (that belongs to the ordinary New voucher). */
-  const drafts = mode === 'create' && !fromInbox && !from2b;
+  const drafts = mode === 'create' && !fromInbox && !from2b && !fromInvoice;
 
   const [form, setFormState] = useFrameState<SalesForm>(frame, 'form', startForm());
   // a proposal opens on the first thing the reading could not settle: the party, else the first line without an item
@@ -278,7 +294,28 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const base = useMemo(() => books.stock.withChange({ remove: [form.id as never] }), [books.stock, form.id]);
   const preview = useMemo(() => previewSales(form, kind, masters, books.stock, books.orders, undefined, books.vouchers), [form, kind, masters, books.stock, books.orders, books.vouchers]);
   // a saved invoice: how much of it has come in (TDS included) and what is still pending — shown only once something has
-  const bill = useMemo(() => (voucher && p.invoice ? billStatusOf(voucher, books.vouchers, masters) : undefined), [voucher, p.invoice, books.vouchers, masters]);
+  const bill = useMemo(() => (voucher && p.invoice && !p.note ? billStatusOf(voucher, books.vouchers, masters) : undefined), [voucher, p.invoice, p.note, books.vouchers, masters]);
+  /**
+   * A note: how much of it is set against the invoice it names, and what stands as a credit of its own (to refund, or set against a later
+   * invoice). A saved note being shown says what it WAS set against when it was saved; one being entered or altered, what it will be.
+   */
+  const noteAgainst = p.note ? ((readOnly && voucher ? noteSettlementOf(kind, voucher.content)?.against : preview.against) ?? money(0n)) : money(0n);
+  const notePart =
+    p.note && preview.grand > 0n ? (
+      <>
+        {noteAgainst > 0n && (
+          <>
+            Set against {form.billNo.trim()} <strong data-testid="note-against">{formatAmount(noteAgainst)}</strong>
+          </>
+        )}
+        {noteAgainst > 0n && preview.grand > noteAgainst && ' · '}
+        {preview.grand > noteAgainst && (
+          <>
+            {p.side === 'sales' ? 'Credit to the customer' : 'Due from the supplier'} <strong data-testid="note-open">{formatAmount(money(preview.grand - noteAgainst))}</strong>
+          </>
+        )}
+      </>
+    ) : undefined;
   const settledPart =
     bill && bill.settled > 0n ? (
       <>
@@ -385,24 +422,29 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     name: orderCallName(o, p.side),
     sub: [p.side === 'sales' ? (o.reference !== '' ? o.number : undefined) : o.reference !== '' ? `supplier ref ${o.reference}` : undefined, `${o.lines} line${o.lines === 1 ? '' : 's'} pending`, `due ${shownDue(o.due)}`].filter(Boolean).join(' · '),
   })), ...challanRefOptions];
+  // A note's "Against inv." offers the party's invoices of its side; what is typed and is not one of them is just the reference it cites.
+  const noteInvoices: Option[] = useMemo(
+    () => (p.note && !readOnly ? noteInvoiceOptions(kind, form.partyId, masters, books.vouchers, formatAmount) : []),
+    [p.note, readOnly, kind, form.partyId, masters, books.vouchers],
+  );
   // a one-time line's item cell is plain text: no item list
   const writtenHere = current.kind === 'item' && current.line !== undefined && form.lines[current.line]?.oneTime === true;
   const pickerKind = writtenHere
     ? undefined
-    : ((['party', 'sledger', 'paidfrom', 'item', 'wh', 'ord', 'purpose'] as const).find((k) => k === current.kind) ?? (current.kind === 'ref' && refOptions.length > 0 ? ('ref' as const) : undefined));
+    : ((['party', 'sledger', 'paidfrom', 'item', 'wh', 'ord', 'purpose'] as const).find((k) => k === current.kind) ?? (current.kind === 'ref' && refOptions.length > 0 ? ('ref' as const) : current.kind === 'billno' && noteInvoices.length > 0 ? ('billno' as const) : undefined));
   const options: readonly Option[] =
-    pickerKind === 'purpose' ? PURPOSE_OPTIONS : pickerKind === 'party' ? parties : pickerKind === 'sledger' ? salesLedgers : pickerKind === 'paidfrom' ? paidFrom : pickerKind === 'item' ? items : pickerKind === 'wh' ? godowns : pickerKind === 'ord' ? [...orderOptions, ...challanOptions] : pickerKind === 'ref' ? refOptions : [];
+    pickerKind === 'purpose' ? PURPOSE_OPTIONS : pickerKind === 'party' ? parties : pickerKind === 'sledger' ? salesLedgers : pickerKind === 'paidfrom' ? paidFrom : pickerKind === 'item' ? items : pickerKind === 'wh' ? godowns : pickerKind === 'ord' ? [...orderOptions, ...challanOptions] : pickerKind === 'ref' ? refOptions : pickerKind === 'billno' ? noteInvoices : [];
   const pickerOn = !readOnly && pickerKind !== undefined;
   const typedLabel =
-    pickerKind === 'purpose' ? purposeText : pickerKind === 'party' ? form.partyLabel : pickerKind === 'sledger' ? form.salesLedgerLabel : pickerKind === 'paidfrom' ? (form.paidFromLabel ?? '') : pickerKind === 'item' ? (line?.itemLabel ?? '') : pickerKind === 'wh' ? (line?.warehouseLabel ?? '') : pickerKind === 'ord' ? (line?.orderLabel ?? '') : pickerKind === 'ref' ? form.reference : '';
+    pickerKind === 'purpose' ? purposeText : pickerKind === 'party' ? form.partyLabel : pickerKind === 'sledger' ? form.salesLedgerLabel : pickerKind === 'paidfrom' ? (form.paidFromLabel ?? '') : pickerKind === 'item' ? (line?.itemLabel ?? '') : pickerKind === 'wh' ? (line?.warehouseLabel ?? '') : pickerKind === 'ord' ? (line?.orderLabel ?? '') : pickerKind === 'ref' ? form.reference : pickerKind === 'billno' ? form.billNo : '';
   const storedId =
-    pickerKind === 'purpose' ? (form.purpose ?? 'sale') : pickerKind === 'party' ? form.partyId : pickerKind === 'sledger' ? form.salesLedgerId : pickerKind === 'paidfrom' ? (form.paidFromId ?? '') : pickerKind === 'item' ? (line?.itemId ?? '') : pickerKind === 'wh' ? (line?.warehouseId ?? '') : pickerKind === 'ord' ? (line && line.orderId !== '' ? orderId({ orderId: line.orderId, lineId: line.orderLineId }) : line?.challanId ? `dc:${line.challanId}|${line.challanLineId}` : '') : pickerKind === 'ref' ? (refOptions.find((o) => o.name === form.reference)?.id ?? '') : '';
+    pickerKind === 'purpose' ? (form.purpose ?? 'sale') : pickerKind === 'party' ? form.partyId : pickerKind === 'sledger' ? form.salesLedgerId : pickerKind === 'paidfrom' ? (form.paidFromId ?? '') : pickerKind === 'item' ? (line?.itemId ?? '') : pickerKind === 'wh' ? (line?.warehouseId ?? '') : pickerKind === 'ord' ? (line && line.orderId !== '' ? orderId({ orderId: line.orderId, lineId: line.orderLineId }) : line?.challanId ? `dc:${line.challanId}|${line.challanLineId}` : '') : pickerKind === 'ref' ? (refOptions.find((o) => o.name === form.reference)?.id ?? '') : pickerKind === 'billno' ? (noteInvoices.find((o) => o.name === form.billNo.trim())?.id ?? '') : '';
   const storedName = pickerKind === 'ord' ? (line && (line.orderId !== '' || line.challanId) ? line.orderLabel : '') : (options.find((o) => o.id === storedId)?.name ?? '');
   const pickerDismissed = picker.dismissed;
   // A list opens when something is TYPED and offers only what matches; an empty (or already chosen) field shows no list. The two order pickers are
   // the exception: what they list is the party's own open orders — the way an order is chosen at all.
   const hits: Option[] = useMemo(
-    () => (pickerOn ? matchOptions(options, typedLabel, storedName, pickerKind === 'ord' || pickerKind === 'ref' || pickerKind === 'purpose') : []),
+    () => (pickerOn ? matchOptions(options, typedLabel, storedName, pickerKind === 'ord' || pickerKind === 'ref' || pickerKind === 'billno' || pickerKind === 'purpose') : []),
     [pickerOn, pickerKind, options.length, current.key, typedLabel, storedName, form.partyId, line?.itemId],
   );
   const pickIndex = Math.min(picker.pick.index, Math.max(0, hits.length - 1));
@@ -496,6 +538,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       });
       return;
     }
+    if (f.kind === 'billno') {
+      update((x) => ({ ...x, billNo: o.name }));
+      clearError('billno');
+      return;
+    }
     if (f.kind === 'purpose') {
       update((x) => ({ ...x, purpose: o.id as ChallanPurpose }));
       setPurposeTyped(undefined);
@@ -519,8 +566,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       // an order reference is only good for the item it was for
       const stillFits = l.orderId !== '' && books.orders.order(l.orderId as never)?.lines.find((x) => x.id === l.orderLineId)?.itemId === o.id;
       // an invoice line starts in the godown that holds the goods; a service item has no godown
-      const w = !isService && p.side === 'sales' && p.moves ? godownFor(o.id, parseQty(l.qty.trim()) ?? 1n) : undefined;
-      const here = l.warehouseId !== '' && (p.side === 'purchase' || base.qtyAt(o.id as never, l.warehouseId as never, fresh().date as never) >= (parseQty(l.qty.trim()) ?? 1n));
+      const w = !isService && p.goodsOut && p.moves ? godownFor(o.id, parseQty(l.qty.trim()) ?? 1n) : undefined;
+      const here = l.warehouseId !== '' && (!p.goodsOut || base.qtyAt(o.id as never, l.warehouseId as never, fresh().date as never) >= (parseQty(l.qty.trim()) ?? 1n));
       // a challan reference is only good for the item it went out as
       const challanFits = !isService && !!l.challanId && books.orders.challans.challan(l.challanId as never)?.lines.find((x) => x.id === l.challanLineId)?.itemId === o.id;
       setLine(f.line, {
@@ -645,7 +692,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         choose(choice);
         return true;
       }
-      if (pickerKind === 'ref') return true; // a PO that is not one of our orders' is just the party's reference
+      if (pickerKind === 'ref' || pickerKind === 'billno') return true; // a PO that is not one of our orders' is just the party's reference; an invoice number not in the books is just cited
       const errKey = current.line === undefined ? current.key : `line.${current.line}.${current.kind}`;
       setFieldErrors((e) => ({
         ...e,
@@ -808,7 +855,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     go(`l${Math.max(0, i - 1)}.item`);
   };
   const againstOrder = (): boolean => {
-    if (readOnly || !p.invoice) return false;
+    if (readOnly || !p.invoice || p.note) return false;
     if (fresh().partyId === '') {
       setBanner({ text: `Choose the ${p.noun} first: an invoice is made against that ${p.noun}’s orders.`, tone: 'note' });
       go('party');
@@ -818,7 +865,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     return true;
   };
   const createInline = (): boolean => {
-    if (readOnly || !pickerOn || pickerKind === undefined || pickerKind === 'ord' || pickerKind === 'ref' || pickerKind === 'purpose' || pickerKind === 'paidfrom') return false;
+    if (readOnly || !pickerOn || pickerKind === undefined || pickerKind === 'ord' || pickerKind === 'ref' || pickerKind === 'billno' || pickerKind === 'purpose' || pickerKind === 'paidfrom') return false;
     const f = current;
     const masterKind = pickerKind === 'party' ? 'party' : pickerKind === 'sledger' ? 'ledger' : pickerKind === 'item' ? 'stockItem' : 'warehouse';
     void app
@@ -878,7 +925,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   useCommandHandler(SCOPE, 'voucher.switch.purchase', () => switchOrOpen('purchase'));
   useCommandHandler(SCOPE, 'voucher.switch.purchaseOrder', () => switchOrOpen('purchaseOrder'));
   // F6 on a Sales invoice (F5 on a Purchase bill) still to be paid: the Receipt (Payment) that settles it, filled in
-  const settles = kind === 'sales' ? 'receipt' : kind === 'purchase' ? 'payment' : undefined;
+  // — and on a note with a credit of its own still open, the refund: a Payment to the customer (F5), a Receipt from the supplier (F6)
+  const settles = kind === 'sales' || kind === 'debitNote' ? 'receipt' : kind === 'purchase' || kind === 'creditNote' ? 'payment' : undefined;
   // a Sales invoice still unpaid: “Payment reminder” on the panel emails the customer a reminder with the invoice and its payment status
   const reminder = useMemo(() => (mode === 'display' && voucher ? billReminder(voucher, books, print) : undefined), [mode, voucher, books.vouchers]);
   useOtherVoucherHandlers(SCOPE, ENTRY_KINDS, () => mode === 'create' && isBlankSales(fresh()), (target) =>
@@ -904,7 +952,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     if (mode !== 'display') {
       const previous = current.kind === 'date' ? fields[1]?.key : prevKey() === 'date' ? undefined : prevKey();
       if (previous !== undefined) {
-        if (pickerOn && pickerKind !== 'ref' && typedLabel.trim() !== storedName) {
+        if (pickerOn && pickerKind !== 'ref' && pickerKind !== 'billno' && typedLabel.trim() !== storedName) {
           if (pickerKind === 'purpose') setPurposeTyped(undefined);
           else if (pickerKind === 'party') update((x) => ({ ...x, partyLabel: storedName }));
           else if (pickerKind === 'sledger') update((x) => ({ ...x, salesLedgerLabel: storedName }));
@@ -999,7 +1047,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const host: CellHost = { readOnly, isFocus, go, cls };
   const numberText = voucher ? voucher.number : 'assigned on save';
   const nextNumber = useNextNumber(books, form.typeId, form.date, mode === 'create');
-  const shortName = p.invoice ? `${type?.name ?? cap(p.side)} Voucher` : (type?.name ?? `${cap(p.side)} Order`);
+  const shortName = p.note ? (type?.name ?? 'Note') : p.invoice ? `${type?.name ?? cap(p.side)} Voucher` : (type?.name ?? `${cap(p.side)} Order`);
   const title = mode === 'create' ? `New ${shortName}` : `${mode === 'alter' ? 'Alter' : 'Display'} ${type?.name ?? ''} ${voucher?.number ?? ''}`;
   const cancelled = voucher?.status === 'cancelled';
   // a saved document that is emailed to its party says when it last was (from the audit line the server wrote when it sent it)
@@ -1039,11 +1087,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         show={show}
         hits={hits}
         index={pickIndex}
-        label={pickerKind === 'purpose' ? 'Purpose' : pickerKind === 'party' ? p.nounPlural : pickerKind === 'sledger' ? `${p.ledgerLabel}s` : pickerKind === 'paidfrom' ? 'Cash and bank ledgers' : pickerKind === 'item' ? 'Stock items' : pickerKind === 'wh' ? 'Godowns' : pickerKind === 'ref' ? (challanRefOptions.length > 0 ? 'Open orders and challans' : 'Open orders') : challanOptions.length > 0 ? 'Open order and challan lines' : 'Open order lines'}
+        label={pickerKind === 'purpose' ? 'Purpose' : pickerKind === 'party' ? p.nounPlural : pickerKind === 'sledger' ? `${p.ledgerLabel}s` : pickerKind === 'paidfrom' ? 'Cash and bank ledgers' : pickerKind === 'item' ? 'Stock items' : pickerKind === 'wh' ? 'Godowns' : pickerKind === 'billno' ? `Invoices of this ${p.noun}` : pickerKind === 'ref' ? (challanRefOptions.length > 0 ? 'Open orders and challans' : 'Open orders') : challanOptions.length > 0 ? 'Open order and challan lines' : 'Open order lines'}
         onChoose={(o) => choose(o)}
         typed={typedLabel}
         storedName={storedName}
-        canCreate={pickerKind !== 'ord' && pickerKind !== 'ref' && pickerKind !== 'purpose' && pickerKind !== 'paidfrom'}
+        canCreate={pickerKind !== 'ord' && pickerKind !== 'ref' && pickerKind !== 'billno' && pickerKind !== 'purpose' && pickerKind !== 'paidfrom'}
         meta={(o) => pickerKind === 'item' && <span class="row-meta amt">{stockOf(o.id)}</span>}
         hint={
           <>
@@ -1133,7 +1181,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         {p.invoice && l.oneTime ? (
           <>
             <div class="vc-godown vcell-none" aria-hidden="true">—</div>
-            <div class="vc-order vcell-none" aria-hidden="true">—</div>
+            <div class="vc-order vcell-none" aria-hidden="true">{p.note ? '' : '—'}</div>
           </>
         ) : p.invoice ? (
           <>
@@ -1146,20 +1194,24 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             ) : (
               <div class="vc-godown">{pickerInput(`l${i}.wh`, `Line ${i + 1} godown`, l.warehouseLabel, (v) => setLine(i, { warehouseLabel: v }), `line.${i}.wh`)}</div>
             )}
-            <div class="vc-order">
-              {pickerInput(`l${i}.ord`, `Line ${i + 1} against order`, l.orderLabel, (v) => setLine(i, { orderLabel: v }), `line.${i}.ord`)}
-              {billedLine && !isFocus(`l${i}.ord`) && (
-                <div class="vbal" data-testid="challan-note">
-                  delivery challan · {formatQuantity(billedLine.pending, 0)} of {formatQuantity(billedLine.sent, 0)} to invoice
-                </div>
-              )}
-              {linked && !isFocus(`l${i}.ord`) && (
-                <div class="vbal" data-testid="order-note">
-                  {books.orders.order(l.orderId as never)?.reference ? `${books.orders.order(l.orderId as never)?.reference} · ` : ''}
-                  {formatQuantity(linked.pending, 0)} of {formatQuantity(linked.ordered, 0)} pending
-                </div>
-              )}
-            </div>
+            {p.note ? (
+              <div class="vc-order vcell-none" aria-hidden="true" title="A note is not against an order" />
+            ) : (
+              <div class="vc-order">
+                {pickerInput(`l${i}.ord`, `Line ${i + 1} against order`, l.orderLabel, (v) => setLine(i, { orderLabel: v }), `line.${i}.ord`)}
+                {billedLine && !isFocus(`l${i}.ord`) && (
+                  <div class="vbal" data-testid="challan-note">
+                    delivery challan · {formatQuantity(billedLine.pending, 0)} of {formatQuantity(billedLine.sent, 0)} to invoice
+                  </div>
+                )}
+                {linked && !isFocus(`l${i}.ord`) && (
+                  <div class="vbal" data-testid="order-note">
+                    {books.orders.order(l.orderId as never)?.reference ? `${books.orders.order(l.orderId as never)?.reference} · ` : ''}
+                    {formatQuantity(linked.pending, 0)} of {formatQuantity(linked.ordered, 0)} pending
+                  </div>
+                )}
+              </div>
+            )}
           </>
         ) : p.challan ? (
           l.oneTime || isService ? (
@@ -1268,15 +1320,24 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     return true;
   };
 
+  /** A new credit note for this Sales invoice (a debit note for this Purchase): its lines, named for it — take off what did not come back. */
+  const noteForInvoice = (): boolean => {
+    if (!voucher) return false;
+    app.navigate({ type: 'voucher', mode: 'create', typeKey: noteKindOf(p.side), fromInvoice: voucher.id });
+    return true;
+  };
+
   const modeHandlers = (
     <>
       {!readOnly && <Only scope={SCOPE} command="voucher.changeDate" run={changeDate} />}
       {(!readOnly || confirm !== undefined) && <Only scope={SCOPE} command="voucher.accept" run={acceptKey} />}
       {!readOnly && mode === 'create' && <Only scope={SCOPE} command="voucher.acceptAndNew" run={acceptAndNew} />}
-      {pickerOn && pickerKind !== 'ord' && pickerKind !== 'ref' && pickerKind !== 'purpose' && pickerKind !== 'paidfrom' && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
+      {pickerOn && pickerKind !== 'ord' && pickerKind !== 'ref' && pickerKind !== 'billno' && pickerKind !== 'purpose' && pickerKind !== 'paidfrom' && <Only scope={SCOPE} command="master.createInline" run={createInline} />}
       {!readOnly && mode === 'create' && kind === 'purchase' && <Only scope={SCOPE} command="voucher.paidFrom" run={askPaidFrom} />}
       {!readOnly && <Only scope={SCOPE} command="voucher.partyDetails" run={openPartyDetails} />}
-      {!readOnly && p.invoice && <Only scope={SCOPE} command="voucher.againstOrder" run={againstOrder} />}
+      {!readOnly && p.invoice && !p.note && <Only scope={SCOPE} command="voucher.againstOrder" run={againstOrder} />}
+      {mode !== 'create' && voucher?.status === 'posted' && p.invoice && !p.note && <Only scope={SCOPE} command="invoice.note" run={noteForInvoice} />}
+      {mode !== 'create' && voucher?.status === 'posted' && p.invoice && !p.note && p.side === 'purchase' && <PurchaseInvoiceShown />}
       {!readOnly && oneTimeHere && current.kind === 'item' && oneTimeFor === undefined && <Only scope={SCOPE} command="voucher.oneTimeLine" run={openOneTime} />}
       {oneTimeFor !== undefined && (
         <FieldsDialog
@@ -1520,7 +1581,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             </div>
           </>
         )}
-        {p.side === 'sales' && p.invoice && (
+        {p.side === 'sales' && p.invoice && !p.note && (
           <>
             <label class="vlabel" for="v-eway">
               E-way Bill No.
@@ -1545,45 +1606,55 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             <div class={isFocus('sledger') ? 'vfield active' : 'vfield'}>
               {pickerInput('sledger', p.ledgerLabel, form.salesLedgerLabel, (v) => update((f) => ({ ...f, salesLedgerLabel: v })), 'sledger')}
             </div>
-            {p.side === 'purchase' && (
+            {(p.side === 'purchase' || p.note) && (
               <>
                 <label class="vlabel" for="v-billno">
-                  Supplier inv no.
+                  {p.note ? 'Against inv.' : 'Supplier inv no.'}
                 </label>
                 <div class={isFocus('billno') ? 'vfield active' : 'vfield'}>
-                  <Cell
-                    host={host}
-                    field="billno"
-                    id="v-billno"
-                    label="Supplier invoice number"
-                    value={form.billNo}
-                    onInput={(text) => {
-                      update((f) => ({ ...f, billNo: text }));
-                      clearError('billno');
-                    }}
-                  />
-                  {errorOf('billno')}
+                  {p.note && noteInvoices.length > 0 ? (
+                    pickerInput('billno', p.side === 'sales' ? 'The invoice this credit note is for' : 'The supplier invoice this debit note is for', form.billNo, (v) => update((f) => ({ ...f, billNo: v })), 'billno')
+                  ) : (
+                    <>
+                      <Cell
+                        host={host}
+                        field="billno"
+                        id="v-billno"
+                        label={p.note ? (p.side === 'sales' ? 'The invoice this credit note is for' : 'The supplier invoice this debit note is for') : 'Supplier invoice number'}
+                        value={form.billNo}
+                        onInput={(text) => {
+                          update((f) => ({ ...f, billNo: text }));
+                          clearError('billno');
+                        }}
+                      />
+                      {errorOf('billno')}
+                    </>
+                  )}
                 </div>
               </>
             )}
-            <label class="vlabel" for="v-due">
-              {p.billDue}
-            </label>
-            <div class={isFocus('due') ? 'vfield active' : 'vfield'}>
-              <Cell
-                host={host}
-                field="due"
-                id="v-due"
-                label="Bill due date"
-                value={form.dueText}
-                onInput={(text) => {
-                  update((f) => ({ ...f, dueText: text }));
-                  clearError('due');
-                }}
-              />
-              {errorOf('due')}
-            </div>
-            {p.side === 'purchase' && form.paidOn && (
+            {!p.note && (
+              <>
+                <label class="vlabel" for="v-due">
+                  {p.billDue}
+                </label>
+                <div class={isFocus('due') ? 'vfield active' : 'vfield'}>
+                  <Cell
+                    host={host}
+                    field="due"
+                    id="v-due"
+                    label="Bill due date"
+                    value={form.dueText}
+                    onInput={(text) => {
+                      update((f) => ({ ...f, dueText: text }));
+                      clearError('due');
+                    }}
+                  />
+                  {errorOf('due')}
+                </div>
+              </>
+            )}
+            {p.side === 'purchase' && !p.note && form.paidOn && (
               <>
                 <label class="vlabel" for="v-paidfrom">
                   Paid from
@@ -1602,8 +1673,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           <span class="vc-ledger">Particulars</span>
           {p.invoice ? (
             <>
-              <span class="vc-godown">{p.side === 'purchase' ? 'Receive into' : 'Godown'}</span>
-              <span class="vc-order">{p.side === 'sales' ? 'Against order / DC' : 'Against order'}</span>
+              <span class="vc-godown">{p.note ? (p.goodsOut ? 'Send back from' : 'Return into') : p.side === 'purchase' ? 'Receive into' : 'Godown'}</span>
+              <span class="vc-order">{p.note ? '' : p.side === 'sales' ? 'Against order / DC' : 'Against order'}</span>
             </>
           ) : p.challan ? (
             <span class="vc-godown">Godown</span>
@@ -1659,20 +1730,21 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
               {' · '}place of supply {preview.gst.placeOfSupply}
             </>
           ) : (
-            <> · no GST on this {p.challan ? 'challan' : 'invoice'}</>
+            <> · no GST on this {p.challan ? 'challan' : p.note ? 'note' : 'invoice'}</>
           )}
           {preview.roundOff !== 0n && (
             <>
               {' · '}Round Off <strong data-testid="round-off">{preview.roundOff < 0n ? '(-) ' : ''}{formatAmount(preview.roundOff < 0n ? money(-preview.roundOff) : preview.roundOff)}</strong>
             </>
           )}
-          {' · '}{p.challan ? 'Challan value' : 'Invoice total'} <strong data-testid="invoice-total">{formatAmount(preview.grand)}</strong>
+          {' · '}{p.challan ? 'Challan value' : p.note ? 'Note total' : 'Invoice total'} <strong data-testid="invoice-total">{formatAmount(preview.grand)}</strong>
           {settledPart && <> · {settledPart}</>}
+          {notePart && <> · {notePart}</>}
         </p>
       )}
-      {!gstOn && settledPart && (
+      {!gstOn && (settledPart || notePart) && (
         <p class="gst-summary" data-testid="bill-status">
-          {settledPart}
+          {settledPart ?? notePart}
         </p>
       )}
 

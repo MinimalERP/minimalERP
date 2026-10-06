@@ -165,6 +165,22 @@ export class StockBook {
     return last;
   }
 
+  /**
+   * What `q` of the item is worth at the book's own cost on `date`: its share of the running value, at the average the item stands at after
+   * everything dated on or before that day — or, when none is left to average, at the cost the last of it went out at. Zero for an item the
+   * book has never held. (What goods coming BACK from a customer are brought in at: their return must not move the average cost.)
+   */
+  costOf(itemId: StockItemId, date: LocalDate, q: Qty): Money {
+    let value = 0n;
+    let over = 0n;
+    for (const s of this.steps(itemId)) {
+      if (s.movement.date > date) break;
+      if (s.after.qty > 0n) [value, over] = [s.after.value, s.after.qty];
+      else if (s.movement.direction === 'out' && s.movement.qty > 0n) [value, over] = [s.value, s.movement.qty];
+    }
+    return money(over <= 0n ? 0n : roundDiv(value * q, over));
+  }
+
   /** The quantity in one godown after everything dated on or before `date`. */
   qtyAt(itemId: StockItemId, warehouseId: WarehouseId, date: LocalDate): Qty {
     let last = 0n;

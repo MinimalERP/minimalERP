@@ -41,7 +41,7 @@ export function summariseNames(names: readonly string[]): string {
 function particularsOf(voucher: Voucher, journal: readonly JournalLine[], masters: Masters): string[] {
   // A sales or purchase invoice or order is about its party (the invoice's ledgers are the party's and the sales / purchase account).
   const base = masters.voucherType(voucher.voucherTypeId)?.baseKind;
-  if (base === 'sales' || base === 'salesOrder' || base === 'quotation' || base === 'purchase' || base === 'purchaseOrder' || base === 'deliveryChallan' || base === 'returnableChallan') {
+  if (base === 'sales' || base === 'salesOrder' || base === 'quotation' || base === 'purchase' || base === 'purchaseOrder' || base === 'deliveryChallan' || base === 'returnableChallan' || base === 'creditNote' || base === 'debitNote') {
     const partyId = (voucher.content as unknown as { partyId?: string }).partyId;
     const name = partyId === undefined ? undefined : masters.party(partyId as never)?.name;
     return name === undefined ? [] : [name];

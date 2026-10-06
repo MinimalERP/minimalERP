@@ -83,7 +83,9 @@ describe('migrations', () => {
     // The Delivery Challan adds three for owner, accountant and member, and clerk post: owner 46, accountant 45, member 45, clerk 13.
     // The Returnable Challan the same again: owner 49, accountant 48, member 48, clerk 14.
     // Tasks on the Gateway add task.write for owner, accountant, member and clerk: owner 50, accountant 49, member 49, clerk 15.
+    // The Credit Note and the Debit Note (ADR-0026) add three each for owner, accountant and member, and clerk post: owner 56, accountant 55,
+    // member 55, clerk 17.
     // ADR-0025's member holds everything the owner does except company.admin.
-    expect(byRole).toEqual({ accountant: 49, automation: 4, clerk: 15, member: 49, owner: 50, viewer: 3 });
+    expect(byRole).toEqual({ accountant: 55, automation: 4, clerk: 17, member: 55, owner: 56, viewer: 3 });
   });
 });

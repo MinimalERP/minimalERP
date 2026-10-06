@@ -6,6 +6,7 @@ import { purchaseKind } from './kinds/purchase';
 import { purchaseOrderKind } from './kinds/purchaseOrder';
 import { deliveryChallanKind } from './kinds/deliveryChallan';
 import { returnableChallanKind } from './kinds/returnableChallan';
+import { creditNoteKind, debitNoteKind } from './kinds/notes';
 import { salesKind } from './kinds/sales';
 import { quotationKind } from './kinds/quotation';
 import { salesOrderKind } from './kinds/salesOrder';
@@ -34,7 +35,7 @@ export class VoucherKindRegistry {
   }
 }
 
-/** The kinds implemented so far. Each later phase registers its own (purchase, notes, quotations…). */
+/** The kinds implemented so far. */
 export function defaultVoucherKinds(): VoucherKindRegistry {
   return new VoucherKindRegistry()
     .register(contraKind)
@@ -50,5 +51,7 @@ export function defaultVoucherKinds(): VoucherKindRegistry {
     .register(purchaseOrderKind)
     .register(purchaseKind)
     .register(deliveryChallanKind)
-    .register(returnableChallanKind);
+    .register(returnableChallanKind)
+    .register(creditNoteKind)
+    .register(debitNoteKind);
 }

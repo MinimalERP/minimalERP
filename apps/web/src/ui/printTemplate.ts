@@ -12,7 +12,7 @@ import { amountInWords } from './words';
 
 /** The documents a company may lay out itself, and the voucher kinds each can be narrowed to. */
 export const LAYOUT_SHAPES = {
-  invoice: { name: 'Invoices and orders', kinds: { sales: 'Sales Invoice', salesOrder: 'Sales Order', quotation: 'Quotation', purchase: 'Purchase Invoice', purchaseOrder: 'Purchase Order', deliveryChallan: 'Delivery Challan', returnableChallan: 'Returnable Challan' } },
+  invoice: { name: 'Invoices and orders', kinds: { sales: 'Sales Invoice', salesOrder: 'Sales Order', quotation: 'Quotation', purchase: 'Purchase Invoice', purchaseOrder: 'Purchase Order', deliveryChallan: 'Delivery Challan', returnableChallan: 'Returnable Challan', creditNote: 'Credit Note', debitNote: 'Debit Note' } },
   ledger: { name: 'Payment, Receipt, Contra, Journal', kinds: { payment: 'Payment', receipt: 'Receipt', contra: 'Contra', journal: 'Journal' } },
 } as const;
 export type LayoutShape = keyof typeof LAYOUT_SHAPES;

@@ -3,6 +3,7 @@ import {
   IssueCode,
   type Masters,
   OrderBook,
+  billStatusOf,
   orderBookOf,
   StockBook,
   type Voucher,
@@ -35,6 +36,9 @@ import {
   returnDraftOf,
   isBlankSales,
   itemOptions,
+  noteAgainst,
+  noteFormFromInvoice,
+  noteInvoiceOptions,
   openOrderLines,
   openOrdersOf,
   orderCallName,
@@ -621,5 +625,91 @@ describe('a service item on an invoice', () => {
     const preview = previewSales(form, 'deliveryChallan', c.m, StockBook.empty, new OrderBook([], []));
     expect(preview.issues).toEqual([]);
     expect(preview.draft).not.toHaveProperty('lines.0.warehouseId');
+  });
+});
+
+describe('credit and debit notes', () => {
+  /** A posted demo sales invoice of this customer, and its own bill. */
+  const invoiceOf = (books: Books, customer: string) =>
+    books.vouchers.find((v) => v.status === 'posted' && books.masters.voucherType(v.voucherTypeId)?.baseKind === 'sales' && (v.content as { partyId?: string }).partyId === party(customer)) as Voucher;
+
+  it('a credit note made from an invoice brings its party, ledger and lines, names it, and is set against what the invoice still has open', async () => {
+    const books = await demo();
+    const invoice = invoiceOf(books, 'ABC Industries');
+    const open = billStatusOf(invoice, books.vouchers, books.masters)!;
+    expect(open.pending).toBeGreaterThan(0n);
+    const form = noteFormFromInvoice(invoice, books.masters, { id: 'cn-1', typeId: typeOf(books, 'creditNote'), date: '2000-01-01', newKey: () => crypto.randomUUID(), warehouse: godown(books) })!;
+    expect(salesKindOf(books.masters, form.typeId)).toBe('creditNote');
+    expect(form.date).toBe(invoice.date); // never dated before the invoice it takes back
+    expect(form.billNo).toBe(invoice.number);
+    expect(form.partyId).toBe(party('ABC Industries'));
+    const sold = salesFormFromVoucher(invoice, books.masters, books.orders);
+    expect(form.lines.map((l) => [l.itemId, l.qty, l.rate])).toEqual(sold.lines.map((l) => [l.itemId, l.qty, l.rate]));
+    expect(form.lines.every((l) => l.orderId === '' && l.warehouseId !== '')).toBe(true); // a note is not against the order; every line has a godown to come back to
+
+    // the whole invoice taken back: set against it for what it has open, no more
+    const whole = previewSales(form, 'creditNote', books.masters, books.stock, books.orders, undefined, books.vouchers);
+    expect(whole.issues).toEqual([]);
+    expect(whole.against).toBe(open.pending < whole.grand ? open.pending : whole.grand);
+    expect(whole.draft).toMatchObject({ invoiceRef: invoice.number, salesLedgerId: sold.salesLedgerId });
+    expect(whole.draft['dueDate']).toBeUndefined();
+
+    const posted = await books.post(whole.draft);
+    if (!posted.ok) throw new Error(JSON.stringify(posted.issues));
+    expect(posted.value.voucher.number).toMatch(/^CN\//);
+    const after = billStatusOf(invoice, books.vouchers, books.masters)!;
+    expect(after.pending).toBe(open.pending - (whole.against as bigint));
+    // read back for display, it is the form that made it; altering it counts its own share as open again
+    const shown = salesFormFromVoucher(posted.value.voucher, books.masters, books.orders);
+    expect(shown.billNo).toBe(invoice.number);
+    expect(noteAgainst('creditNote', shown, whole.grand, books.masters, books.vouchers)).toBe(whole.against);
+  });
+
+  it('a note that names no invoice, or one that is not an open bill of this party, stands whole as a credit of its own', async () => {
+    const books = await demo();
+    const invoice = invoiceOf(books, 'ABC Industries');
+    const form = noteFormFromInvoice(invoice, books.masters, { id: 'cn-2', typeId: typeOf(books, 'creditNote'), date: invoice.date, newKey: () => crypto.randomUUID(), warehouse: godown(books) })!;
+    const preview = (f: SalesForm) => previewSales(f, 'creditNote', books.masters, books.stock, books.orders, undefined, books.vouchers);
+    expect(preview({ ...form, billNo: '' }).against).toBeUndefined();
+    expect(preview({ ...form, billNo: '' }).draft['invoiceRef']).toBeUndefined();
+    const cited = preview({ ...form, billNo: 'OLD/2019/77' });
+    expect(cited.issues).toEqual([]);
+    expect(cited.against).toBeUndefined();
+    expect(cited.draft).toMatchObject({ invoiceRef: 'OLD/2019/77' });
+    expect(cited.draft['against']).toBeUndefined();
+  });
+
+  it('a debit note is the purchase side’s: the supplier, a purchase ledger, the supplier’s bill number — and no supplier invoice number of its own to demand', async () => {
+    const books = await demo();
+    const steel = books.masters.party(party('Steel Supplies Pvt Ltd') as never)!;
+    const main = books.masters.warehouses.find((w) => w.name === 'Main Location')!;
+    const blank = blankSalesForm('dn-1', typeOf(books, 'debitNote'), '2026-05-10', 'k1', { warehouse: { id: main.id, label: main.name }, salesLedger: defaultSalesLedger(books.masters, 'purchase') });
+    const form: SalesForm = {
+      ...blank,
+      partyId: steel.id,
+      partyLabel: steel.name,
+      partyDetails: partyDetailsOfParty(steel),
+      lines: [{ ...blankSalesLine('k1', { id: main.id, label: main.name }), itemId: item('Machine Oil'), itemLabel: 'Machine Oil', qty: '5', rate: '200' }],
+    };
+    const preview = previewSales(form, 'debitNote', books.masters, books.stock, books.orders, undefined, books.vouchers);
+    expect(preview.issues).toEqual([]); // no "Enter the supplier’s invoice number", no due date
+    expect(preview.draft).toMatchObject({ purchaseLedgerId: form.salesLedgerId });
+    expect(preview.draft['billNo']).toBeUndefined();
+    // the bill the demo brings forward for this supplier is open: named, the note is set against it
+    const against = previewSales({ ...form, billNo: 'PO-2210' }, 'debitNote', books.masters, books.stock, books.orders, undefined, books.vouchers);
+    expect(against.against).toBe(against.grand);
+    // more than the godown holds cannot go back
+    const tooMany = previewSales({ ...form, lines: [{ ...form.lines[0]!, qty: '5000' }] }, 'debitNote', books.masters, books.stock, books.orders, undefined, books.vouchers);
+    expect(tooMany.issues.map((i) => [i.field, i.code])).toEqual([['line.0.qty', IssueCode.StockNegative]]);
+  });
+
+  it('the party’s invoices are offered for a note, newest first, each with what is still open on it', async () => {
+    const books = await demo();
+    const invoice = invoiceOf(books, 'ABC Industries');
+    const options = noteInvoiceOptions('creditNote', party('ABC Industries'), books.masters, books.vouchers, (m) => String(m));
+    expect(options.map((o) => o.name)).toContain(invoice.number);
+    expect(options.find((o) => o.name === invoice.number)?.sub).toMatch(/open|settled/);
+    expect(noteInvoiceOptions('creditNote', '', books.masters, books.vouchers, String)).toEqual([]);
+    expect(noteInvoiceOptions('debitNote', party('ABC Industries'), books.masters, books.vouchers, String)).toEqual([]); // no purchases from a customer
   });
 });

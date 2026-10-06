@@ -119,7 +119,7 @@ describe('the shipped configuration is internally consistent', () => {
     expect(top(s)).toEqual({ type: 'report', report: 'trial-balance', groupId: 'g-1' });
   });
 
-  it('the purchase documents are real: F9 and Shift+F9, their lists in the Purchase group, their order register — planned debit note and receipt note stay badged', () => {
+  it('the purchase documents are real: F9 and Shift+F9, their lists in the Purchase group, their order register — the debit note is real too, the planned receipt note stays badged', () => {
     const { services: s } = boot();
     for (const [id, kind] of [['voucher.new.purchase', 'purchase'], ['voucher.new.purchaseOrder', 'purchaseOrder']] as const) {
       expect(s.registry.get(id)?.badge, id).toBeUndefined();
@@ -133,7 +133,7 @@ describe('the shipped configuration is internally consistent', () => {
     expect(purchase.map((i) => [i.command.title, i.command.badge])).toEqual([
       ['Purchase Vouchers', undefined],
       ['Purchase Orders', undefined],
-      ['New Debit Note', 'Phase 7'],
+      ['Debit Notes', undefined],
       ['New Receipt Note', 'Phase 8'],
       ['Returnable Challans', undefined],
     ]);
@@ -151,8 +151,8 @@ describe('the shipped configuration is internally consistent', () => {
   it('every planned command opens the planned screen for itself', () => {
     const { services: s } = boot();
     const planned = s.registry.all().filter((c: Command<AppContext>) => c.badge && c.run);
-    // Phases 4–9 made the masters, vouchers, the reports and GST real; credit/debit notes and Phase-8 documents stay planned until built.
-    expect(planned.length).toBeGreaterThan(1);
+    // Phases 4–9 made the masters, vouchers, the reports, GST and the credit / debit notes real; the Receipt Note stays planned until built.
+    expect(planned.map((c) => c.id)).toEqual(['voucher.new.receiptNote']);
     for (const c of planned) {
       s.app.goHome();
       expect(s.registry.run(c.id), c.id).toBe(true);
@@ -397,8 +397,8 @@ describe('Go To search over the real command set', () => {
   });
 
   it('shows what is planned and when', async () => {
-    const [h] = await search('debit note');
-    expect(h?.badge).toBe('Phase 7');
+    const [h] = await search('receipt note');
+    expect(h?.badge).toBe('Phase 8');
     expect(h?.kind).toBe('Voucher');
   });
 

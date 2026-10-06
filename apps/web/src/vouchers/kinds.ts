@@ -20,8 +20,13 @@ export const QUOTATION_KIND = 'quotation' as const;
 export const CHALLAN_KIND = 'deliveryChallan' as const;
 /** Returnable Challan: goods sent to a supplier that come back as they went ("Mark returned" brings them back). */
 export const RETURNABLE_KIND = 'returnableChallan' as const;
-export type ItemDocKind = SalesKind | typeof QUOTATION_KIND | typeof CHALLAN_KIND | typeof RETURNABLE_KIND;
-export const isItemDocKind = (s: string): s is ItemDocKind => isSalesKind(s) || s === QUOTATION_KIND || s === CHALLAN_KIND || s === RETURNABLE_KIND;
+/** Credit Note and Debit Note: an invoice taken back (goods returned, a price reduced), on the same worksheet as the invoice it reverses. */
+export const NOTE_KINDS = ['creditNote', 'debitNote'] as const;
+export type NoteKind = (typeof NOTE_KINDS)[number];
+export const NOTE_TITLES: Readonly<Record<NoteKind, string>> = { creditNote: 'Credit Note', debitNote: 'Debit Note' };
+export const isNoteDocKind = (s: string): s is NoteKind => (NOTE_KINDS as readonly string[]).includes(s);
+export type ItemDocKind = SalesKind | typeof QUOTATION_KIND | typeof CHALLAN_KIND | typeof RETURNABLE_KIND | NoteKind;
+export const isItemDocKind = (s: string): s is ItemDocKind => isSalesKind(s) || s === QUOTATION_KIND || s === CHALLAN_KIND || s === RETURNABLE_KIND || isNoteDocKind(s);
 /** How a challan's state reads on its badge and in its list. */
 export const CHALLAN_STATUS: Readonly<Record<ChallanStatus, string>> = {
   foc: 'FOC',
@@ -39,8 +44,12 @@ export type DocSide = 'sales' | 'purchase';
  */
 export interface DocProfile {
   readonly side: DocSide;
-  /** An invoice (goods move and money is owed) rather than an order (a document that posts nothing). */
+  /** An invoice (goods move and money is owed) rather than an order (a document that posts nothing). A credit or debit note is one too, turned round. */
   readonly invoice: boolean;
+  /** A credit note (sales side) or debit note (purchase side): it takes an invoice back, so its goods move the other way and it raises no bill to pay. */
+  readonly note: boolean;
+  /** The goods on its lines LEAVE a godown (a sale, a challan, a debit note) rather than arrive in one (a purchase, a credit note). */
+  readonly goodsOut: boolean;
   readonly order: boolean;
   /** A quotation: prices for the customer, no stock or accounts. */
   readonly quote: boolean;
@@ -75,6 +84,8 @@ export function docProfile(kind: ItemDocKind): DocProfile {
     return {
       ...SALES_SIDE,
       invoice: false,
+      note: false,
+      goodsOut: false,
       order: false,
       quote: true,
       challan: false,
@@ -85,23 +96,31 @@ export function docProfile(kind: ItemDocKind): DocProfile {
     };
   }
   if (kind === CHALLAN_KIND) {
-    return { ...SALES_SIDE, invoice: false, order: false, quote: false, challan: true, returnable: false, moves: true, refLabel: 'Cust PO / ref', refAria: 'Customer PO or reference' };
+    return { ...SALES_SIDE, invoice: false, note: false, goodsOut: true, order: false, quote: false, challan: true, returnable: false, moves: true, refLabel: 'Cust PO / ref', refAria: 'Customer PO or reference' };
   }
   if (kind === RETURNABLE_KIND) {
     // the goods leave a godown (as on a sale), to a supplier
-    return { ...SALES_SIDE, role: 'vendor', noun: 'supplier', nounPlural: 'Suppliers', invoice: false, order: false, quote: false, challan: true, returnable: true, moves: true, refLabel: 'Reference', refAria: 'Reference' };
+    return { ...SALES_SIDE, role: 'vendor', noun: 'supplier', nounPlural: 'Suppliers', invoice: false, note: false, goodsOut: true, order: false, quote: false, challan: true, returnable: true, moves: true, refLabel: 'Reference', refAria: 'Reference' };
+  }
+  if (isNoteDocKind(kind)) {
+    // the invoice of its side, turned round: the same party, ledger and tax; the goods go the other way
+    const side = kind === 'creditNote' ? SALES_SIDE : PURCHASE_SIDE;
+    return { ...side, invoice: true, note: true, goodsOut: kind === 'debitNote', order: false, quote: false, challan: false, returnable: false, moves: true, refLabel: 'Reference', refAria: 'Reference' };
   }
   const invoice = kind === 'sales' || kind === 'purchase';
   const side = kind === 'sales' || kind === 'salesOrder' ? SALES_SIDE : PURCHASE_SIDE;
   const refLabel = side.side === 'sales' ? 'Cust PO / ref' : invoice ? 'PO / ref' : 'Supplier ref';
   const refAria = side.side === 'sales' ? 'Customer PO or reference' : invoice ? 'Purchase order or reference' : 'Supplier reference';
-  return { ...side, invoice, order: !invoice, quote: false, challan: false, returnable: false, moves: invoice, refLabel, refAria };
+  return { ...side, invoice, note: false, goodsOut: invoice && side.side === 'sales', order: !invoice, quote: false, challan: false, returnable: false, moves: invoice, refLabel, refAria };
 }
+
+/** The note that takes back an invoice of this side: a Credit Note for a sale, a Debit Note for a purchase. */
+export const noteKindOf = (side: DocSide): NoteKind => (side === 'sales' ? 'creditNote' : 'debitNote');
 
 /** The same side's invoice and order kinds. */
 export const invoiceKindOf = (side: DocSide): SalesKind => (side === 'sales' ? 'sales' : 'purchase');
 export const orderKindOf = (side: DocSide): SalesKind => (side === 'sales' ? 'salesOrder' : 'purchaseOrder');
 
 /** Every kind a voucher window can be opened for: the four accounting kinds, the item documents, and the Stock Journal (which moves stock, not money). */
-const ALL_TITLES: Readonly<Record<string, string>> = { ...KIND_TITLES, ...SALES_TITLES, [QUOTATION_KIND]: 'Quotation', [CHALLAN_KIND]: 'Delivery Challan', [RETURNABLE_KIND]: 'Returnable Challan', stockJournal: 'Stock Journal' };
+const ALL_TITLES: Readonly<Record<string, string>> = { ...KIND_TITLES, ...SALES_TITLES, [QUOTATION_KIND]: 'Quotation', [CHALLAN_KIND]: 'Delivery Challan', [RETURNABLE_KIND]: 'Returnable Challan', ...NOTE_TITLES, stockJournal: 'Stock Journal' };
 export const kindTitle = (key: string): string | undefined => ALL_TITLES[key];
