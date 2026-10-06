@@ -26,7 +26,6 @@ import type { MasterMode, ScreenRef } from '../shell/router';
 import { Kbd } from '../ui/Kbd';
 import { ListView } from '../ui/ListView';
 import { ItemCadFiles } from './ItemCadFiles';
-import { ItemCadFiles } from './ItemCadFiles';
 import { SeriesAdvanceDialog } from './SeriesAdvanceDialog';
 
 const SCOPE = 'screen:master';
