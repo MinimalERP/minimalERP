@@ -142,6 +142,8 @@ export function itemList(books: Books, today: string): ItemListRow[] {
 
 export interface ItemPage {
   readonly row: ItemListRow;
+  /** A service: it is billed, and holds no stock. */
+  readonly service: boolean;
   readonly hsn: string;
   readonly godowns: readonly { readonly name: string; readonly qty: bigint }[];
   /** The latest movements, newest first. */
@@ -150,12 +152,19 @@ export interface ItemPage {
 
 export function itemPage(books: Books, itemId: string, today: string): ItemPage | undefined {
   const { masters, stock } = books;
-  const row = itemList(books, today).find((r) => r.itemId === itemId);
   const item = masters.stockItem(itemId as never);
-  if (!row || !item) return undefined;
+  if (!item) return undefined;
+  // a service holds no stock, so the Stock list leaves it out: its own page still opens, with nothing in it
+  const unit = masters.unit(item.unitId);
+  const nothing = { qty: 0n as never, value: 0n as never };
+  const row: ItemListRow = itemList(books, today).find((r) => r.itemId === itemId) ?? {
+    itemId: item.id, name: item.name, unit: unit?.symbol ?? '', decimals: unit?.decimals ?? 0, group: '',
+    opening: nothing, inward: nothing, outward: nothing, closing: nothing, committed: 0n as never, onOrder: 0n as never, available: 0n,
+  };
   const ledger = stock.ledger(item.id, yearStart(books, today), day(today));
   return {
     row,
+    service: item.itemType === 'service',
     hsn: item.hsn ?? '',
     godowns: masters.warehouses.map((w) => ({ name: w.name, qty: stock.qtyAt(item.id, w.id, day(today)) as bigint })).filter((g) => g.qty !== 0n),
     movements: ledger.rows

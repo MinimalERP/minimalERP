@@ -86,7 +86,7 @@ test.describe('on a phone', () => {
     await expect(title(page)).toHaveText('ABC Industries');
     await expect(page.getByTestId('party-receivable')).toContainText('₹');
     await expect(page.getByTestId('bill-row').first()).toBeVisible();
-    await expect(page.locator('.m-actions')).toContainText('Call');
+    await expect(page.locator('.m-actions').first()).toContainText('Call');
     await page.getByTestId('bill-row').first().tap();
     await expect(page.locator('.m-main')).toContainText('ABC Industries'); // the voucher behind the bill (here the balance brought forward)
     expect(problems).toEqual([]);
@@ -133,6 +133,14 @@ test.describe('on a phone', () => {
     await expect(copies.first()).toContainText(number);
     await expect(copies.first()).toContainText('ORIGINAL');
     expect(problems).toEqual([]);
+  });
+
+  test('a document shared to the app opens the desktop AI Inbox, which can take it — and the next visit is mobile again', async ({ page }) => {
+    await page.goto('/?share=1#/inbox?shared=1');
+    await expect(page.locator('.shell')).toBeVisible();
+    await expect(page.getByTestId('mobile-app')).toHaveCount(0);
+    await page.goto('/');
+    await expect(page.getByTestId('mobile-app')).toBeVisible();
   });
 
   test('Desktop version switches to the full app and is remembered; ?ui=mobile comes back', async ({ page }) => {

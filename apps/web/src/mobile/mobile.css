@@ -56,7 +56,14 @@
   background: var(--c-surface); color: inherit; font: inherit; text-align: left; text-decoration: none;
   border: 0; border-bottom: 1px solid var(--c-border);
 }
-.m-app button.m-row { cursor: pointer; }
+.m-app button.m-row { cursor: pointer; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+/* a row chosen by a long press: tinted, with a tick */
+.m-app .m-row.selected { background: var(--c-focus-bg); }
+.m-app .m-row-tick {
+  flex: none; width: 26px; height: 26px; border-radius: 13px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--c-accent); color: var(--c-accent-text); font-size: 15px; font-weight: 700;
+}
 .m-app button.m-row:active { background: var(--c-focus-bg); }
 .m-app .m-group > .m-row:first-of-type, .m-app .m-search + .m-row { border-top: 1px solid var(--c-border); }
 .m-app .m-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -80,6 +87,82 @@
 }
 .m-app .m-button:active, .m-app .m-more:active { background: var(--c-focus-bg); }
 .m-app .m-more { display: flex; width: calc(100% - 32px); margin: 12px 16px; }
+
+/* ---- entry (mobile/Entry.tsx): the document, a bar under the thumb, lists and sheets over it ---- */
+.m-app .m-main.has-foot { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0)); }
+.m-app .m-foot {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0));
+  background: var(--c-surface); border-top: 1px solid var(--c-border); box-shadow: 0 -2px 10px #00000014;
+}
+.m-app .m-foot > .m-button:only-child { flex: 1; }
+.m-app .m-total { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.m-app .m-total-label { font-size: 12px; color: var(--c-text-muted); }
+.m-app .m-total strong { font-family: var(--font-figures); font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.m-app .m-foot .m-total + .m-button { flex: none; min-width: 9.5em; }
+.m-app .m-primary { background: var(--c-accent); color: var(--c-accent-text); }
+.m-app .m-primary:active { background: var(--c-accent); opacity: 0.85; }
+.m-app .m-primary:disabled { opacity: 0.6; }
+.m-app .m-danger { color: var(--c-negative); border-color: var(--c-negative); }
+.m-app .m-wrap { flex-wrap: wrap; }
+.m-app .m-wrap .m-button { flex: 1 1 40%; }
+.m-app .m-add { justify-content: center; color: var(--c-accent); font-weight: 600; }
+/* an item line of a document being entered: the line itself (tap to open it), and an × at its end that takes it off */
+.m-app .m-line { display: flex; align-items: stretch; background: var(--c-surface); border-bottom: 1px solid var(--c-border); }
+.m-app .m-group > .m-line:first-of-type { border-top: 1px solid var(--c-border); }
+.m-app .m-line > .m-row { flex: 1; min-width: 0; width: auto; border: 0; padding-right: 4px; }
+.m-app .m-line-x {
+  flex: none; width: 48px; border: 0; background: none;
+  color: var(--c-text-muted); font: inherit; font-size: 24px; line-height: 1;
+}
+.m-app .m-line-x:active { background: var(--c-focus-bg); color: var(--c-negative); }
+.m-app .m-row-problem { font-size: 13px; color: var(--c-negative); white-space: normal; }
+.m-app .m-strip { background: var(--c-surface-alt); border-bottom: 1px solid var(--c-border); }
+.m-app .m-link { border: 0; background: none; padding: 8px 4px; margin: -8px 0; font: inherit; color: var(--c-accent); text-decoration: underline; }
+
+/* a labelled field: the label on the left, a control a finger can hit on the right */
+.m-app .m-field {
+  display: flex; align-items: center; gap: 12px; box-sizing: border-box;
+  min-height: 56px; padding: 6px 16px;
+  background: var(--c-surface); border-bottom: 1px solid var(--c-border);
+}
+.m-app .m-group > .m-field:first-of-type { border-top: 1px solid var(--c-border); }
+.m-app .m-field-tall { align-items: flex-start; padding-top: 12px; }
+.m-app .m-field-label { flex: none; width: 7.5em; color: var(--c-text-muted); font-size: 14px; }
+.m-app .m-input {
+  flex: 1; min-width: 0; box-sizing: border-box; min-height: 44px; padding: 0 10px;
+  font: inherit; font-size: 16px; /* 16px: iOS does not zoom the page into a field */
+  color: inherit; background: var(--c-bg);
+  border: 1px solid var(--c-border); border-radius: 8px; outline: none;
+}
+.m-app textarea.m-input { padding: 10px; resize: none; }
+.m-app .m-input:focus { border-color: var(--c-accent); background: var(--c-surface); }
+.m-app .m-num { text-align: right; font-family: var(--font-figures); font-variant-numeric: tabular-nums; }
+.m-app .m-seg { flex: 1; display: flex; border: 1px solid var(--c-accent); border-radius: 8px; overflow: hidden; }
+.m-app .m-seg button { flex: 1; min-height: 44px; border: 0; background: var(--c-surface); color: var(--c-accent); font: inherit; }
+.m-app .m-seg .m-seg-on { background: var(--c-accent); color: var(--c-accent-text); font-weight: 600; }
+.m-app .m-stepper { flex: 1; min-width: 0; display: flex; gap: 8px; }
+.m-app .m-stepper .m-input { width: 0; } /* it takes what the two buttons leave, never its own default width */
+.m-app .m-field > .m-input { width: 0; }
+.m-app .m-stepper button {
+  flex: none; width: 52px; min-height: 48px;
+  border: 1px solid var(--c-accent); border-radius: 8px; background: var(--c-surface); color: var(--c-accent);
+  font: inherit; font-size: 26px; line-height: 1;
+}
+.m-app .m-stepper button:active { background: var(--c-focus-bg); }
+
+/* a full-screen list over the page (choose a customer, an item) */
+.m-app .m-layer { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--c-bg); overflow-y: auto; overscroll-behavior: contain; }
+/* a sheet from the bottom (one line; "Discard?") */
+.m-app .m-sheet-back { position: fixed; inset: 0; z-index: 30; display: flex; align-items: flex-end; justify-content: center; background: #00000066; }
+.m-app .m-sheet {
+  width: 100%; min-width: 0; max-width: 640px; box-sizing: border-box; max-height: 92dvh; overflow: hidden auto;
+  padding: 6px 0 calc(8px + env(safe-area-inset-bottom, 0));
+  background: var(--c-surface); border-radius: 16px 16px 0 0;
+}
+.m-app .m-sheet-title { margin: 0; padding: 14px 16px 10px; font-size: 17px; font-weight: 600; }
+.m-app .m-sheet .m-field { border-bottom: 0; }
 
 /* printing: only the document (PrintView renders #print-root as a direct child of .m-app) */
 @media print {

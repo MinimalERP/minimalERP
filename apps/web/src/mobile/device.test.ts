@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { UI_KEY, chosenUi, isPhone, pickUi, uiFromSearch } from './device';
+import { UI_KEY, chosenUi, isDesktopOnlyAddress, isPhone, pickUi, uiFromSearch } from './device';
 
 const win = (search: string, phone: boolean) => ({
   location: { search },
@@ -40,6 +40,19 @@ describe('which interface a device gets', () => {
     expect(chosenUi(win('', true), s)).toBe('desktop'); // the phone keeps the desktop app it asked for
     expect(chosenUi(win('?ui=mobile', true), s)).toBe('mobile'); // until it asks to go back
     expect(chosenUi(win('', true), s)).toBe('mobile');
+  });
+
+  it('a document shared to the app lands in the desktop inbox even on a phone — for that visit only', () => {
+    const shared = { location: { search: '?share=1791259007873', hash: '#/inbox?shared=1' }, matchMedia: () => ({ matches: true }) };
+    const s = storage('mobile');
+    expect(chosenUi(shared, s)).toBe('desktop');
+    expect(s.data.get(UI_KEY)).toBe('mobile'); // nothing saved: the next ordinary visit is mobile again
+    expect(chosenUi(win('', true), s)).toBe('mobile');
+    expect(isDesktopOnlyAddress('#/inbox')).toBe(true);
+    expect(isDesktopOnlyAddress('#/inbox?shareError=1')).toBe(true);
+    expect(isDesktopOnlyAddress('#/inboxes')).toBe(false);
+    expect(isDesktopOnlyAddress('#/gateway')).toBe(false);
+    expect(isDesktopOnlyAddress(undefined)).toBe(false);
   });
 
   it('storage that throws or holds rubbish is ignored: the device decides', () => {
