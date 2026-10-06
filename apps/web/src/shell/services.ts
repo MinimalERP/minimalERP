@@ -19,6 +19,27 @@ export interface Account {
   signOut(): Promise<void>;
 }
 
+/** One CAD file of a stock item (a MinimalCAD drawing), as the item form lists it. */
+export interface ItemCadFileRow {
+  readonly id: string;
+  readonly name: string;
+  readonly updatedAt: string;
+}
+
+type CadAnswer<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly message: string };
+
+/**
+ * A stock item's CAD files, shared with MinimalCAD (online books only). Each call is made at once — these are not part of a form's accept.
+ */
+export interface CadFilesService {
+  list(companyId: string, itemId: string): Promise<CadAnswer<readonly ItemCadFileRow[]>>;
+  document(id: string): Promise<CadAnswer<unknown>>;
+  add(companyId: string, itemId: string, name: string, document: unknown): Promise<CadAnswer<ItemCadFileRow>>;
+  remove(companyId: string, id: string): Promise<CadAnswer<void>>;
+  /** The address that opens this file in MinimalCAD. */
+  openUrl(fileId: string): string;
+}
+
 /** Present when the books are kept in this browser although the site also has online books to sign in to. */
 export interface LocalBooks {
   /** Goes to the sign-in page (the browser-only books are left exactly as they are). */
@@ -149,6 +170,8 @@ export interface Services {
   readonly books: BooksHost;
   readonly saving: SaveTracker;
   readonly print: PrintCoordinator;
+  /** Online books only: a stock item's CAD files, shared with MinimalCAD. */
+  readonly cadFiles?: CadFilesService | undefined;
   readonly scopes: ScopeStack;
   readonly registry: CommandRegistry<AppContext>;
   readonly keymapStore: KeymapStore;
@@ -171,6 +194,7 @@ export interface ServicesOptions {
   readonly saving?: SaveTracker | undefined;
   readonly account?: Account | undefined;
   readonly localBooks?: LocalBooks | undefined;
+  readonly cadFiles?: CadFilesService | undefined;
   readonly now?: (() => number) | undefined;
 }
 
@@ -249,5 +273,5 @@ export function createServices(options: ServicesOptions): Services {
 
   const saving = options.saving ?? new SaveTracker();
   const print = new PrintCoordinator();
-  return { books, saving, print, scopes, registry, keymapStore, gatewayShortcuts, keyboard, screens, search, recents, ui, app };
+  return { books, saving, print, cadFiles: options.cadFiles, scopes, registry, keymapStore, gatewayShortcuts, keyboard, screens, search, recents, ui, app };
 }

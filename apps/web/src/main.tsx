@@ -10,7 +10,7 @@
 //   Online builds also offer "Use without signing in" on the sign-in page: the same browser-only books, remembered on this device
 //   (see auth/mode.ts), with a Sign in button in the top bar to go back. The two never mix: an account's company is online, this one is here.
 import { MemoryBackend } from '@minimalerp/adapter-memory';
-import { SupabaseAuth, SupabaseBooksBackend, type SupabaseLike } from '@minimalerp/adapter-supabase';
+import { SupabaseAuth, SupabaseBooksBackend, SupabaseCadFiles, type SupabaseLike } from '@minimalerp/adapter-supabase';
 import type { AuthSession } from '@minimalerp/ports';
 import { render } from 'preact';
 import { AuthScreen, StartupLoading, StartupProblem } from './auth/AuthScreens';
@@ -30,7 +30,7 @@ import { vouchersModule } from './modules/vouchers';
 import { ServicesContext } from './shell/hooks';
 import { bindBackButton, bindRouter } from './shell/router';
 import { Shell } from './shell/Shell';
-import { type Account, type LocalBooks, createServices } from './shell/services';
+import { type Account, type CadFilesService, type LocalBooks, createServices } from './shell/services';
 import './ui/tokens.css';
 import './ui/shell.css';
 import './ui/auth.css';
@@ -82,7 +82,7 @@ function askToExit(): void {
 }
 
 /** Shows the application for an open (or not yet created) company. Called once. */
-function mountApp(books: BooksHost, saving: SaveTracker, account?: Account, localBooks?: LocalBooks): void {
+function mountApp(books: BooksHost, saving: SaveTracker, account?: Account, localBooks?: LocalBooks, cadFiles?: CadFilesService): void {
   const services = createServices({
     target: window,
     storage: safeStorage(),
@@ -90,6 +90,7 @@ function mountApp(books: BooksHost, saving: SaveTracker, account?: Account, loca
     saving,
     account,
     localBooks,
+    cadFiles,
     modules: [coreModule, roadmapModule, mastersModule, vouchersModule, reportsModule, importExportModule],
   });
 
@@ -196,13 +197,29 @@ async function startCloud(config: CloudConfig): Promise<void> {
     auth.onChange((now) => {
       if (!now) window.location.reload();
     });
-    mountApp(host, saving, {
-      email: session.email,
-      signOut: async () => {
-        await auth.signOut();
-        window.location.reload();
+    // MinimalCAD is the sibling site on this origin (…/minimalCAD/ beside …/minimalERP/), signed in by the same session; VITE_CAD_URL names another address
+    const cadSite = (import.meta.env['VITE_CAD_URL'] as string | undefined) ?? new URL('../minimalCAD/', new URL(import.meta.env.BASE_URL, window.location.origin)).href;
+    const cad = new SupabaseCadFiles(client as unknown as SupabaseLike);
+    const cadFiles: CadFilesService = {
+      list: (companyId, itemId) => cad.list(companyId, itemId),
+      document: (id) => cad.document(id),
+      add: (companyId, itemId, name, document) => cad.add(companyId, itemId, name, document),
+      remove: (companyId, id) => cad.remove(companyId, id),
+      openUrl: (fileId) => `${cadSite}#/item-file/${fileId}`,
+    };
+    mountApp(
+      host,
+      saving,
+      {
+        email: session.email,
+        signOut: async () => {
+          await auth.signOut();
+          window.location.reload();
+        },
       },
-    });
+      undefined,
+      cadFiles,
+    );
   };
 
   const showSignIn = (signedInByLink: boolean): void => {

@@ -25,6 +25,8 @@ import { useLeaveGuard } from '../shell/useLeaveGuard';
 import type { MasterMode, ScreenRef } from '../shell/router';
 import { Kbd } from '../ui/Kbd';
 import { ListView } from '../ui/ListView';
+import { ItemCadFiles } from './ItemCadFiles';
+import { ItemCadFiles } from './ItemCadFiles';
 import { SeriesAdvanceDialog } from './SeriesAdvanceDialog';
 
 const SCOPE = 'screen:master';
@@ -741,6 +743,8 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
             {!readOnly && <button type="button" class="item-add-row" disabled={itemDetails.length >= 200} onClick={() => saveItemDetails([...itemDetails, { detail1: '', detail2: '', files: [] }])}>Add detail row</button>}
           </section>
         )}
+        {/* the item's MinimalCAD drawings: an existing item only (a file belongs to an item that is in the books) */}
+        {kind === 'stockItem' && existing && <ItemCadFiles itemId={existing.id} editable={!readOnly} />}
       </form>
 
       {pdfViewerFile && <ItemPdfViewer file={pdfViewerFile} onClose={() => setPdfViewerFile(undefined)} />}

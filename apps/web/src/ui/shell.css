@@ -738,3 +738,9 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 .due-table tr.clickable { cursor: pointer; }
 .due-table tr.clickable:hover td { background: var(--c-focus-bg); }
 .late-tag { color: var(--c-negative); white-space: nowrap; }
+
+/* a stock item's MinimalCAD files */
+.item-cad-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: 2px 0; }
+.item-cad-name { font-weight: 600; min-width: 10em; }
+.item-cad-add { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); }
+.item-cad-add .field-input { max-width: 22em; }
