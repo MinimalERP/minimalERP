@@ -67,7 +67,7 @@ test.describe('on a phone', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
 
   test('the ✦ button opens a full-screen sheet; the phone\'s Back closes it and the screen is as it was', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?ui=desktop'); // the desktop app on a phone: asked for, now that a phone gets the mobile interface by itself
     await expect(page.locator('.shell')).toBeVisible();
     await loadDemo(page);
     await goTo(page, 'ledgers');
@@ -86,7 +86,7 @@ test.describe('on a phone', () => {
   });
 
   test('the ✦ button can be dragged out of the way, and stays there', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?ui=desktop'); // the desktop app on a phone: asked for, now that a phone gets the mobile interface by itself
     await expect(page.locator('.shell')).toBeVisible();
     await loadDemo(page);
     const fab = page.getByTestId('assistant-button');

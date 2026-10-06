@@ -21,6 +21,7 @@ import { createCloudFactory } from './books/cloud';
 import { indexedDbStore } from './books/idb';
 import { createLocalFactory, memoryStore } from './books/local';
 import { SaveTracker } from './books/saving';
+import { chosenUi } from './mobile/device';
 import { coreModule } from './modules/core';
 import { importExportModule } from './modules/importExport';
 import { mastersModule } from './modules/masters';
@@ -83,6 +84,12 @@ function askToExit(): void {
 
 /** Shows the application for an open (or not yet created) company. Called once. */
 function mountApp(books: BooksHost, saving: SaveTracker, account?: Account, localBooks?: LocalBooks, cadFiles?: CadFilesService): void {
+  // A phone (or a device that asked for it) gets the mobile interface instead: its own root over the same books, loaded only then.
+  // Nothing of the desktop app below is started for it — and nothing below changes for everyone else.
+  if (chosenUi(window, safeStorage()) === 'mobile') {
+    void import('./mobile/mount').then(({ mountMobile }) => mountMobile({ books, root: root(), account, localBooks }));
+    return;
+  }
   const services = createServices({
     target: window,
     storage: safeStorage(),
