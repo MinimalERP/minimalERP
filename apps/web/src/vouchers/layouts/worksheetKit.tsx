@@ -3,7 +3,7 @@ import { type Voucher, formatVoucherNumber } from '@minimalerp/domain';
 import type { ComponentChildren, RefObject } from 'preact';
 import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
-import { useServices } from '../../shell/hooks';
+import { useServices, useSubscriptions } from '../../shell/hooks';
 import type { VoucherMode } from '../../shell/router';
 import { fyOf } from '../entryHelpers';
 import { Kbd } from '../../ui/Kbd';
@@ -36,6 +36,10 @@ export const focusKeyOf = (field: string): string => {
 /**
  * Where the cursor is on the worksheet, and moving it. The field with the key gets the DOM focus (its text selected) whenever the key, or
  * anything in `deps`, changes — except while `paused` (a dialog has the focus) or `idle` (a blank click deactivated the fields).
+ *
+ * Nor while an overlay is open over the window (Go To, the assistant, a dropdown, Saving…): a save that finishes just after Alt+G moves the
+ * cursor to the next voucher's first field, and taking the DOM focus then would send what is typed for Go To into that field. The field
+ * gets the focus when the overlay closes.
  */
 export function useFieldFocus<F extends { readonly key: string }>(o: {
   readonly fields: readonly F[];
@@ -50,14 +54,17 @@ export function useFieldFocus<F extends { readonly key: string }>(o: {
   readonly onGo?: () => void;
 }) {
   const { fields, focusKey, setFocusKey, rootRef, idle, wake, paused = false, onGo } = o;
+  const { scopes } = useServices();
+  useSubscriptions(scopes);
+  const covered = scopes.snapshot().modal;
   const at = Math.max(0, fields.findIndex((f) => f.key === focusKey));
   const current = fields[at] as F;
   useLayoutEffect(() => {
-    if (idle || paused) return;
+    if (idle || paused || covered) return;
     const el = rootRef.current?.querySelector<HTMLInputElement>(`[data-vf="${current.key}"]`);
     el?.focus();
     if (el && el.type === 'text') el.select();
-  }, [focusKey, idle, paused, ...o.deps]);
+  }, [focusKey, idle, paused, covered, ...o.deps]);
   const go = (key: string) => {
     wake();
     onGo?.();
