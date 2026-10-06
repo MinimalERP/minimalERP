@@ -472,6 +472,9 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 .vrow { padding: 1px var(--sp-3); border-left: 2px solid transparent; }
 .vrow.active { background: var(--c-focus-bg); border-left-color: var(--c-focus); }
 .vc-ledger { position: relative; min-width: 0; }
+/* Select is on: an order line still to invoice has a tick box at the start of its item */
+.vc-ledger.has-tick { padding-left: 1.75rem; }
+.line-tick { position: absolute; left: var(--sp-2); top: 0.45rem; margin: 0; cursor: pointer; }
 .vrow .bill-panel { grid-column: 1 / -1; }
 .vtot { padding: 0 var(--sp-3); line-height: var(--row-h); border-top: 1px solid var(--c-border); font-weight: 700; }
 .vtot .balance { font-weight: 600; }

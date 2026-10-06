@@ -211,6 +211,18 @@ describe('open orders, and an invoice for what is pending', () => {
     expect(previewSales(form, 'sales', books.masters, books.stock, books.orders).ok).toBe(true);
   });
 
+  it('with order lines ticked, the invoice carries only those lines', async () => {
+    const books = await demo();
+    const po = orderNumbered(books, 'PO-4471');
+    const frame = books.orders.state(po?.id as never)?.lines.find((l) => books.masters.stockItem(l.line.itemId)?.name === 'Fabricated Frame');
+    const args = { id: 'v1', typeId: typeOf(books, 'sales'), date: '2027-03-01', newKey: () => crypto.randomUUID(), warehouse: godown(books), salesLedger: defaultSalesLedger(books.masters) };
+    const form = invoiceFormFromOrder(po as never, books.orders, books.masters, { ...args, onlyLines: [frame?.line.id as string] }) as SalesForm;
+    expect(form.lines.map((l) => [l.itemLabel, l.qty])).toEqual([['Fabricated Frame', '20']]);
+    expect(form.reference).toBe('PO-4471');
+    // a line with nothing pending cannot be invoiced, ticked or not
+    expect(invoiceFormFromOrder(po as never, books.orders, books.masters, { ...args, onlyLines: ['not-a-line'] })).toBeUndefined();
+  });
+
   it('starts each line in the godown that HOLDS the goods, not blindly in the main one', async () => {
     const books = await demo();
     const main = { id: books.masters.warehouses[0]?.id as string, label: 'Main Location' };

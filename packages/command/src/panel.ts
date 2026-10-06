@@ -35,9 +35,10 @@ export function panelEntries<Ctx>(
     .sort((a, b) => (a.panel?.order ?? 0) - (b.panel?.order ?? 0));
   return shown.map((c, i) => {
     const panel = c.panel as NonNullable<typeof c.panel>;
+    const inScope = panel.labelIn ? active.ids.find((id) => panel.labelIn?.[id] !== undefined) : undefined;
     return {
       id: c.id,
-      label: panel.labelOn?.[screenType] ?? panel.label,
+      label: (inScope !== undefined ? panel.labelIn?.[inScope] : undefined) ?? panel.labelOn?.[screenType] ?? panel.label,
       group: panel.group,
       chord: chordFor(panel.keyOf ?? c.id),
       enabled: registry.isAvailable(c.id, active.ids, active.modal),

@@ -434,6 +434,34 @@ test.describe('from an order to an invoice, and between the two documents', () =
     await expect(app.locator('[data-vf="l0.rate"]')).toHaveValue('6.75');
   });
 
+  test('Select shows a tick box on each pending line; with lines ticked the button is Invoice selected and the invoice carries only those', async ({ app }) => {
+    await openRegister(app);
+    await app.keyboard.type('PO-4471');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toContainText('Display Sales Order SO/');
+    const invoice = panel(app).locator('[data-command="order.invoice"]');
+    const ticks = app.getByTestId('line-tick');
+    await expect(ticks).toHaveCount(0); // no boxes until Select is switched on
+    await expect(invoice).toContainText('Invoice pending');
+    await panel(app).locator('[data-command="list.select"]').click();
+    await expect(ticks).toHaveCount(2); // the bolt line is delivered in full: nothing to tick
+    await expect(invoice).toContainText('Invoice pending');
+    await ticks.nth(1).check();
+    await expect(invoice).toContainText('Invoice selected');
+    // Select off unticks and hides the boxes; on again starts clean
+    await panel(app).locator('[data-command="list.select"]').click();
+    await expect(ticks).toHaveCount(0);
+    await expect(invoice).toContainText('Invoice pending');
+    await panel(app).locator('[data-command="list.select"]').click();
+    await ticks.nth(1).check();
+    await app.keyboard.press('Alt+i');
+    await expect(heading(app)).toHaveText('New Sales Voucher');
+    await expect(app.getByLabel('Customer PO or reference')).toHaveValue('PO-4471');
+    await expect(lines(app)).toHaveCount(1);
+    await expect(app.locator('[data-vf="l0.item"]')).toHaveValue('Fabricated Frame');
+    await expect(app.locator('[data-vf="l0.qty"]')).toHaveValue('20');
+  });
+
   test('an order that is delivered in full or closed has nothing to invoice: the button is off', async ({ app }) => {
     await openRegister(app);
     await app.keyboard.type('SH/PO/88');

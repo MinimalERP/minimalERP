@@ -273,12 +273,30 @@ function ReportBody({
   const [pickedOrderLines, setPickedOrderLines] = useFrameState<string[]>(frame, 'picked-order-lines', []);
   const pickedOrderLineSet = useMemo(() => new Set(pickedOrderLines), [pickedOrderLines]);
   const toggleOrderLine = (r: OrderRow) => setPickedOrderLines(pickedOrderLineSet.has(r.key) ? pickedOrderLines.filter((key) => key !== r.key) : [...pickedOrderLines, r.key]);
+  // Select (the panel's button) is a switch: the tick boxes are drawn only while it is on, and switching it off unticks everything.
+  const [selecting, setSelecting] = useFrameState<boolean>(frame, 'selecting', false);
+  const toggleSelecting = (): boolean => {
+    if (selecting) {
+      setPicked([]);
+      setPickedOrderLines([]);
+    }
+    setSelecting(!selecting);
+    return true;
+  };
   const rowVoucherId = (r: AnyRow | undefined): string | undefined => (r && 'voucherId' in r ? (r as { voucherId: string }).voucherId : undefined);
   const togglePickId = (id: string) => setPicked(pickedSet.has(id) ? picked.filter((x) => x !== id) : [...picked, id]);
+  /** Ctrl+Space ticks the row under the cursor and moves on; it switches Select on by itself. */
   const togglePick = (): boolean => {
-    const id = rowVoucherId(rows[safeRow]);
-    if (!id) return true;
-    togglePickId(id);
+    if (!selecting) setSelecting(true);
+    const r = rows[safeRow];
+    if (canPickOrderLines) {
+      if (!r || !('orderId' in r)) return true;
+      toggleOrderLine(r as OrderRow);
+    } else {
+      const id = rowVoucherId(r);
+      if (!id) return true;
+      togglePickId(id);
+    }
     if (safeRow < rows.length - 1) setRow(safeRow + 1);
     return true;
   };
@@ -548,7 +566,9 @@ function ReportBody({
           query={query}
           label={title}
           selection={
-            canPick
+            !selecting
+              ? undefined
+              : canPick
               ? { columnId: 'number', selectedKeys: pickedSet, onToggle: (r) => { const id = rowVoucherId(r as AnyRow); if (id) togglePickId(id); } }
               : canPickOrderLines
                 ? { columnId: 'item', selectedKeys: pickedOrderLineSet, onToggle: (r) => toggleOrderLine(r as OrderRow) }
@@ -618,7 +638,7 @@ function ReportBody({
         {canPickOrderLines && (
           <span data-testid="order-lines-picked">
             {' · '}
-            {pickedOrderLines.length > 0 ? `${pickedOrderLines.length} order lines ticked` : 'Tick order lines in the Item column to export a subset'}
+            {pickedOrderLines.length > 0 ? `${pickedOrderLines.length} order lines ticked` : selecting ? 'Tick order lines in the Item column to export a subset' : 'Select shows tick boxes, to export a subset'}
             {' — '}{chord('report.exportCsv') ?? 'Ctrl+M'} exports CSV, {chord('report.print') ?? 'Ctrl+P'} prints
           </span>
         )}
@@ -726,7 +746,8 @@ function ReportBody({
       {canPickOrderLines && <Only scope={SCOPE} command="report.exportCsv" run={exportCsv} />}
       <Only scope={SCOPE} command="report.print" run={printList} />
       <Only scope={SCOPE} command="gst.exportCsv" run={exportCsv} />
-      {canPick && <Only scope={SCOPE} command="list.pick" run={togglePick} />}
+      {(canPick || canPickOrderLines) && <Only scope={SCOPE} command="list.select" run={toggleSelecting} />}
+      {(canPick || canPickOrderLines) && <Only scope={SCOPE} command="list.pick" run={togglePick} />}
       {canPick && listKind === 'sales' && dialog === undefined && <Only scope={SCOPE} command="voucher.docket" run={openDocket} />}
       {dialog === 'docket' && (
         <DocketDialog

@@ -38,6 +38,8 @@ export interface Command<Ctx = unknown> {
     readonly order: number;
     readonly on: readonly string[];
     readonly labelOn?: Readonly<Record<string, string>>;
+    /** Renames it while a keyboard scope is active ("Invoice pending" is "Invoice selected" while order lines are ticked). */
+    readonly labelIn?: Readonly<Record<string, string>>;
     /** Show the key of ANOTHER command on the button (a Close button that shows Esc, which is really "back"). */
     readonly keyOf?: string;
     /** Leave the button out (not just grey it) while nothing supplies it — for buttons that belong to ONE screen among many of the same type ("New Sales Voucher" on the Sales list). */

@@ -53,6 +53,14 @@ describe('panelEntries', () => {
     expect(panelEntries(registry, chordFor, 'report', idle).find((e) => e.id === 'entry.date')?.label).toBe('Period');
   });
 
+  it('renames an entry while a scope is active — "Invoice pending" is "Invoice selected" while lines are ticked', () => {
+    const registry = new CommandRegistry<object>(() => ({}));
+    registry.register({ id: 'order.invoice', title: 'Invoice', category: 'x', panel: { label: 'Invoice pending', group: 'Actions', order: 15, on: ['voucher'], labelIn: { 'voucher:lines-selected': 'Invoice selected' } } });
+    const label = (ids: string[]) => panelEntries(registry, () => undefined, 'voucher', { ids, modal: false })[0]?.label;
+    expect(label(['screen:voucher', 'global'])).toBe('Invoice pending');
+    expect(label(['voucher:lines-selected', 'screen:voucher', 'global'])).toBe('Invoice selected');
+  });
+
   it('marks where a new group starts', () => {
     const { registry, chordFor } = setup();
     expect(panelEntries(registry, chordFor, 'voucher', idle).map((e) => [e.id, e.startsGroup])).toEqual([

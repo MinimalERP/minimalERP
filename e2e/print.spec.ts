@@ -191,6 +191,19 @@ test.describe('Print', () => {
     await expect.poll(() => printedCount(app)).toBe(1);
   });
 
+  test('a Sales list shows tick boxes only while Select is on; switching it off unticks', async ({ app }) => {
+    await openSalesList(app);
+    const boxes = app.getByRole('grid').getByRole('checkbox');
+    await expect(boxes).toHaveCount(0);
+    await app.locator('[data-testid="action-panel"] [data-command="list.select"]').click();
+    await expect(boxes.first()).toBeVisible();
+    await boxes.first().check();
+    await expect(app.getByTestId('list-picked')).toContainText('1 selected');
+    await app.locator('[data-testid="action-panel"] [data-command="list.select"]').click();
+    await expect(boxes).toHaveCount(0);
+    await expect(app.getByTestId('list-picked')).toHaveCount(0);
+  });
+
   test('a dispatch docket: one customer only; page one the invoices (number, PO — no amounts) and the consignment, page two the items added together; or all on one page', async ({ app }) => {
     await openSalesList(app);
     await app.keyboard.press('Control+Space');

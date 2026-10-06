@@ -842,6 +842,8 @@ export function invoiceFormFromOrder(
     salesLedger?: { id: string; label: string } | undefined;
     /** With the company's stock, each line starts in the godown that holds the goods. */
     stock?: StockBook | undefined;
+    /** Only these order lines (the ones ticked on the order); left out, every pending line. */
+    onlyLines?: readonly string[] | undefined;
   },
 ): SalesForm | undefined {
   const state = orders.state(order.id);
@@ -850,7 +852,7 @@ export function invoiceFormFromOrder(
   if (!party) return undefined;
   const date = args.date < state.order.date ? state.order.date : args.date;
   const side = state.order.side;
-  const pending = openOrderLines(orders, state.order.partyId, undefined, args.id, side).filter((o) => o.orderId === order.id);
+  const pending = openOrderLines(orders, state.order.partyId, undefined, args.id, side).filter((o) => o.orderId === order.id && (args.onlyLines === undefined || args.onlyLines.includes(o.lineId)));
   if (pending.length === 0) return undefined;
   const blank = blankSalesForm(args.id, args.typeId, date, args.newKey(), { warehouse: args.warehouse, salesLedger: args.salesLedger });
   const snapshot = (order.content as unknown as { partyDetails?: PartyDetails }).partyDetails;

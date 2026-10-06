@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { Only } from '../../shell/Only';
 import { useIdleOnBlankClick } from '../../shell/idle';
-import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../../shell/hooks';
+import { useCommandHandler, useFrameState, useScope, useServices, useSubscriptions } from '../../shell/hooks';
 import type { InboxItem } from '@minimalerp/ports';
 import type { ScreenRef, VoucherMode } from '../../shell/router';
 import { inboxBanner, itemSeedOf, partySeedOf, salesFormFromProposal } from '../proposalForms';
@@ -141,12 +141,20 @@ interface Props {
   readonly fromQuotation?: string | undefined;
   /** A new invoice starts with the pending lines of this sales order. */
   readonly fromOrder?: string | undefined;
+  /** With `fromOrder`: only these order lines (ticked on the order). */
+  readonly fromOrderLines?: readonly string[] | undefined;
   /** A new document made from an AI Inbox proposal (ADR-0023): it posts under the proposal's id. */
   readonly fromInbox?: InboxItem | undefined;
   /** A new Purchase invoice for an invoice GSTR-2B has and the books do not. */
   readonly from2b?: PurchasePrefill | undefined;
   /** Fast entry: a save starts the next one instead of closing the window. */
   readonly stay?: boolean | undefined;
+}
+
+/** While order lines are ticked: the scope that makes the panel's "Invoice pending" read "Invoice selected". */
+function LinesSelected() {
+  useScope('voucher:lines-selected', 'region');
+  return null;
 }
 
 /**
@@ -156,7 +164,7 @@ interface Props {
  * header, the entry grid straight under it, narration at the foot, its actions in the panel — and an invoice and its order switch into each
  * other in place (F8 / Shift+F8, F9 / Shift+F9) keeping the party, the reference and the lines. What differs between the four is in `docProfile`.
  */
-export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrder, fromQuotation, fromInbox, from2b, stay }: Props) {
+export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrder, fromOrderLines, fromQuotation, fromInbox, from2b, stay }: Props) {
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books, keymapStore);
   const masters = books.masters;
@@ -180,7 +188,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     if (order && masters.voucherType(order.voucherTypeId)?.baseKind === 'deliveryChallan') {
       return invoiceFormFromChallan(order, books.orders, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID(), salesLedger: extra().salesLedger });
     }
-    return order ? invoiceFormFromOrder(order, books.orders, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID(), stock: books.stock, ...extra() }) : undefined;
+    return order ? invoiceFormFromOrder(order, books.orders, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID(), stock: books.stock, onlyLines: fromOrderLines, ...extra() }) : undefined;
   };
   const inboxForm = (): SalesForm | undefined =>
     fromInbox
@@ -292,6 +300,29 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const orderState = voucher && p.order ? books.orders.state(voucher.id as never) : undefined;
   /** A posted challan as the challan book reads it now: what has been invoiced on it. */
   const challanState = voucher && p.challan ? books.orders.challans.state(voucher.id as never) : undefined;
+  // ---- Select (the panel's switch): tick the order lines to invoice — ticked, "Invoice pending" is "Invoice selected" ----
+  const canSelectLines = mode !== 'create' && voucher?.status === 'posted' && p.order && orderState?.status === 'open';
+  const [selecting, setSelecting] = useFrameState<boolean>(frame, 'selecting', false);
+  const [ticked, setTicked] = useFrameState<string[]>(frame, 'ticked', []);
+  /** The order lines that still have something to invoice: only these can be ticked. */
+  const openLineIds: string[] = canSelectLines ? (orderState?.lines ?? []).filter((s) => !s.filled && s.pending > 0n).map((s) => s.line.id as string) : [];
+  const selectedLines = selecting ? ticked.filter((id) => openLineIds.includes(id)) : [];
+  const toggleTick = (id: string) => setTicked(ticked.includes(id) ? ticked.filter((x) => x !== id) : [...ticked, id]);
+  const toggleSelecting = (): boolean => {
+    if (selecting) setTicked([]);
+    setSelecting(!selecting);
+    return true;
+  };
+  /** Ctrl+Space ticks the line the cursor is on (else the first one not ticked yet) and moves down; it switches Select on by itself. */
+  const tickCurrent = (): boolean => {
+    if (!selecting) setSelecting(true);
+    const at = current.line;
+    const id = at !== undefined ? form.lines[at]?.key : openLineIds.find((x) => !ticked.includes(x));
+    if (id === undefined || !openLineIds.includes(id)) return true;
+    toggleTick(id);
+    if (at !== undefined && at + 1 < form.lines.length) go(`l${at + 1}.item`);
+    return true;
+  };
   /** A returnable challan: the return that brought it back (or, on a return, the challan it brought back). */
   const cameBack = voucher && p.returnable ? books.orders.challans.returnOf(voucher.id as never) : undefined;
   const returnOfNumber = p.returnable && form.returnOf ? books.voucher(form.returnOf)?.number : undefined;
@@ -1053,7 +1084,10 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     const openLine = orderState?.status === 'open' && fillLine !== undefined && !fillLine.filled;
     return (
       <div key={`l${i}`} class={`${!idle && current.line === i ? 'vrow sales-row active' : 'vrow sales-row'}${openLine ? ' open-line' : ''}`}>
-        <div class="vc-ledger">
+        <div class={selecting && openLine ? 'vc-ledger has-tick' : 'vc-ledger'}>
+          {selecting && openLine && (
+            <input type="checkbox" class="line-tick" tabIndex={-1} aria-label={`Select line ${i + 1}`} data-testid="line-tick" checked={ticked.includes(l.key)} onMouseDown={(e) => e.preventDefault()} onChange={() => toggleTick(l.key)} />
+          )}
           {l.oneTime ? (
             <>
               <Cell
@@ -1219,10 +1253,10 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     return true;
   };
 
-  /** A new invoice for what this order still has to deliver. */
+  /** A new invoice for what this order still has to deliver — or, with lines ticked, for those lines only. */
   const invoicePending = (): boolean => {
     if (!voucher) return false;
-    app.navigate({ type: 'voucher', mode: 'create', typeKey: invoiceKindOf(p.side), fromOrder: voucher.id });
+    app.navigate({ type: 'voucher', mode: 'create', typeKey: invoiceKindOf(p.side), fromOrder: voucher.id, ...(selectedLines.length > 0 ? { fromOrderLines: selectedLines } : {}) });
     return true;
   };
 
@@ -1279,6 +1313,9 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
         <Only scope={SCOPE} command="order.close" run={() => (setConfirm('close'), true)} />
       )}
       {mode !== 'create' && voucher?.status === 'posted' && p.order && orderState?.status === 'open' && <Only scope={SCOPE} command="order.invoice" run={invoicePending} />}
+      {canSelectLines && <Only scope={SCOPE} command="list.select" run={toggleSelecting} />}
+      {canSelectLines && <Only scope={SCOPE} command="list.pick" run={tickCurrent} />}
+      {selectedLines.length > 0 && <LinesSelected />}
       {mode !== 'create' && voucher?.status === 'posted' && (challanState?.status === 'toInvoice' || challanState?.status === 'partlyInvoiced') && <Only scope={SCOPE} command="order.invoice" run={invoicePending} />}
       {mode !== 'create' && voucher?.status === 'posted' && p.returnable && !form.returnOf && !cameBack && <Only scope={SCOPE} command="challan.markReturned" run={markReturned} />}
       {mode !== 'create' && voucher?.status === 'posted' && p.quote && !convertedTo && <Only scope={SCOPE} command="quotation.order" run={salesOrderFromQuote} />}

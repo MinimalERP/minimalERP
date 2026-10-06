@@ -47,6 +47,8 @@ export type ScreenRef =
       readonly id?: string;
       readonly fromQuotation?: string;
       readonly fromOrder?: string;
+      /** With `fromOrder`: only these order lines (the ones ticked on the order), not every pending one. Not part of the address. */
+      readonly fromOrderLines?: readonly string[];
       /** A new voucher made from an AI Inbox proposal (ADR-0023): it posts under the proposal's id. Not part of the address. */
       readonly fromInbox?: InboxItem;
       /** A new Receipt / Payment that settles this posted invoice / bill (F6 / F5 on it), filled in. Not part of the address. */

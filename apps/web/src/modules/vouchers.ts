@@ -211,14 +211,16 @@ const commands: Command<AppContext>[] = [
   contextual('voucher.paidFrom', 'Paid from: pay this purchase now from cash or a bank (a Payment is saved with it)', { label: 'Paid from', group: 'Actions', order: 12.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.applyCredit', 'Apply credit: set the advances paid to this supplier against this bill', { label: 'Apply credit', group: 'Actions', order: 12.6, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.applyToBills', 'Apply to bills: set this advance against the supplier’s open bills', { label: 'Apply to bills', group: 'Actions', order: 12.7, on: ['voucher'], hideWhenUnavailable: true }),
-  contextual('order.invoice','Create an invoice for the pending items of this order', { label: 'Invoice pending', group: 'Actions', order: 15, on: ['voucher'], fold: 'Inventory' }),
+  contextual('order.invoice','Create an invoice for the pending items of this order', { label: 'Invoice pending', group: 'Actions', order: 15, on: ['voucher'], fold: 'Inventory', labelIn: { 'voucher:lines-selected': 'Invoice selected' } }),
   contextual('challan.markReturned', 'Mark returned: the goods have come back from the supplier', { label: 'Mark returned', group: 'Actions', order: 15.2, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('quotation.order', 'Create a sales order from this quotation', { label: 'Sales order', group: 'Actions', order: 15.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.removeLine', 'Remove this line', { label: 'Remove line', group: 'Actions', order: 14, on: ['voucher'] }),
   contextual('voucher.oneTimeLine', 'One-time line: write it instead of choosing a stock item', { label: 'One-time line', group: 'Actions', order: 14.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.print', 'Print', { label: 'Print', group: 'Actions', order: 16, on: ['voucher'], fold: 'Print' }),
   contextual('voucher.docket', 'Dispatch docket: print the invoices and their items for the transporter', { label: 'Dispatch docket', group: 'Actions', order: 16.2, on: ['voucher', 'report'], hideWhenUnavailable: true, fold: 'Print' }),
-  contextual('list.pick', 'Select or unselect this voucher (to print several at once)', { label: 'Select', group: 'Actions', order: 6, on: ['report'], hideWhenUnavailable: true }),
+  // Select is a switch: on, the rows (a list's vouchers, an order's lines) show tick boxes; off, the boxes go and nothing stays ticked.
+  contextual('list.select', 'Select: show or hide the tick boxes', { label: 'Select', group: 'Actions', order: 6, on: ['report', 'voucher'], hideWhenUnavailable: true }),
+  contextual('list.pick', 'Tick or untick this row (switches Select on)'),
   contextual('voucher.email', 'Email this to the party (from your Gmail)', { label: 'Email', group: 'Actions', order: 16.5, on: ['voucher'], hideWhenUnavailable: true, fold: 'Email' }),
   contextual('voucher.remind', 'Payment reminder: email the customer this invoice with its payment status', { label: 'Payment reminder', group: 'Actions', order: 16.55, on: ['voucher'], hideWhenUnavailable: true, fold: 'Email' }),
   contextual('voucher.sendErp', 'Send via ERP to your company with this party’s GSTIN (lands in its inbox)', { label: 'Send via ERP', group: 'Actions', order: 16.6, on: ['voucher'], hideWhenUnavailable: true, fold: 'Email' }),
@@ -267,7 +269,8 @@ const bindings: DefaultBinding[] = [
   { commandId: 'voucher.print', chord: 'Ctrl+P', scope: 'screen:voucher' },
   // a sales invoice's window and the Sales list both make a dispatch docket
   { commandId: 'voucher.docket', chord: 'Alt+D' },
-  { commandId: 'list.pick', chord: 'Ctrl+Space', scope: 'screen:report' },
+  // a list's rows and an order window's lines are both ticked with it
+  { commandId: 'list.pick', chord: 'Ctrl+Space' },
 ];
 
 const GROUPS: Readonly<Record<ListKind, { group: string; order: number }>> = {
