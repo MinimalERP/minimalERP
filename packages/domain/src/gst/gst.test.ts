@@ -703,3 +703,141 @@ describe('GSTR-3B', () => {
     expect(may.toReview.igst + june.toReview.igst).toBe(e.balance('Input IGST'));
   });
 });
+
+// ---- Credit and Debit Notes (ADR-0026) ---------------------------------------------------------------------------------
+
+describe('Credit and Debit Notes in the GST reports', () => {
+  /** A note of bolts: lines are [qty, rate, gstRate?]; the header is derived as the browser derives it. */
+  const note = (e: Env, kind: 'creditNote' | 'debitNote', party: string, lines: [string, string, string?][], over: Record<string, unknown> = {}) => {
+    const side = kind === 'creditNote' ? 'sales' : 'purchase';
+    const ls = lines.map(([qty, rate, gstRate]) => ({ itemId: e.bolt, warehouseId: e.main, qty, rate, ...(gstRate === undefined ? {} : { gstRate }), hsn: '7318' }));
+    const partyDetails = e.details(party);
+    const gst = deriveGstHeader(e.masters, side, { partyId: party, partyDetails, lines: ls });
+    return {
+      id: newId(`${kind}-${e.vouchers.length}`),
+      voucherTypeId: e.masters.voucherTypes.find((t) => t.baseKind === kind)?.id as string,
+      date: '2024-05-20',
+      partyId: party,
+      partyDetails,
+      ...(kind === 'creditNote' ? { salesLedgerId: e.sales } : { purchaseLedgerId: e.purchases }),
+      lines: ls,
+      ...(gst ? { gst } : {}),
+      ...over,
+    };
+  };
+
+  it('a credit note is the sale turned round: the customer credited, sales and the Output ledgers debited, the books still balanced', () => {
+    const e = new Env();
+    const inv = e.must(e.sale(e.acme, [['10', '100', '18']]));
+    const cn = e.must(note(e, 'creditNote', e.acme, [['4', '100', '18']], { invoiceRef: inv.number, against: '472.00' }));
+    expect(e.rows(cn)).toEqual([
+      ['Acme Ltd', 'credit', '472.00'],
+      ['Sales', 'debit', '400.00'],
+      ['Output CGST', 'debit', '36.00'],
+      ['Output SGST', 'debit', '36.00'],
+    ]);
+    expect(e.balanced()).toBe(true);
+    expect(-e.balance('Output CGST')).toBe(5400n); // 90.00 on the sale less 36.00 on the note
+    // the 4 come back at the 40.00 the book holds a bolt at, so the average does not move
+    expect(e.plan(cn).stock.map((m) => [m.direction, m.qty, m.value])).toEqual([['in', 40000n, 16000n]]);
+    expect(e.stock().positionAt(e.bolt, D('2024-05-31'))).toEqual({ qty: 49940000n, value: 19976000n });
+    expect(openBills(e.vouchers, e.masters, partyLedgerId(e.acme as never, 'customer') as LedgerId).map((b) => [b.ref, b.pending])).toEqual([[inv.number, 70800n]]);
+  });
+
+  it('GSTR-1 reports a registered customer’s credit note in CDNR, nets it in the totals and the HSN summary, and agrees with the Output ledgers', () => {
+    const e = new Env();
+    const inv = e.must(e.sale(e.acme, [['10', '100', '18']]));
+    const cn = e.must(note(e, 'creditNote', e.acme, [['4', '100', '18']], { invoiceRef: inv.number, against: '472.00' }));
+    const invoices = invoicesOf(e, 'sales');
+    expect(invoices.map((i) => [i.number, i.note, gstr1Section(i), i.taxable, i.tax, i.billed])).toEqual([
+      [inv.number, false, 'B2B', 100000n, 18000n, 118000n],
+      [cn.number, true, 'CDNR', -40000n, -7200n, -47200n],
+    ]);
+    expect(gstTotals(invoices)).toMatchObject({ taxable: 60000n, cgst: 5400n, sgst: 5400n, tax: 10800n, value: 70800n });
+    expect(hsnRows(invoices).map((h) => [h.hsn, h.qty, h.taxable, h.cgst, h.sgst])).toEqual([['7318', 60000n, 60000n, 5400n, 5400n]]);
+    expect(gstReconciliation({ invoices, lines: e.journal(), masters: e.masters, side: 'sales' }).every((c) => c.ok)).toBe(true);
+    expect(gstr1Validation(e.masters, invoices).filter((i) => i.severity === 'error')).toEqual([]);
+
+    const docs = gstr1Documents({ vouchers: e.vouchers, masters: e.masters, range: MAY });
+    expect(docs).toEqual([
+      { from: inv.number, to: inv.number, total: 1, cancelled: 0 },
+      { nature: 'creditNote', from: cn.number, to: cn.number, total: 1, cancelled: 0 },
+    ]);
+    const json = gstr1Export({ masters: e.masters, invoices, period: MAY, documents: docs }).json as Record<string, unknown>;
+    expect((json['b2b'] as { inv: unknown[] }[]).map((c) => c.inv.length)).toEqual([1]); // the invoice alone: the note is not an invoice
+    expect(json['cdnr']).toEqual([
+      {
+        ctin: e.masters.party(e.acme as never)?.gstin,
+        nt: [{ ntty: 'C', nt_num: cn.number, nt_dt: '20-05-2024', val: 472, pos: '27', rchrg: 'N', inv_typ: 'R', itms: [{ num: 1, itm_det: { rt: 18, txval: 400, iamt: 0, camt: 36, samt: 36, csamt: 0 } }] }],
+      },
+    ]);
+    expect(json['cdnur']).toBeUndefined();
+    expect((json['hsn'] as { hsn_b2b: { qty: number; txval: number }[] }).hsn_b2b.map((h) => [h.qty, h.txval])).toEqual([[6, 600]]);
+    expect(json['doc_issue']).toEqual({
+      doc_det: [
+        { doc_num: 1, docs: [{ num: 1, from: inv.number, to: inv.number, totnum: 1, cancel: 0, net_issue: 1 }] },
+        { doc_num: 5, docs: [{ num: 1, from: cn.number, to: cn.number, totnum: 1, cancel: 0, net_issue: 1 }] },
+      ],
+    });
+  });
+
+  it('an unregistered customer’s small credit note takes its amounts off the B2CS summary; one for an invoice reported on its own goes to CDNUR', () => {
+    const e = new Env();
+    const small = e.must(e.sale(e.delhi, [['10', '100', '18']])); // inter-state, 1,180: B2CS
+    e.must(note(e, 'creditNote', e.delhi, [['2', '100', '18']], { invoiceRef: small.number }));
+    let invoices = invoicesOf(e, 'sales');
+    expect(invoices.map(gstr1Section)).toEqual(['B2CS', 'B2CS']);
+    let json = gstr1Export({ masters: e.masters, invoices, period: MAY }).json as Record<string, unknown>;
+    expect(json['b2cs']).toEqual([{ sply_ty: 'INTER', typ: 'OE', pos: '07', rt: 18, txval: 800, iamt: 144, camt: 0, samt: 0, csamt: 0 }]);
+    expect(json['cdnur']).toBeUndefined();
+
+    const big = e.must(e.sale(e.delhi, [['3000', '100', '18']])); // 3,54,000 inter-state to an unregistered customer: B2CL
+    const back = e.must(note(e, 'creditNote', e.delhi, [['1', '100', '18']], { invoiceRef: big.number }));
+    invoices = invoicesOf(e, 'sales');
+    expect(invoices.find((i) => i.voucherId === back.id)).toMatchObject({ note: true, invoiceRef: big.number, originalValue: 35400000n });
+    expect(gstr1Section(invoices.find((i) => i.voucherId === back.id) as never)).toBe('CDNUR');
+    json = gstr1Export({ masters: e.masters, invoices, period: MAY }).json as Record<string, unknown>;
+    expect(json['cdnur']).toEqual([{ ntty: 'C', nt_num: back.number, nt_dt: '20-05-2024', val: 118, pos: '07', typ: 'B2CL', itms: [{ num: 1, itm_det: { rt: 18, txval: 100, iamt: 18, camt: 0, samt: 0, csamt: 0 } }] }]);
+  });
+
+  it('GSTR-3B nets both: output tax less credit notes, input tax under review less debit notes — each still agreeing with its ledgers', () => {
+    const e = new Env();
+    e.must(e.sale(e.acme, [['10', '100', '18']]));
+    e.must(note(e, 'creditNote', e.acme, [['4', '100', '18']]));
+    e.must(e.purchase(e.gujarat, [['100', '10', '18']])); // IGST 180.00
+    const dn = e.must(note(e, 'debitNote', e.gujarat, [['50', '10', '18']], { invoiceRef: 'SS/1', against: '590.00' }));
+    expect(e.rows(dn)).toEqual([
+      ['Purchases', 'credit', '500.00'],
+      ['Input IGST', 'credit', '90.00'],
+      ['Gujarat Steel', 'debit', '590.00'],
+    ]);
+    expect(e.plan(dn).stock.map((m) => [m.direction, m.qty, m.value])).toEqual([['out', 500000n, undefined]]);
+    const r = gstr3b({ vouchers: e.vouchers, lines: e.journal(), masters: e.masters, range: MAY });
+    expect(r.output).toMatchObject({ cgst: 5400n, sgst: 5400n, igst: 0n, tax: 10800n });
+    expect(r.toReview).toMatchObject({ taxable: 50000n, igst: 9000n, tax: 9000n });
+    expect([...r.reconciliation.sales, ...r.reconciliation.purchases].every((c) => c.ok)).toBe(true);
+    expect(e.balanced()).toBe(true);
+    // GSTR-2B matches invoices: the notes are left out when asked
+    expect(gstInvoices({ vouchers: e.vouchers, masters: e.masters, side: 'purchase', range: MAY, notes: false }).map((i) => i.note)).toEqual([false]);
+  });
+
+  it('a note is refused GST the company does not charge, a ledger of the wrong side, and stock it cannot send back', () => {
+    const codes = (r: Result<Voucher>): string[] => (r.ok ? [] : r.issues.map((i) => i.code));
+    const off = new Env(false);
+    expect(codes(off.post(note(off, 'creditNote', off.acme, [['1', '100', '18']])))).toEqual([IssueCode.GstInvalid]);
+    const e = new Env();
+    expect(codes(e.post(note(e, 'creditNote', e.acme, [['1', '100', '18']], { salesLedgerId: e.purchases })))).toEqual([IssueCode.SalesDocInvalid]);
+    expect(codes(e.post(note(e, 'debitNote', e.steel, [['6000', '10', '18']])))).toEqual([IssueCode.StockNegative]);
+  });
+
+  it('goods that come back when none are left return at the cost the last of them went out at', () => {
+    const book = new StockBook([
+      { voucherId: 'a' as never, lineNo: 1, date: D('2024-04-01'), itemId: 'i' as never, warehouseId: 'w' as never, direction: 'in', qty: 100000n as never, value: 50000n as never },
+      { voucherId: 'b' as never, lineNo: 1, date: D('2024-04-05'), itemId: 'i' as never, warehouseId: 'w' as never, direction: 'out', qty: 100000n as never },
+    ]);
+    expect(book.costOf('i' as never, D('2024-04-03'), 40000n as never)).toBe(20000n); // 4 of the 10 held at 500.00
+    expect(book.costOf('i' as never, D('2024-04-10'), 40000n as never)).toBe(20000n); // all sold: at what they left at
+    expect(book.costOf('i' as never, D('2024-03-31'), 40000n as never)).toBe(0n); // never held yet
+    expect(book.costOf('other' as never, D('2024-04-10'), 40000n as never)).toBe(0n);
+  });
+});

@@ -58,6 +58,7 @@ export { quotationKind, quotationDraftSchema, type QuotationDraft } from './vouc
 export { returnableChallanKind, returnableChallanDraftSchema, type ReturnableChallanDraft } from './vouchers/kinds/returnableChallan';
 export { deliveryChallanKind, deliveryChallanDraftSchema, type DeliveryChallanDraft } from './vouchers/kinds/deliveryChallan';
 export { purchaseKind, purchaseDraftSchema, type PurchaseDraft } from './vouchers/kinds/purchase';
+export { creditNoteKind, debitNoteKind, creditNoteDraftSchema, debitNoteDraftSchema, type CreditNoteDraft, type DebitNoteDraft, isNoteKind, noteSideOf, noteSettlementOf } from './vouchers/kinds/notes';
 export { purchaseOrderKind, purchaseOrderDraftSchema, type PurchaseOrderDraft } from './vouchers/kinds/purchaseOrder';
 export {
   customerLedgerOf,

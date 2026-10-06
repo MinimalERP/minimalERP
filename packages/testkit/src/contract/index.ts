@@ -3,6 +3,7 @@ import { buggyRulesContract } from './buggyRules';
 import { lifecycleContract } from './lifecycle';
 import { masterContract } from './masters';
 import { gstContract } from './gst';
+import { notesContract } from './notes';
 import { purchaseContract } from './purchase';
 import { salesContract } from './sales';
 import { stockContract } from './stock';
@@ -11,7 +12,7 @@ import { type PropertyRuns, propertiesContract } from './properties';
 import { postingRulesContract } from './rules';
 import { trialBalanceContract } from './trialBalance';
 
-export { buggyRulesContract, gstContract, lifecycleContract, masterContract, purchaseContract, salesContract, stockContract, voucherDetailsContract, postingRulesContract, propertiesContract, trialBalanceContract };
+export { buggyRulesContract, gstContract, lifecycleContract, masterContract, notesContract, purchaseContract, salesContract, stockContract, voucherDetailsContract, postingRulesContract, propertiesContract, trialBalanceContract };
 export type { PropertyRuns };
 
 /**

@@ -1,4 +1,4 @@
-import { type Masters, type Money, type Voucher, allocatedLinesOf, formatMoney, openBills } from '@minimalerp/domain';
+import { type Masters, type Money, type Voucher, allocatedLinesOf, formatMoney, isNoteKind, openBills } from '@minimalerp/domain';
 import { formatDate } from './format';
 import { type VoucherForm, blankLine } from './model';
 import { partyDetailsOfParty } from './salesModel';
@@ -46,7 +46,7 @@ export function settleFormFor(
     id: crypto.randomUUID(),
     typeId,
     date,
-    narration: `${receipt ? 'Received against invoice' : 'Paid against bill'} ${bill.ref} dated ${formatDate(invoice.date)}`,
+    narration: `${isNoteKind(masters.voucherType(invoice.voucherTypeId)?.baseKind) ? (receipt ? 'Refund received against debit note' : 'Refund of credit note') : receipt ? 'Received against invoice' : 'Paid against bill'} ${bill.ref} dated ${formatDate(invoice.date)}`,
     accountId: account?.isActive ? account.id : '',
     accountLabel: account?.isActive ? account.name : '',
     lines: [{ ...blankLine(receipt ? 'credit' : 'debit'), ledgerId: bill.ledgerId, label: ledger?.name ?? '', amount, allocations: [{ kind: 'against', ref: bill.ref, dueDate: '', amount }] }],

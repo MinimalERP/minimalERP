@@ -136,12 +136,12 @@ Reconciliation invariants tested on every report change: TB Dr = Cr · Assets = 
 | 4 | Masters + search index: schema-driven forms, triggers, Tier-1 cache, Alt+C create-and-return | "ABC" returns multi-entity hits; Alt+C returns id with focus restored | next |
 | 5 | Accounting vouchers + first books: VoucherScreen, Contra/Payment/Receipt/Journal, bill allocations, alter/cancel, Day Book, Ledger | Payment → Day Book → Ledger → Voucher, keyboard only | |
 | 6 | Books & reports: Cash/Bank Book, TB, P&L, BS, Outstanding, drill everywhere | Reconciliation suite; TB p95 on 1M-row seed | |
-| 7 | Inventory, Sales/Purchase, GST: items, stock ledger, valuation, invoices, Credit/Debit notes, Stock Summary, GST registers | Books/stock reconcile; GST fixtures | |
+| 7 | Inventory, Sales/Purchase, GST: items, stock ledger, valuation, invoices, Credit/Debit notes (ADR-0026), Stock Summary, GST registers | Books/stock reconcile; GST fixtures | **done** |
 | 8 | Orders & documents: SO/PO, Delivery/Receipt notes, voucher_links, stock journal | Order → delivery → invoice tracking | |
 | 9 | Production readiness: year-end close, roles UI, audit viewer, CSV import, print/PDF, restore drill, load tests | Carry-forward reconciles; restore drill | |
 | 10+ | Manufacturing (BOM, production, job work) — separate plan | | |
 
-Current shipped vs remaining detail (credit notes, delivery challan, GRN, …): **[product-roadmap.md](product-roadmap.md)**.
+Current shipped vs remaining detail (GRN, year-end close, …): **[product-roadmap.md](product-roadmap.md)**.
 
 ## 11. Testing
 

@@ -32,16 +32,20 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
   const foc = kind === 'deliveryChallan' && form.purpose === 'foc';
   const returnable = kind === 'returnableChallan';
   const delivery = kind === 'deliveryChallan';
+  const note = kind === 'creditNote' || kind === 'debitNote';
+  // a note prints the invoice it is for where an invoice prints its PO
+  const noteFor = note && form.billNo.trim() !== '' ? form.billNo.trim() : undefined;
   return {
     kind: 'invoice',
     voucherKind: kind,
     // a delivery challan's title is its name alone, centred; that it is free of charge is said in the narration
     docTitle: kind === 'sales' && masters.company.chargeGst === true ? 'Tax Invoice' : returnable && form.returnOf ? `${type.name} – Goods Returned` : type.name,
     ...(delivery ? { titleCentred: true, poLabel: 'PO / Ref.' } : {}),
-    numberLabel: kind === 'sales' ? 'Invoice No.' : delivery || returnable ? 'Challan No.' : undefined,
+    ...(note ? { poLabel: noteFor ? 'Against Inv.' : 'Reference' } : {}),
+    numberLabel: kind === 'sales' ? 'Invoice No.' : delivery || returnable ? 'Challan No.' : note ? 'Note No.' : undefined,
     number: voucher.number,
     date: voucher.date,
-    poNo: form.reference || undefined,
+    poNo: noteFor ?? (form.reference || undefined),
     ewayBillNo: kind === 'sales' ? form.ewayBillNo || undefined : undefined,
     dcNo: [...new Set(form.lines.filter((l) => l.challanId).map((l) => l.orderLabel))].join(', ') || undefined,
     placeOfSupply: placeOfSupplyText(details?.shipTo?.stateCode ?? details?.billTo?.stateCode ?? details?.placeOfSupply),
@@ -52,7 +56,7 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
     roundOff: preview.roundOff,
     grandTotal: preview.grand,
     // a free-of-charge challan says so on its face: the value is stated, nothing is to be paid
-    narration: [foc ? 'Free of charge (FOC) – not for sale.' : '', returnable && !form.returnOf ? 'Returnable – to be returned to us after the work.' : '', form.narration].filter(Boolean).join(' ') || undefined,
+    narration: [foc ? 'Free of charge (FOC) – not for sale.' : '', returnable && !form.returnOf ? 'Returnable – to be returned to us after the work.' : '', noteFor && form.reference.trim() !== '' ? `Ref: ${form.reference.trim()}.` : '', form.narration].filter(Boolean).join(' ') || undefined,
   };
 }
 

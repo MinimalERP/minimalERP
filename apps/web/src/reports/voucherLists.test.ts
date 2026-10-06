@@ -17,6 +17,9 @@ async function demo(): Promise<Books> {
   return r.value;
 }
 
+/** What the Sales Vouchers list shows as still pending on an invoice. */
+const billedPending = (books: Books, voucherId: string) => rowsOf(books, 'sales').find((r) => r.voucherId === voucherId)?.pending;
+
 const rowsOf = (books: Books, kind: BaseKind, asOf = '2000-01-01') =>
   voucherListRows({ vouchers: books.vouchers, lines: books.lines, masters: books.masters, orders: books.orders, kind, asOf: localDate(asOf) });
 
@@ -25,6 +28,8 @@ describe('the voucher lists', () => {
     expect(listTitle('Sales')).toBe('Sales Vouchers');
     expect(listTitle('Sales Order')).toBe('Sales Orders');
     expect(listTitle('Stock Journal')).toBe('Stock Journal Vouchers');
+    expect(listTitle('Credit Note')).toBe('Credit Notes');
+    expect(listTitle('Debit Note')).toBe('Debit Notes');
   });
 
   it('a sales order is ONE row with an overall status: Open (nothing delivered), Partially filled, Closed (delivered in full)', async () => {
@@ -36,6 +41,36 @@ describe('the voucher lists', () => {
       ['KEW-12', 'Open', '5400.00'], // nothing delivered yet
     ]);
     expect(rows.map((r) => voucherRowClass(r))).toEqual(['open-line', 'closed-order', 'open-line']);
+  });
+
+  it('a credit note is one row: the invoice it is for, what stands open as its own credit, and Open until that is applied or refunded', async () => {
+    const books = await demo();
+    const abc = id('party', 'ABC Industries');
+    const invoice = books.vouchers.find((v) => v.status === 'posted' && books.masters.voucherType(v.voucherTypeId)?.baseKind === 'sales' && (v.content as { partyId?: string }).partyId === abc)!;
+    const c = invoice.content as unknown as { partyDetails: unknown; salesLedgerId: string };
+    const note = (n: string, over: Record<string, unknown>) => ({
+      id: deterministicUuid(`test|cn|${n}`),
+      voucherTypeId: books.masters.voucherTypes.find((t) => t.baseKind === 'creditNote')?.id,
+      date: invoice.date,
+      partyId: abc,
+      partyDetails: c.partyDetails,
+      salesLedgerId: c.salesLedgerId,
+      lines: [{ description: 'Rate difference', qty: '1', rate: '300' }],
+      ...over,
+    });
+    expect((await books.post(note('a', { invoiceRef: invoice.number, against: '300.00' }))).ok).toBe(true);
+    expect((await books.post(note('b', {}))).ok).toBe(true);
+    const rows = rowsOf(books, 'creditNote');
+    expect(rows.map((r) => [r.particulars, r.billNo, formatMoney(r.amount), formatMoney(r.pending), r.status])).toEqual([
+      ['ABC Industries', invoice.number, '300.00', '0.00', 'Applied'],
+      ['ABC Industries', '', '300.00', '300.00', 'Open'],
+    ]);
+    expect(rows.map((r) => voucherRowClass(r))).toEqual(['closed-order', 'open-line']);
+    expect(voucherListColumns('creditNote').map((col) => col.label)).toEqual(['Date', 'Voucher no.', 'Customer', 'Against inv.', 'Amount', 'Open credit', 'Status']);
+    expect(voucherListColumns('debitNote').map((col) => col.label)).toEqual(['Date', 'Voucher no.', 'Supplier', 'Against inv.', 'Amount', 'Open debit', 'Status']);
+    // and the invoice's own row in the Sales list has the 300.00 set against it taken off what is pending
+    const total = rowsOf(books, 'sales').find((r) => r.voucherId === invoice.id)?.amount as bigint;
+    expect(billedPending(books, invoice.id)).toBeLessThanOrEqual(total - 30000n);
   });
 
   it('closing an order by hand closes it whatever was delivered; cancelling an invoice takes an order back to Open', async () => {

@@ -63,13 +63,13 @@ export interface Ledger {
 /**
  * The built-in voucher behaviours. A VoucherType (below) is a named, configurable instance of
  * one of these — "Sales-Export" is a VoucherType row with baseKind 'sales', not new code.
- * Later phases add 'sales', 'purchase', 'credit-note', … here and register a VoucherKind for each.
+ * Each has a VoucherKind registered for it (vouchers/registry.ts).
  */
-export type BaseKind = 'contra' | 'payment' | 'receipt' | 'journal' | 'opening' | 'stockJournal' | 'stockOpening' | 'sales' | 'salesOrder' | 'quotation' | 'purchase' | 'purchaseOrder' | 'deliveryChallan' | 'returnableChallan';
+export type BaseKind = 'contra' | 'payment' | 'receipt' | 'journal' | 'opening' | 'stockJournal' | 'stockOpening' | 'sales' | 'salesOrder' | 'quotation' | 'purchase' | 'purchaseOrder' | 'deliveryChallan' | 'returnableChallan' | 'creditNote' | 'debitNote';
 
 /** The kinds a person can create a voucher type for. 'opening' and 'stockOpening' are system kinds (opening balances, opening stock). */
 export type UserBaseKind = Exclude<BaseKind, 'opening' | 'stockOpening'>;
-export const USER_BASE_KINDS: readonly UserBaseKind[] = ['contra', 'payment', 'receipt', 'journal', 'stockJournal', 'sales', 'salesOrder', 'quotation', 'purchase', 'purchaseOrder', 'deliveryChallan', 'returnableChallan'];
+export const USER_BASE_KINDS: readonly UserBaseKind[] = ['contra', 'payment', 'receipt', 'journal', 'stockJournal', 'sales', 'salesOrder', 'quotation', 'purchase', 'purchaseOrder', 'deliveryChallan', 'returnableChallan', 'creditNote', 'debitNote'];
 
 /** Kinds that move stock and post NOTHING to the accounts. */
 export const STOCK_ONLY_KINDS: readonly BaseKind[] = ['stockJournal', 'stockOpening', 'deliveryChallan', 'returnableChallan'];

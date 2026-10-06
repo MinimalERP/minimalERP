@@ -1,6 +1,6 @@
 import { type Command, type DefaultBinding, type MenuEntry, type ModuleManifest, searchEntities } from '@minimalerp/command';
 import { voucherDocsOf } from '../books/voucherDocs';
-import { CHALLAN_KIND, ENTRY_KINDS, RETURNABLE_KIND, type EntryKind, KIND_TITLES, QUOTATION_KIND, SALES_KINDS, SALES_TITLES, type SalesKind, isSalesKind } from '../vouchers/kinds';
+import { CHALLAN_KIND, ENTRY_KINDS, NOTE_KINDS, NOTE_TITLES, type NoteKind, RETURNABLE_KIND, type EntryKind, KIND_TITLES, QUOTATION_KIND, SALES_KINDS, SALES_TITLES, type SalesKind, isSalesKind } from '../vouchers/kinds';
 import type { AppContext } from '../shell/services';
 
 /**
@@ -83,13 +83,31 @@ const returnableCommand: Command<AppContext> = {
   run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: RETURNABLE_KIND, fast: true }),
 };
 
+// The Credit Note and the Debit Note (ADR-0026): an invoice taken back. They REPLACE the planned entries of the same ids.
+const NOTE_KEYWORDS: Readonly<Record<NoteKind, readonly string[]>> = {
+  creditNote: ['credit note', 'cn', 'sales return', 'return from customer', 'goods returned', 'rate difference', 'discount after sale'],
+  debitNote: ['debit note', 'dn', 'purchase return', 'return to supplier', 'goods sent back', 'rate difference', 'short supply'],
+};
+const NOTE_DESCRIPTIONS: Readonly<Record<NoteKind, string>> = {
+  creditNote: 'A sale taken back — goods returned by a customer, or a price reduced: reverses the sale and its GST, brings the stock back in, and is set against the invoice',
+  debitNote: 'A purchase taken back — goods sent back to a supplier, or a price reduced: reverses the purchase and its GST, takes the stock out, and is set against the supplier’s bill',
+};
+const noteCommands: Command<AppContext>[] = NOTE_KINDS.map((kind) => ({
+  id: `voucher.new.${kind}`,
+  title: `New ${NOTE_TITLES[kind]}`,
+  category: 'Voucher',
+  keywords: NOTE_KEYWORDS[kind],
+  description: NOTE_DESCRIPTIONS[kind],
+  run: (app) => app.navigate({ type: 'voucher', mode: 'create', typeKey: kind, fast: true }),
+}));
+
 // The Stock Journal moves stock, not money: it is opened from anywhere (F10) and has its own columns, so it is not one of the keys that switch type inside an accounting voucher.
 // One LIST per voucher type (Transactions › Sales › Sales Vouchers): every voucher of that type, with New. The window it opens closes back here.
-const LIST_KINDS = [...ENTRY_KINDS, ...SALES_KINDS, QUOTATION_KIND, 'stockJournal', CHALLAN_KIND, RETURNABLE_KIND] as const;
+const LIST_KINDS = [...ENTRY_KINDS, ...SALES_KINDS, QUOTATION_KIND, 'stockJournal', CHALLAN_KIND, RETURNABLE_KIND, ...NOTE_KINDS] as const;
 type ListKind = (typeof LIST_KINDS)[number];
-const NEW_TITLES: Readonly<Record<ListKind, string>> = { contra: 'Contra Voucher', payment: 'Payment Voucher', receipt: 'Receipt Voucher', journal: 'Journal Voucher', sales: 'Sales Voucher', salesOrder: 'Sales Order', quotation: 'Quotation', purchase: 'Purchase Voucher', purchaseOrder: 'Purchase Order', stockJournal: 'Stock Journal', deliveryChallan: 'Delivery Challan', returnableChallan: 'Returnable Challan' };
-const LIST_TITLES: Readonly<Record<ListKind, string>> = { contra: 'Contra Vouchers', payment: 'Payment Vouchers', receipt: 'Receipt Vouchers', journal: 'Journal Vouchers', sales: 'Sales Vouchers', salesOrder: 'Sales Orders', quotation: 'Quotations', purchase: 'Purchase Vouchers', purchaseOrder: 'Purchase Orders', stockJournal: 'Stock Journal Vouchers', deliveryChallan: 'Delivery Challans', returnableChallan: 'Returnable Challans' };
-const LIST_KEYS: Readonly<Record<ListKind, string>> = { ...KEYS, ...SALES_KEYS, quotation: '', stockJournal: 'F10', deliveryChallan: 'Alt+F8', returnableChallan: '' };
+const NEW_TITLES: Readonly<Record<ListKind, string>> = { contra: 'Contra Voucher', payment: 'Payment Voucher', receipt: 'Receipt Voucher', journal: 'Journal Voucher', sales: 'Sales Voucher', salesOrder: 'Sales Order', quotation: 'Quotation', purchase: 'Purchase Voucher', purchaseOrder: 'Purchase Order', stockJournal: 'Stock Journal', deliveryChallan: 'Delivery Challan', returnableChallan: 'Returnable Challan', creditNote: 'Credit Note', debitNote: 'Debit Note' };
+const LIST_TITLES: Readonly<Record<ListKind, string>> = { contra: 'Contra Vouchers', payment: 'Payment Vouchers', receipt: 'Receipt Vouchers', journal: 'Journal Vouchers', sales: 'Sales Vouchers', salesOrder: 'Sales Orders', quotation: 'Quotations', purchase: 'Purchase Vouchers', purchaseOrder: 'Purchase Orders', stockJournal: 'Stock Journal Vouchers', deliveryChallan: 'Delivery Challans', returnableChallan: 'Returnable Challans', creditNote: 'Credit Notes', debitNote: 'Debit Notes' };
+const LIST_KEYS: Readonly<Record<ListKind, string>> = { ...KEYS, ...SALES_KEYS, quotation: '', stockJournal: 'F10', deliveryChallan: 'Alt+F8', returnableChallan: '', creditNote: '', debitNote: '' };
 const LIST_KEYWORDS: Readonly<Record<ListKind, readonly string[]>> = {
   contra: ['list', 'register', 'cash deposit'],
   payment: ['list', 'register', 'payments made'],
@@ -103,6 +121,8 @@ const LIST_KEYWORDS: Readonly<Record<ListKind, readonly string[]>> = {
   stockJournal: ['list', 'register', 'transfers', 'conversion'],
   deliveryChallan: ['list', 'register', 'challans', 'dc', 'dispatch', 'foc'],
   returnableChallan: ['list', 'register', 'returnable', 'rc', 'repair', 'sent to supplier'],
+  creditNote: ['list', 'register', 'credit notes', 'cn', 'sales returns'],
+  debitNote: ['list', 'register', 'debit notes', 'dn', 'purchase returns'],
 };
 const listCommands: Command<AppContext>[] = LIST_KINDS.map((kind) => ({
   id: `voucher.list.${kind}`,
@@ -198,6 +218,7 @@ const commands: Command<AppContext>[] = [
   ...newCommands,
   ...salesCommands,
   quotationCommand,
+  ...noteCommands,
   challanCommand,
   returnableCommand,
   stockJournalCommand,
@@ -212,6 +233,8 @@ const commands: Command<AppContext>[] = [
   contextual('voucher.applyCredit', 'Apply credit: set the advances paid to this supplier against this bill', { label: 'Apply credit', group: 'Actions', order: 12.6, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.applyToBills', 'Apply to bills: set this advance against the supplier’s open bills', { label: 'Apply to bills', group: 'Actions', order: 12.7, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('order.invoice','Create an invoice for the pending items of this order', { label: 'Invoice pending', group: 'Actions', order: 15, on: ['voucher'], fold: 'Inventory', labelIn: { 'voucher:lines-selected': 'Invoice selected' } }),
+  // on a Sales invoice it makes its credit note; on a Purchase invoice (the window says so with a scope) its debit note
+  contextual('invoice.note', 'Credit / debit note for this invoice: goods returned or a price reduced', { label: 'Credit note', group: 'Actions', order: 15.1, on: ['voucher'], hideWhenUnavailable: true, labelIn: { 'voucher:purchase-invoice': 'Debit note' } }),
   contextual('challan.markReturned', 'Mark returned: the goods have come back from the supplier', { label: 'Mark returned', group: 'Actions', order: 15.2, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('quotation.order', 'Create a sales order from this quotation', { label: 'Sales order', group: 'Actions', order: 15.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.removeLine', 'Remove this line', { label: 'Remove line', group: 'Actions', order: 14, on: ['voucher'] }),
@@ -251,6 +274,7 @@ const bindings: DefaultBinding[] = [
   { commandId: 'order.close', chord: 'Alt+K', scope: 'screen:voucher' },
   { commandId: 'order.invoice', chord: 'Alt+I', scope: 'screen:voucher' },
   { commandId: 'quotation.order', chord: 'Alt+Shift+O', scope: 'screen:voucher' },
+  { commandId: 'invoice.note', chord: 'Alt+Shift+R', scope: 'screen:voucher' },
   { commandId: 'voucher.email', chord: 'Alt+Shift+E', scope: 'screen:voucher' },
   { commandId: 'voucher.sendErp', chord: 'Alt+Shift+S', scope: 'screen:voucher' },
   { commandId: 'voucher.new.stockJournal', chord: 'F10' },
@@ -282,6 +306,8 @@ const GROUPS: Readonly<Record<ListKind, { group: string; order: number }>> = {
   stockJournal: { group: 'Inventory', order: 20 },
   deliveryChallan: { group: 'Sales', order: 4 },
   returnableChallan: { group: 'Purchase', order: 14 },
+  creditNote: { group: 'Sales', order: 2.5 },
+  debitNote: { group: 'Purchase', order: 12 },
   contra: { group: 'General', order: 30 },
   payment: { group: 'General', order: 31 },
   receipt: { group: 'General', order: 32 },

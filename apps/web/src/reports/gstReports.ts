@@ -145,7 +145,7 @@ export function gstr1Columns(side: 'sales' | 'purchase'): ColumnSpec<Gstr1Row>[]
             label: 'Type',
             type: 'choice',
             value: (r: Gstr1Row) => r.section,
-            choices: ['B2B', 'B2CL', 'B2CS', 'Export'].map((v) => ({ value: v, label: v })),
+            choices: ['B2B', 'B2CL', 'B2CS', 'Export', 'CDNR', 'CDNUR'].map((v) => ({ value: v, label: v })),
           },
         ] as ColumnSpec<Gstr1Row>[])
       : []),

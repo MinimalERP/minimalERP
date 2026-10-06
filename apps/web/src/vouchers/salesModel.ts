@@ -13,7 +13,11 @@ import {
   ZERO,
   type GstHeader,
   billRefProblems,
+  billStatusOf,
   canonicalId,
+  customerLedgerOf,
+  openBills,
+  vendorLedgerOf,
   canonicalPercent,
   deriveGstHeader,
   grandTotalParts,
@@ -88,7 +92,10 @@ export interface SalesForm {
   /** Invoice: the ledger sales (or, on a purchase, purchases) are booked to. */
   salesLedgerId: string;
   salesLedgerLabel: string;
-  /** Purchase invoice: the SUPPLIER'S invoice number — the name of the bill it raises. */
+  /**
+   * Purchase invoice: the SUPPLIER'S invoice number — the name of the bill it raises. Credit / debit note: the invoice it is FOR (our invoice
+   * number on a credit note, the supplier's on a debit note) — what it is set against while that invoice's bill is open.
+   */
   billNo: string;
   /** Invoice: when the customer's bill falls due (the date plus the party's credit days until someone chooses otherwise). */
   due: string;
@@ -418,8 +425,12 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
       : p.order
       ? { ...base, ...(form.closed ? { closed: true } : {}), ...(form.quotationId ? { quotationId: form.quotationId } : {}) }
       : p.side === 'sales'
-        ? { ...base, salesLedgerId: form.salesLedgerId, dueDate: form.due, ...(gst ? { gst } : {}), ...(form.ewayBillNo.trim() !== '' ? { ewayBillNo: form.ewayBillNo.trim() } : {}) }
-        : { ...base, purchaseLedgerId: form.salesLedgerId, billNo: form.billNo.trim(), dueDate: form.due, ...(gst ? { gst } : {}) },
+        ? p.note
+          ? { ...base, salesLedgerId: form.salesLedgerId, ...(form.billNo.trim() !== '' ? { invoiceRef: form.billNo.trim() } : {}), ...(gst ? { gst } : {}) }
+          : { ...base, salesLedgerId: form.salesLedgerId, dueDate: form.due, ...(gst ? { gst } : {}), ...(form.ewayBillNo.trim() !== '' ? { ewayBillNo: form.ewayBillNo.trim() } : {}) }
+        : p.note
+          ? { ...base, purchaseLedgerId: form.salesLedgerId, ...(form.billNo.trim() !== '' ? { invoiceRef: form.billNo.trim() } : {}), ...(gst ? { gst } : {}) }
+          : { ...base, purchaseLedgerId: form.salesLedgerId, billNo: form.billNo.trim(), dueDate: form.due, ...(gst ? { gst } : {}) },
     kept,
   };
 }
@@ -457,6 +468,8 @@ export interface SalesPreview {
   /** The Round Off adjustment (Round Off ledger): raw total + roundOff = grand. Zero when the total is already a whole rupee. */
   readonly roundOff: Money;
   readonly grand: Money;
+  /** A credit / debit note: how much of it is set against the invoice it names (what that invoice's bill still has open, never more than the note). */
+  readonly against?: Money | undefined;
 }
 
 const LEAF: Readonly<Record<string, 'item' | 'wh' | 'ldue' | 'ord' | 'qty' | 'rate' | 'gst' | 'hsn'>> = {
@@ -482,6 +495,8 @@ const HEADER: Readonly<Record<string, SalesFieldKey>> = {
   salesLedgerId: 'sledger',
   purchaseLedgerId: 'sledger',
   billNo: 'billno',
+  invoiceRef: 'billno',
+  against: 'billno',
   dueDate: 'due',
   narration: 'narration',
 };
@@ -512,8 +527,9 @@ function localIssues(form: SalesForm, kind: ItemDocKind, kept: readonly number[]
   if (form.partyId === '') out.push({ field: 'party', message: `Choose the ${p.noun}` });
   if (p.invoice) {
     if (form.salesLedgerId === '') out.push({ field: 'sledger', message: `Choose the ${p.ledgerLabel.toLowerCase()}` });
-    if (p.side === 'purchase' && form.billNo.trim() === '') out.push({ field: 'billno', message: 'Enter the supplier’s invoice number' });
-    if (form.due === '') out.push({ field: 'due', message: 'Enter the due date' });
+    // a note raises no bill to pay: it has no due date, and the invoice it is for is optional
+    if (p.side === 'purchase' && !p.note && form.billNo.trim() === '') out.push({ field: 'billno', message: 'Enter the supplier’s invoice number' });
+    if (!p.note && form.due === '') out.push({ field: 'due', message: 'Enter the due date' });
   }
   for (const i of kept) {
     const l = form.lines[i] as SalesLineForm;
@@ -551,8 +567,9 @@ export function previewSales(
   /** The company's vouchers: a purchase invoice's supplier invoice number is checked against the bills already there. */
   vouchers: readonly Voucher[] = [],
 ): SalesPreview {
-  const { draft, kept } = formToSalesDraft(form, kind, masters);
-  const header = draft['gst'] as GstHeader | undefined;
+  const built = formToSalesDraft(form, kind, masters);
+  const { kept } = built;
+  const header = built.draft['gst'] as GstHeader | undefined;
   const gst = header ? { cgst: header.cgst, sgst: header.sgst, igst: header.igst, placeOfSupply: header.placeOfSupply, supplyState: header.supplyState } : undefined;
   const amounts = new Map<number, Money>();
   let total: Money = ZERO;
@@ -568,8 +585,11 @@ export function previewSales(
     kept.map((i) => form.lines[i] as SalesLineForm),
     gst,
   );
+  // a note is set against the invoice it names for as much as that invoice's bill still has open (its own earlier share counted as open)
+  const against = docProfile(kind).note ? noteAgainst(kind, form, grand, masters, vouchers) : undefined;
+  const draft = against !== undefined ? { ...built.draft, against } : built.draft;
   const local = localIssues(form, kind, kept, masters);
-  if (local.length > 0) return { ok: false, issues: local, draft, amounts, total, gst, roundOff, grand };
+  if (local.length > 0) return { ok: false, issues: local, draft, amounts, total, gst, roundOff, grand, against };
 
   const result = prepareVoucher(
     draft,
@@ -580,8 +600,8 @@ export function previewSales(
   );
   if (result.ok) {
     const duplicate = billRefProblems(result.value.voucherType.baseKind, result.value.draft, masters, vouchers, form.id as never);
-    if (duplicate.length === 0) return { ok: true, issues: [], draft, amounts, total, gst, roundOff, grand };
-    return { ok: false, issues: duplicate.map((i) => ({ field: fieldOfSalesPath(i.path, kept), message: i.message, code: i.code })), draft, amounts, total, gst, roundOff, grand };
+    if (duplicate.length === 0) return { ok: true, issues: [], draft, amounts, total, gst, roundOff, grand, against };
+    return { ok: false, issues: duplicate.map((i) => ({ field: fieldOfSalesPath(i.path, kept), message: i.message, code: i.code })), draft, amounts, total, gst, roundOff, grand, against };
   }
   return {
     ok: false,
@@ -592,6 +612,86 @@ export function previewSales(
     gst,
     roundOff,
     grand,
+    against,
+  };
+}
+
+// ---- credit and debit notes: the invoice a note is for -----------------------------------------------------------
+
+/** The party ledger a note is posted to, and the side its invoices' bills sit on there. */
+const noteLedger = (kind: ItemDocKind, partyId: string): { ledgerId: string; billSide: 'debit' | 'credit' } =>
+  kind === 'creditNote' ? { ledgerId: customerLedgerOf(partyId as never), billSide: 'debit' } : { ledgerId: vendorLedgerOf(partyId as never), billSide: 'credit' };
+
+/**
+ * How much of a note is set against the invoice it names: what that invoice's bill still has open — never more than the note comes to. Nothing
+ * when it names no invoice, or one whose bill is not open (already paid, or not a bill of this party): the whole note is then a credit of its own.
+ */
+export function noteAgainst(kind: ItemDocKind, form: Pick<SalesForm, 'id' | 'partyId' | 'billNo'>, grand: Money, masters: Masters, vouchers: readonly Voucher[]): Money | undefined {
+  const ref = form.billNo.trim();
+  if (ref === '' || form.partyId === '' || grand <= 0n) return undefined;
+  const { ledgerId, billSide } = noteLedger(kind, form.partyId);
+  const bill = openBills(vouchers, masters, ledgerId as never, form.id as never).find((b) => b.ref === ref && b.side === billSide);
+  if (!bill) return undefined;
+  return money(bill.pending < grand ? bill.pending : grand);
+}
+
+/**
+ * The invoices a note can be for: the party's posted invoices of the note's side (Sales for a credit note, Purchases for a debit note), newest
+ * first, each named as its bill is — our invoice number, or the supplier's — with what is still open on it.
+ */
+export function noteInvoiceOptions(kind: ItemDocKind, partyId: string, masters: Masters, vouchers: readonly Voucher[], format: (m: Money) => string): Option[] {
+  if (partyId === '') return [];
+  const invoiceKind = kind === 'creditNote' ? 'sales' : 'purchase';
+  const out: (Option & { date: string })[] = [];
+  for (const v of vouchers) {
+    if (v.status !== 'posted' || masters.voucherType(v.voucherTypeId)?.baseKind !== invoiceKind) continue;
+    const c = v.content as unknown as { partyId?: string; billNo?: string };
+    if (c.partyId !== partyId) continue;
+    const name = invoiceKind === 'sales' ? v.number : (c.billNo ?? '').trim();
+    if (name === '') continue;
+    const bill = billStatusOf(v, vouchers, masters);
+    const sub = [formatDate(v.date), invoiceKind === 'purchase' ? v.number : undefined, bill ? format(bill.total) : undefined, bill ? (bill.pending > 0n ? `${format(bill.pending)} open` : 'settled') : undefined];
+    out.push({ id: v.id, name, date: v.date, sub: sub.filter(Boolean).join(' · ') });
+  }
+  return out.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : a.name < b.name ? 1 : -1)).map(({ date: _d, ...o }) => o);
+}
+
+/**
+ * A new credit (debit) note for a posted Sales (Purchase) invoice: the same party, party details, ledger and lines — every item, quantity,
+ * rate and GST rate, so what did NOT come back is taken off or reduced — named for that invoice. Lines that were against an order or a
+ * challan come as plain lines (a line billed from a challan had no godown: it gets the main one, where the goods come back to). Never dated
+ * before the invoice. Undefined when the voucher is not a posted invoice.
+ */
+export function noteFormFromInvoice(
+  invoice: Voucher,
+  masters: Masters,
+  args: { id: string; typeId: string; date: string; newKey: () => string; warehouse?: { id: string; label: string } | undefined },
+): SalesForm | undefined {
+  const base = masters.voucherType(invoice.voucherTypeId)?.baseKind;
+  if (invoice.status !== 'posted' || (base !== 'sales' && base !== 'purchase')) return undefined;
+  const src = salesFormFromVoucher(invoice, masters, orderBookOf([], masters));
+  const date = args.date < invoice.date ? invoice.date : args.date;
+  const isService = (l: SalesLineForm) => l.itemId !== '' && masters.stockItem(l.itemId as never)?.itemType === 'service';
+  return {
+    ...blankSalesForm(args.id, args.typeId, date, args.newKey()),
+    partyId: src.partyId,
+    partyLabel: src.partyLabel,
+    partyDetails: src.partyDetails,
+    salesLedgerId: src.salesLedgerId,
+    salesLedgerLabel: src.salesLedgerLabel,
+    billNo: base === 'sales' ? invoice.number : src.billNo,
+    lines: src.lines
+      .filter((l) => !isEmptyLine(l))
+      .map(({ challanId: _c, challanLineId: _cl, ...l }) => ({
+        ...l,
+        key: args.newKey(),
+        orderId: '',
+        orderLineId: '',
+        orderLabel: '',
+        due: '',
+        dueText: '',
+        ...(!l.oneTime && !isService(l) && l.warehouseId === '' ? { warehouseId: args.warehouse?.id ?? '', warehouseLabel: args.warehouse?.label ?? '' } : {}),
+      })),
   };
 }
 
@@ -612,6 +712,7 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     salesLedgerId?: string;
     purchaseLedgerId?: string;
     billNo?: string;
+    invoiceRef?: string;
     dueDate?: string;
     closed?: boolean;
     quotationId?: string;
@@ -651,7 +752,7 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     partyDetails: c.partyDetails,
     salesLedgerId: c.salesLedgerId ?? c.purchaseLedgerId ?? '',
     salesLedgerLabel: (c.salesLedgerId ?? c.purchaseLedgerId) ? (masters.ledger((c.salesLedgerId ?? c.purchaseLedgerId) as never)?.name ?? '') : '',
-    billNo: c.billNo ?? '',
+    billNo: c.billNo ?? c.invoiceRef ?? '',
     due: c.dueDate ?? voucher.date,
     dueText: formatDate(c.dueDate ?? voucher.date),
     dueTouched: true,

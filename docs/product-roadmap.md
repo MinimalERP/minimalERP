@@ -11,8 +11,10 @@ Living status of **what ships today** vs **what the original phase plan still ow
 | Books & reports | Day Book, Ledger, Cash/Bank Book, Trial Balance, P&L, Balance Sheet, Outstanding (aged), Stock Summary / Stock Ledger |
 | Sales | Sales Order, Sales Invoice (F8 / Shift+F8), order register, invoice against order lines, Alt+I invoice pending |
 | Purchase | Purchase Order, Purchase Invoice (F9 / Shift+F9), supplier bill number, PO register, on-order on stock |
+| Returns | **Credit Note** (`CN/`, Transactions › Sales) and **Debit Note** (`DN/`, Transactions › Purchase): reverse the sale / purchase and its GST, move the stock back, set against the invoice's bill — the rest stands as an open credit to refund or use later. Alt+Shift+R on an invoice makes its note (ADR-0026) |
+| Returns | **Credit Note** (`CN/`, Transactions › Sales) and **Debit Note** (`DN/`, Transactions › Purchase): reverse the sale / purchase and its GST, move the stock back, set against the invoice's bill — the rest stands as an open credit to refund or use later. Alt+Shift+R on an invoice makes its note (ADR-0026) |
 | Inventory | Stock Journal (F10), weighted-average stock, opening stock vouchers |
-| GST | Charge GST company flag, invoice tax lines, GSTR-1 / GSTR-3B reports, TDS on receipts |
+| GST | Charge GST company flag, invoice tax lines, GSTR-1 / GSTR-3B reports (credit and debit notes netted; credit notes in CDNR / CDNUR), TDS on receipts |
 | Online | Invite-only Supabase books, Edge Function posting (ADR-0020) |
 | Automation | AI Inbox (Gemini + Gmail panel, ADR-0023), CSV import/export screen |
 
@@ -24,7 +26,6 @@ From [architecture.md](architecture.md) §10 (dependency order). Phases 0–3 an
 
 | Phase | Theme | Still to build | Exit gate (unchanged) |
 |-------|--------|----------------|------------------------|
-| **7** (tail) | Inventory & GST | **Credit Note**, **Debit Note** (sales/purchase returns; reverse stock + tax) | Returns post correctly; GST registers include them |
 | **8** (tail) | Orders & documents | **Delivery Note / Delivery Challan** (stock out, often before invoice), **Goods Receipt Note** (stock in before purchase bill), optional **Quotation** | Order → challan/GRN → invoice tracking; `voucher_links` already exist for invoice↔order |
 | **9** | Production readiness | Year-end close UI, roles admin, audit viewer, print/PDF polish, server-side reports, load tests, backup restore drill | Carry-forward reconciles; restore drill |
 | **10+** | Manufacturing | BOM, production orders, job work (separate plan) | Per manufacturing ADR when scoped |
@@ -52,6 +53,7 @@ From [architecture.md](architecture.md) §10 (dependency order). Phases 0–3 an
 
 ## Other deferred items (from ADRs / architecture §13)
 
+- Credit / debit notes: line-level return tracking against the invoice, the supplier’s own credit-note number on a debit note, export credit notes (ADR-0026)  
 - Landed cost in stock valuation; purchase price history; supplier bill date ≠ voucher date  
 - Server-side report SQL (browser reads books today)  
 - GSTR JSON **filing** to portal (export exists; submission does not)  
@@ -65,10 +67,9 @@ From [architecture.md](architecture.md) §10 (dependency order). Phases 0–3 an
 
 ## Suggested build order (after structural ADR-0024)
 
-1. **Credit / Debit Note** — extends existing invoice kinds and GST; commands already stubbed.  
-2. **Delivery Note (challan)** — new kind, stock-out, order links; then optional split “invoice without stock” if you want invoice-only billing after challan.  
-3. **Goods Receipt Note** — new kind, stock-in, PO links; then optional “purchase invoice without stock” for bill-only.  
-4. **Quotation** — document kind, no posting.  
-5. Phase **9** hardening (roles, year-end, server reports).  
+1. **Goods Receipt Note** — new kind, stock-in, PO links; then optional “purchase invoice without stock” for bill-only.  
+2. Phase **9** hardening (roles, year-end, server reports).  
+
+(Credit / Debit Notes, the Delivery Challan and the Quotation, once on this list, are shipped.)
 
 Each step: domain kind + migration + `ItemInvoiceEntry`/new layout + `modules/vouchers.ts` + lists/registers + testkit contract + e2e keyboard path.

@@ -46,8 +46,8 @@ describe('a new company', () => {
     expect(m.gstRates.map((r) => r.ratePercent)).toEqual(['0', '5', '12', '18', '28']);
     expect(m.units.map((u) => u.symbol)).toEqual(['Nos', 'Kg', 'Ltr', 'Mtr', 'Box']);
     expect(m.warehouses).toHaveLength(1);
-    expect(m.voucherTypes.map((t) => t.baseKind)).toEqual(['contra', 'payment', 'receipt', 'journal', 'opening', 'stockJournal', 'stockOpening', 'sales', 'salesOrder', 'quotation', 'purchase', 'purchaseOrder', 'deliveryChallan', 'returnableChallan']);
-    expect(m.series).toHaveLength(14);
+    expect(m.voucherTypes.map((t) => t.baseKind)).toEqual(['contra', 'payment', 'receipt', 'journal', 'opening', 'stockJournal', 'stockOpening', 'sales', 'salesOrder', 'quotation', 'purchase', 'purchaseOrder', 'deliveryChallan', 'returnableChallan', 'creditNote', 'debitNote']);
+    expect(m.series).toHaveLength(16);
   });
 
   it('has a financial year running exactly one year from the start date', () => {
@@ -59,7 +59,7 @@ describe('a new company', () => {
   });
 
   it('numbers each voucher type from 0001 with a readable prefix', () => {
-    expect(m.series.map((s) => s.prefix)).toEqual(['CON/24-25/', 'PAY/24-25/', 'REC/24-25/', 'JRN/24-25/', 'OB/', 'STJ/24-25/', 'OS/', 'SAL/24-25/', 'SO/24-25/', 'QT/24-25/', 'PUR/24-25/', 'PO/24-25/', 'DC/24-25/', 'RC/24-25/']);
+    expect(m.series.map((s) => s.prefix)).toEqual(['CON/24-25/', 'PAY/24-25/', 'REC/24-25/', 'JRN/24-25/', 'OB/', 'STJ/24-25/', 'OS/', 'SAL/24-25/', 'SO/24-25/', 'QT/24-25/', 'PUR/24-25/', 'PO/24-25/', 'DC/24-25/', 'RC/24-25/', 'CN/24-25/', 'DN/24-25/']);
   });
 
   it('is deterministic for the same ids', () => {
@@ -383,7 +383,7 @@ describe('voucher types and numbering series', () => {
 
   it('refuses the system opening kind and unknown kinds', () => {
     expect(create(base, 'voucherType', newId('vt2'), { name: 'X', baseKind: 'opening' }).codes).toEqual([IssueCode.OutOfRange]);
-    expect(create(base, 'voucherType', newId('vt3'), { name: 'Y', baseKind: 'creditNote' }).codes).toEqual([IssueCode.OutOfRange]);
+    expect(create(base, 'voucherType', newId('vt3'), { name: 'Y', baseKind: 'receiptNote' }).codes).toEqual([IssueCode.OutOfRange]);
   });
 
   it('built-in types cannot be changed; names are unique', () => {
