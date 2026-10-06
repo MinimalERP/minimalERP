@@ -130,6 +130,25 @@ describe('bill-wise allocations: what makes them valid', () => {
 });
 
 describe('open bills', () => {
+  it('are read afresh whenever the list of vouchers is not the very one read before — grown, or a voucher replaced, in place', () => {
+    const s = setup();
+    const bill = (ref: string, amount: string) =>
+      s.post('journal', '2024-04-10', { entries: [{ ledgerId: s.L.rent, side: 'debit', amount }, { ledgerId: s.L.steel, side: 'credit', amount, allocations: [{ kind: 'new', ref, amount }] }] });
+    const open = () => openBills(s.vouchers, s.m(), s.L.steel as LedgerId).map((b) => [b.ref, b.pending]);
+    bill('PO-1', '1000');
+    expect(open()).toEqual([['PO-1', 100000n]]);
+    expect(open()).toEqual([['PO-1', 100000n]]); // asked again of the same list: the same answer
+    bill('PO-2', '250'); // the same array, one longer
+    expect(open()).toEqual([['PO-1', 100000n], ['PO-2', 25000n]]);
+    const first = s.vouchers[0] as Voucher;
+    s.vouchers[0] = { ...first, status: 'cancelled', version: 2 }; // the same array, the same length: one voucher is another object
+    expect(open()).toEqual([['PO-2', 25000n]]);
+    s.vouchers[0] = { ...first, version: 3 };
+    expect(open()).toEqual([['PO-1', 100000n], ['PO-2', 25000n]]);
+    // another ledger of the same list is answered from the same reading
+    expect(openBills(s.vouchers, s.m(), s.L.abc as LedgerId)).toEqual([]);
+  });
+
   it('a new bill is open until settled; part payments reduce it; full payment closes it', () => {
     const s = setup();
     s.post('journal', '2024-04-10', {
