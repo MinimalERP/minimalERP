@@ -12,7 +12,7 @@ const short = (d: string) => formatDate(d).replace(/-20(\d\d)$/, '');
 const STATUS_WORDS: Readonly<Record<string, string>> = { open: 'Open', done: 'Done', new: 'New', working: 'Working', quoted: 'Quoted', won: 'Won', lost: 'Lost' };
 
 /**
- * The Gateway's tasks: what is due this week (read from the books every time — orders to deliver, money overdue, bills to pay), the tasks
+ * The Gateway's Tasks section: what is due this week (read from the books every time — orders to deliver, money overdue, bills to pay), the tasks
  * of the owner and the company's user, and the project enquiries with what is being done on each. A click opens a task to change it, add
  * a note or delete it; the box ticks a task done. They are disposable: a closed one is deleted a week later, and nothing in the books
  * depends on them.

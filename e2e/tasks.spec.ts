@@ -19,6 +19,10 @@ test.describe('tasks on the Gateway', () => {
   });
 
   test('a task is added, ticked done; an enquiry gets a status and a note; the menu letters still work', async ({ app }) => {
+    // the Gateway itself shows no tasks: they are its last section, a letter away
+    await expect(app.getByTestId('tasks-panel')).toHaveCount(0);
+    await app.keyboard.press('k');
+    await expect(heading(app)).toHaveText('Tasks');
     const panel = app.getByTestId('tasks-panel');
     await expect(panel).toBeVisible();
     await expect(panel.getByRole('heading', { name: 'This week' })).toBeVisible();
@@ -59,10 +63,13 @@ test.describe('tasks on the Gateway', () => {
     await expect(dialog).toHaveCount(0);
     await expect(app.getByTestId('enquiry-list').getByRole('listitem')).toHaveCount(0);
 
-    // Esc closes a task window without saving; the Gateway letters still open the menus
+    // Esc closes a task window without saving, and again goes back; the Gateway letters still open the menus
     await app.getByTestId('task-new').click();
     await app.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
+    await expect(heading(app)).toHaveText('Tasks');
+    await app.keyboard.press('Escape');
+    await expect(heading(app)).toHaveText('Gateway');
     await app.keyboard.press('t');
     await expect(heading(app)).toHaveText('Transactions');
   });

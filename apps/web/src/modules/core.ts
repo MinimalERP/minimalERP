@@ -163,7 +163,11 @@ export const coreModule: ModuleManifest<AppContext> = {
     { commandId: 'confirm.yes', chord: 'Alt+Y', scope: 'overlay:confirm' },
     { commandId: 'confirm.no', chord: 'Alt+N', scope: 'overlay:confirm' },
   ],
-  menuSections: [{ id: 'utilities', title: 'Utilities & Settings', order: 4, description: 'Preferences and tools' }],
+  menuSections: [
+    { id: 'utilities', title: 'Utilities & Settings', order: 4, description: 'Preferences and tools' },
+    // Not a list of commands: MenuScreen shows the tasks themselves here (kept off the Gateway, which must open at once).
+    { id: 'tasks', title: 'Tasks', order: 5, description: 'Due this week, tasks and enquiries' },
+  ],
   menu: [
     { section: 'utilities', commandId: 'settings.keyboard', order: 1 },
     { section: 'utilities', commandId: 'settings.gatewayShortcuts', order: 2 },

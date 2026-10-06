@@ -704,9 +704,7 @@ textarea.field-input { resize: vertical; min-height: 5em; }
   .assistant-keys { display: none; }
 }
 
-/* the Gateway's tasks: beside the menu on a wide screen, under it on a phone */
-.gateway-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
-@media (min-width: 900px) { .gateway-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: start; } }
+/* the Gateway's shortcuts, and the Tasks section */
 .gateway-shortcuts { margin-top: var(--sp-3); border: 1px solid var(--c-border, #d8d4cc); border-radius: var(--radius); padding: var(--sp-2) var(--sp-3); }
 .gateway-shortcuts-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
 .gateway-shortcuts-head h2 { margin: 0 auto 0 0; font-size: var(--fs-lg); }

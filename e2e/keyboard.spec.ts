@@ -13,7 +13,7 @@ const resultTitles = (page: Page) => page.getByTestId('goto-title');
 test.describe('the Gateway', () => {
   test('opens on the main menu with the first row under the cursor', async ({ app }) => {
     await expect(heading(app)).toHaveText('Gateway');
-    await expect(app.getByRole('option')).toHaveText([/Masters/, /Transactions/, /Reports/, /Utilities & Settings/]);
+    await expect(app.getByRole('option')).toHaveText([/Masters/, /Transactions/, /Reports/, /Utilities & Settings/, /Tasks/]);
     await expect(selectedRow(app)).toContainText('Masters');
     expect(new URL(app.url()).hash).toBe('#/gateway');
   });
@@ -32,11 +32,11 @@ test.describe('the Gateway', () => {
 
   test('the cursor wraps, and Home/End/PageDown jump', async ({ app }) => {
     await app.keyboard.press('ArrowUp');
-    await expect(selectedRow(app)).toContainText('Utilities & Settings'); // wrapped from the top
+    await expect(selectedRow(app)).toContainText('Tasks'); // wrapped from the top
     await app.keyboard.press('ArrowDown');
     await expect(selectedRow(app)).toContainText('Masters');
     await app.keyboard.press('End');
-    await expect(selectedRow(app)).toContainText('Utilities & Settings');
+    await expect(selectedRow(app)).toContainText('Tasks');
     await app.keyboard.press('Home');
     await expect(selectedRow(app)).toContainText('Masters');
   });
@@ -444,7 +444,8 @@ test.describe('changing a shortcut (the keymap override)', () => {
   });
 
   test('the editor is reachable from the Gateway menu too', async ({ app }) => {
-    await app.keyboard.press('End'); // Utilities & Settings
+    await app.keyboard.press('End'); // Tasks
+    await app.keyboard.press('ArrowUp'); // Utilities & Settings
     await app.keyboard.press('Enter');
     await expect(selectedRow(app)).toContainText('Keyboard Shortcuts');
     await app.keyboard.press('Enter');

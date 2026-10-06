@@ -14,11 +14,11 @@ interface Mnemonic {
 }
 
 /**
- * The Gateway's four sections keep the same letter always — chosen by hand, not derived, because
+ * The Gateway's sections keep the same letter always — chosen by hand, not derived, because
  * "Utilities & Settings" would otherwise mnemonic to its own first letter (U), not the S the section
- * is actually called by.
+ * is actually called by. Tasks answers to K: T is Transactions.
  */
-const GATEWAY_MNEMONIC: Readonly<Record<string, string>> = { masters: 'M', transactions: 'T', reports: 'R', utilities: 'Settings' };
+const GATEWAY_MNEMONIC: Readonly<Record<string, string>> = { masters: 'M', transactions: 'T', reports: 'R', utilities: 'Settings', tasks: 'k' };
 
 function gatewayMnemonic(id: string, title: string): Mnemonic | undefined {
   const marker = GATEWAY_MNEMONIC[id] ?? title.slice(0, 1);
@@ -78,6 +78,8 @@ export function MenuScreen({ frame, menuId }: { frame: Frame<ScreenRef>; menuId:
   const [index, setIndex] = useFrameState(frame, 'index', 0);
 
   const isGateway = menuId === 'gateway';
+  // The Tasks section is not a list of commands: it shows what is due, the tasks and the enquiries.
+  const isTasks = menuId === 'tasks';
   const section = registry.menuSections().find((s) => s.id === menuId);
 
   const rows: Row[] = isGateway
@@ -140,64 +142,62 @@ export function MenuScreen({ frame, menuId }: { frame: Frame<ScreenRef>; menuId:
           ? 'Choose where to go: type a red letter to jump straight in, or press Alt+G at any time to search everything.'
           : (section?.description ?? '')}
       </p>
-      {rows.length === 0 ? (
+      {isTasks ? (
+        <TasksPanel />
+      ) : rows.length === 0 ? (
         <p class="empty">Nothing here yet.</p>
       ) : (
-        <div class={isGateway ? 'gateway-body' : undefined}>
-          <div>
-            {groups.map((g) => (
-              <div key={g.title || 'all'} class="menu-group" data-testid={g.title ? 'menu-group' : undefined}>
-                {g.title && <h2 class="menu-group-title">{g.title}</h2>}
-                <ListView
-                  items={g.rows}
-                  index={safeIndex >= g.start && safeIndex < g.start + g.rows.length ? safeIndex - g.start : -1}
-                  itemKey={(r) => r.key}
-                  label={g.title || (isGateway ? 'Gateway' : (section?.title ?? 'Menu'))}
-                  onActivate={(i) => {
-                    setIndex(g.start + i);
-                    activate(g.start + i);
-                  }}
-                  renderItem={(r) => (
-                    <>
-                      <span class="row-title">
-                        <TitleWithMnemonic title={r.title} mnemonic={mnemonicByKey.get(r.key)} />
-                      </span>
-                      {r.description && <span class="row-desc">{r.description}</span>}
-                      <span class="row-meta">
-                        {r.badge && <span class="badge">{r.badge}</span>}
-                        {r.chord && <Kbd chord={r.chord} />}
-                      </span>
-                    </>
-                  )}
-                />
-              </div>
-            ))}
-            {isGateway && (
-              <section class="gateway-shortcuts" aria-labelledby="gateway-shortcuts-heading" data-testid="gateway-shortcuts-panel">
-                <div class="gateway-shortcuts-head">
-                  <h2 id="gateway-shortcuts-heading">Shortcuts</h2>
-                  <button type="button" class="link" onClick={() => app.navigate({ type: 'settings-gateway-shortcuts' })}>Set up</button>
-                </div>
-                {shortcutCommands.length === 0 ? (
-                  <p class="tasks-empty">Choose links with Set up.</p>
-                ) : (
-                  <div class="gateway-shortcut-list">
-                    {shortcutCommands.map((command) => {
-                      const chord = keymapStore.keymap.chordsFor(command.id)[0];
-                      return (
-                        <button key={command.id} type="button" class="gateway-shortcut" onClick={() => registry.run(command.id)}>
-                          <span>{command.title}</span>
-                          {chord && <Kbd chord={chord} />}
-                        </button>
-                      );
-                    })}
-                  </div>
+        <div>
+          {groups.map((g) => (
+            <div key={g.title || 'all'} class="menu-group" data-testid={g.title ? 'menu-group' : undefined}>
+              {g.title && <h2 class="menu-group-title">{g.title}</h2>}
+              <ListView
+                items={g.rows}
+                index={safeIndex >= g.start && safeIndex < g.start + g.rows.length ? safeIndex - g.start : -1}
+                itemKey={(r) => r.key}
+                label={g.title || (isGateway ? 'Gateway' : (section?.title ?? 'Menu'))}
+                onActivate={(i) => {
+                  setIndex(g.start + i);
+                  activate(g.start + i);
+                }}
+                renderItem={(r) => (
+                  <>
+                    <span class="row-title">
+                      <TitleWithMnemonic title={r.title} mnemonic={mnemonicByKey.get(r.key)} />
+                    </span>
+                    {r.description && <span class="row-desc">{r.description}</span>}
+                    <span class="row-meta">
+                      {r.badge && <span class="badge">{r.badge}</span>}
+                      {r.chord && <Kbd chord={r.chord} />}
+                    </span>
+                  </>
                 )}
-              </section>
-            )}
-          </div>
-          {/* the Gateway also shows what needs doing: due this week, tasks and enquiries */}
-          {isGateway && <TasksPanel />}
+              />
+            </div>
+          ))}
+          {isGateway && (
+            <section class="gateway-shortcuts" aria-labelledby="gateway-shortcuts-heading" data-testid="gateway-shortcuts-panel">
+              <div class="gateway-shortcuts-head">
+                <h2 id="gateway-shortcuts-heading">Shortcuts</h2>
+                <button type="button" class="link" onClick={() => app.navigate({ type: 'settings-gateway-shortcuts' })}>Set up</button>
+              </div>
+              {shortcutCommands.length === 0 ? (
+                <p class="tasks-empty">Choose links with Set up.</p>
+              ) : (
+                <div class="gateway-shortcut-list">
+                  {shortcutCommands.map((command) => {
+                    const chord = keymapStore.keymap.chordsFor(command.id)[0];
+                    return (
+                      <button key={command.id} type="button" class="gateway-shortcut" onClick={() => registry.run(command.id)}>
+                        <span>{command.title}</span>
+                        {chord && <Kbd chord={chord} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
     </section>

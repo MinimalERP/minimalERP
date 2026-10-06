@@ -78,7 +78,7 @@ describe('the shipped configuration is internally consistent', () => {
   });
 
   it('the Gateway lists its sections in order', () => {
-    expect(services.registry.menuSections().map((s) => s.id)).toEqual(['masters', 'transactions', 'reports', 'utilities']);
+    expect(services.registry.menuSections().map((s) => s.id)).toEqual(['masters', 'transactions', 'reports', 'utilities', 'tasks']);
   });
 
   it('every planned command says which phase delivers it, and that phase is real', () => {
