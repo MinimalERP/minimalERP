@@ -273,7 +273,7 @@ export function useNextNumber(books: Books, typeId: string, date: string, enable
 
 // ---- saving ----
 
-type Draftable = { readonly ok: true; readonly draft: unknown } | { readonly ok: false; readonly issues: readonly { readonly field: string }[] };
+type Draftable = { readonly ok: true; readonly draft: unknown } | { readonly ok: false; readonly issues: readonly { readonly field: string; readonly message?: string }[] };
 
 /**
  * Accept (Ctrl+A), Save and new (Alt+N), and the questions answered with accept (Cancel voucher, and a layout's own, like Close order).
@@ -292,7 +292,7 @@ export function useVoucherSave(o: {
   /** The engine's verdict on the form as it is now. */
   readonly preview: () => Draftable;
   /** Moves to the first problem when the verdict is no. */
-  readonly showFirstProblem: (issues: readonly { readonly field: string }[]) => void;
+  readonly showFirstProblem: (issues: readonly { readonly field: string; readonly message?: string }[]) => void;
   readonly refused: string;
   /** Said when a cancellation is refused without a reason. */
   readonly cancelRefused?: string;

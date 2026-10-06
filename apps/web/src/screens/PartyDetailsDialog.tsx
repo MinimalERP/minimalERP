@@ -377,6 +377,24 @@ export function PartyDetailsDialog({ books, ledgerIds, value, onDone }: Props) {
                     </span>
                   )}
                   {!err && active && 'hint' in f && f.hint && <span class="field-hint">{f.hint}</span>}
+                  {/* a choice shows what can be chosen (so "Same as billing address" is there to see and to click), the one in use under the cursor */}
+                  {active && f.type === 'choice' && (
+                    <div class="picker" data-testid="choice-list">
+                      <ListView
+                        items={f.options}
+                        index={f.options.findIndex((o) => o.value === byKey(v, f.key))}
+                        itemKey={(o) => o.value}
+                        label={f.label}
+                        onActivate={(n) => f.options[n] && selectOption(f.key, (f.options[n] as Opt).value)}
+                        renderItem={(o) => (
+                          <>
+                            <span class="row-title">{o.label}</span>
+                            {o.sub && <span class="row-desc">{o.sub}</span>}
+                          </>
+                        )}
+                      />
+                    </div>
+                  )}
                   {active && f.type === 'picker' && hits.length === 0 && typed.trim() !== '' && typed !== party?.name && (
                     <div class="picker picker-empty" data-testid="picker">No match</div>
                   )}

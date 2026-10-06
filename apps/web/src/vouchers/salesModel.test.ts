@@ -3,6 +3,7 @@ import {
   IssueCode,
   type Masters,
   OrderBook,
+  orderBookOf,
   StockBook,
   type Voucher,
   deterministicUuid,
@@ -580,6 +581,29 @@ describe('a service item on an invoice', () => {
     };
     const preview = previewSales(form, 'salesOrder', c.m, StockBook.empty, new OrderBook([], []));
     expect(preview.issues).toEqual([]);
+  });
+
+  it('an invoice made from an order of service items can be saved: its lines have no godown and are not against the order', () => {
+    const c = serviceCompany();
+    const orderForm: SalesForm = {
+      ...blankSalesForm('v2', c.type('salesOrder'), '2026-05-01', 'k1'),
+      partyId: c.custId,
+      partyLabel: 'Cust',
+      partyDetails: { partyId: c.custId, mailingName: 'Cust', placeOfSupply: '27' },
+      lines: [
+        { ...blankSalesLine('l1'), itemId: c.amc, itemLabel: 'AMC', qty: '3', rate: '2500', due: '2026-06-01', dueText: '1-Jun-2026' },
+        { ...blankSalesLine('l2'), itemId: c.amc, itemLabel: 'AMC', qty: '4', rate: '2500', due: '2026-06-01', dueText: '1-Jun-2026' },
+      ],
+    };
+    const draft = previewSales(orderForm, 'salesOrder', c.m, StockBook.empty, new OrderBook([], [])).draft as { id: string; date: string };
+    const order = { id: draft.id, companyId: 'c', voucherTypeId: c.type('salesOrder'), financialYearId: 'fy', number: 'SO/1', date: draft.date, status: 'posted', version: 1, revision: 0, content: draft };
+    const book = orderBookOf([order as never], c.m);
+    const form = invoiceFormFromOrder(order as never, book, c.m, { id: 'v9', typeId: c.type('sales'), date: '2026-05-02', newKey: () => crypto.randomUUID(), warehouse: { id: 'w', label: 'Main' }, salesLedger: { id: c.salesLedgerId, label: 'Sales' } }) as SalesForm;
+    expect(form.lines.map((l) => [l.itemLabel, l.qty, l.rate, l.warehouseId, l.orderId])).toEqual([
+      ['AMC', '3', '2500', '', ''],
+      ['AMC', '4', '2500', '', ''],
+    ]);
+    expect(previewSales(form, 'sales', c.m, StockBook.empty, book).issues).toEqual([]);
   });
 
   it('a delivery challan line for it is accepted too: job work on a part that was never our own stock', () => {

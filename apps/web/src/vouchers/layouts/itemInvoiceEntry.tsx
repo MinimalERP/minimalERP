@@ -943,7 +943,13 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     preview: () => preview,
     showFirstProblem: (issues) => {
       const first = issues.find((i) => i.field !== 'general');
-      if (first) go(focusKeyOf(first.field));
+      if (!first) return;
+      const key = focusKeyOf(first.field);
+      if (fields.some((f) => f.key === key)) return go(key);
+      // the problem is on a field this line does not show (a service line has no godown and no order): say it, on the line itself
+      save.setBanner({ text: first.message ?? 'The document was refused', tone: 'error' });
+      const line = /^l(\d+)\./.exec(key);
+      go(line ? `l${line[1]}.item` : 'party');
     },
     refused: 'The document was refused',
     setShowErrors,

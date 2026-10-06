@@ -233,5 +233,13 @@ test.describe('in a voucher', () => {
     await expect(dialog.locator('[data-pd="shipLines"]')).toHaveValue('SIPCOT Industrial Park, Hosur');
     await expect(dialog.locator('[data-pd="place"]')).toHaveValue('33');
     await expect(palette(app)).toHaveCount(0);
+    // Ship to shows what can be chosen: this once the goods go to the billing address — a click, and the ship-to fields go
+    await dialog.locator('[data-pd="shipMode"]').click();
+    const choices = dialog.getByTestId('choice-list').getByRole('option');
+    await expect(choices).toHaveText([/Same as billing address/, /Primary address/, /Shipping address/, /Enter manually/]);
+    await choices.filter({ hasText: 'Same as billing address' }).click();
+    await expect(dialog.locator('[data-pd="shipMode"]')).toHaveValue('Same as billing address');
+    await expect(dialog.locator('[data-pd="shipLines"]')).toHaveCount(0);
+    await expect(dialog.locator('[data-pd="place"]')).toHaveValue('29');
   });
 });
