@@ -85,7 +85,19 @@ function Pages(props: PageProps) {
 
 function Gateway({ books, nav, today }: PageProps & { today: string }) {
   const [text, setText] = useState('');
-  const home = useMemo(() => homeFigures(books, today), [books.vouchers, books.lines, books.masters, today]);
+  // The Gateway is drawn at once: its figures are the ones already known for these books, or — the first time, and after something was
+  // saved — they are worked out just after the page is on screen, so a tap is never kept waiting behind them.
+  const [, drawn] = useState(0);
+  const home = homeFigures.peek(books, today);
+  useEffect(() => {
+    if (homeFigures.peek(books, today) !== undefined) return;
+    const t = setTimeout(() => {
+      homeFigures(books, today);
+      drawn((n) => n + 1);
+    }, 30);
+    return () => clearTimeout(t);
+  }, [books.vouchers, books.lines, books.masters, today]);
+  const figure = (m: bigint | undefined): string => (m === undefined ? '…' : rupees(m));
   const hits = useMemo(() => goToHits(books, text), [books.vouchers, books.masters, text]);
   const open = (page: Page) => () => nav.open(page);
   return (
@@ -98,9 +110,9 @@ function Gateway({ books, nav, today }: PageProps & { today: string }) {
       ) : (
         <>
           <Group title="Today">
-            <Row title="Sales today" value={rupees(home.salesToday)} sub={`This month ${rupees(home.salesThisMonth)}`} testId="home-sales" />
-            <Row title="Receivable" value={rupees(home.receivable)} note={home.receivableOverdue > 0n ? `${rupees(home.receivableOverdue)} overdue` : undefined} tone={home.receivableOverdue > 0n ? 'bad' : undefined} onOpen={open({ page: 'outstanding', side: 'receivable' })} testId="home-receivable" />
-            <Row title="Payable" value={rupees(home.payable)} onOpen={open({ page: 'outstanding', side: 'payable' })} testId="home-payable" />
+            <Row title="Sales today" value={figure(home?.salesToday)} sub={home ? `This month ${rupees(home.salesThisMonth)}` : undefined} testId="home-sales" />
+            <Row title="Receivable" value={figure(home?.receivable)} note={home && home.receivableOverdue > 0n ? `${rupees(home.receivableOverdue)} overdue` : undefined} tone={home && home.receivableOverdue > 0n ? 'bad' : undefined} onOpen={open({ page: 'outstanding', side: 'receivable' })} testId="home-receivable" />
+            <Row title="Payable" value={figure(home?.payable)} onOpen={open({ page: 'outstanding', side: 'payable' })} testId="home-payable" />
           </Group>
           <Group title="Gateway">
             <Row title="New" sub="Invoice, order, quotation, challan" onOpen={open({ page: 'new' })} testId="gateway-new" />
@@ -109,7 +121,7 @@ function Gateway({ books, nav, today }: PageProps & { today: string }) {
             <Row title="Stock" sub="What is in the godowns" onOpen={open({ page: 'items' })} />
             <Row title="Utilities" sub="Company, desktop version, sign out" onOpen={open({ page: 'utilities' })} />
           </Group>
-          {home.dueLines.length > 0 && (
+          {home && home.dueLines.length > 0 && (
             <Group title="Orders to deliver">
               {home.dueLines.map((l, i) => (
                 <Row key={i} title={l.item} sub={l.party} value={l.pending} note={`${l.overdue ? 'was due' : 'due'} ${formatDate(l.dueDate)}`} tone={l.overdue ? 'bad' : undefined} />

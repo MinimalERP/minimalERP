@@ -26,6 +26,35 @@ import { type SalesForm, type SalesPreview, previewSales, salesFormFromVoucher, 
 
 const day = (d: string): LocalDate => d as LocalDate;
 
+/**
+ * A screen's figures, kept while the books they were read from are the same books: going Back to a list or to the Gateway shows what was
+ * there at once instead of reading every voucher again. `Books` replaces its vouchers, lines, stock and masters whenever anything changes,
+ * so "the same" is identity — a figure can never outlive the data it came from. `peek` answers only if it is already known (a screen paints
+ * first and works the figures out after).
+ */
+interface Remembered<A extends readonly unknown[], R> {
+  (books: Books, ...args: A): R;
+  peek(books: Books, ...args: A): R | undefined;
+}
+function remember<A extends readonly unknown[], R>(read: (books: Books, ...args: A) => R): Remembered<A, R> {
+  const kept = new Map<string, { readonly from: readonly unknown[]; readonly value: R }>();
+  const source = (books: Books): readonly unknown[] => [books, books.vouchers, books.lines, books.stock, books.masters];
+  const peek = (books: Books, ...args: A): R | undefined => {
+    const hit = kept.get(JSON.stringify(args));
+    const from = source(books);
+    return hit && hit.from.every((x, i) => x === from[i]) ? hit.value : undefined;
+  };
+  const get = (books: Books, ...args: A): R => {
+    const known = peek(books, ...args);
+    if (known !== undefined) return known;
+    const value = read(books, ...args);
+    if (kept.size > 40) kept.clear(); // a day's worth of lists at most: never a store that grows for ever
+    kept.set(JSON.stringify(args), { from: source(books), value });
+    return value;
+  };
+  return Object.assign(get, { peek });
+}
+
 /** The financial year `today` falls in (else the latest): where "this year" starts for stock. */
 const yearStart = (books: Books, today: string): LocalDate => (books.masters.financialYearOn(day(today)) ?? books.masters.financialYears.at(-1))?.start ?? day(today);
 
@@ -41,7 +70,9 @@ export interface HomeFigures {
   readonly dueLines: readonly { readonly party: string; readonly item: string; readonly pending: string; readonly dueDate: string; readonly overdue: boolean }[];
 }
 
-export function homeFigures(books: Books, today: string): HomeFigures {
+export const homeFigures = remember(readHomeFigures);
+
+function readHomeFigures(books: Books, today: string): HomeFigures {
   const { vouchers, lines, masters, orders } = books;
   const asOn = day(today);
   const digest = dailyDigest({ vouchers, lines, masters, orders, asOn, inboxWaiting: 0 });
@@ -71,7 +102,9 @@ export interface PartyListRow {
   readonly overdueDays: number;
 }
 
-export function partyList(books: Books, today: string): PartyListRow[] {
+export const partyList = remember(readPartyList);
+
+function readPartyList(books: Books, today: string): PartyListRow[] {
   const { vouchers, lines, masters } = books;
   const asOn = day(today);
   const by = (side: 'receivable' | 'payable') => new Map(partyRows({ vouchers, lines, masters, side, asOn }).map((r) => [r.partyId as string | undefined, r]));
@@ -126,7 +159,9 @@ export interface ItemListRow extends StockSummaryRow {
 }
 
 /** Every active item that holds stock, with what the book holds of it today (an item never stocked shows as nothing). */
-export function itemList(books: Books, today: string): ItemListRow[] {
+export const itemList = remember(readItemList);
+
+function readItemList(books: Books, today: string): ItemListRow[] {
   const { masters, stock, orders } = books;
   const rows = stockSummaryRows(masters, stock, yearStart(books, today), day(today), orders);
   const seen = new Set(rows.map((r) => r.itemId));
@@ -242,7 +277,9 @@ export function goToHits(books: Books, text: string, limit = 25): GoToHit[] {
 export type DocRow = VoucherListRow;
 
 /** One voucher type's list, newest first — the desktop list's own rows (status, pending and all). */
-export function docList(books: Books, kind: BaseKind, today: string): DocRow[] {
+export const docList = remember(readDocList);
+
+function readDocList(books: Books, kind: BaseKind, today: string): DocRow[] {
   const { vouchers, lines, masters, orders } = books;
   return voucherListRows({ vouchers, lines, masters, orders, kind, asOf: day(today) }).reverse();
 }

@@ -169,29 +169,55 @@ export interface OpenBill {
 }
 
 /**
+ * The bill-wise lines of a list of vouchers, by party ledger, in the vouchers' own order (posted ones only) — read ONCE per list. A report
+ * asks for the open bills of every party in turn; without this each of those questions re-read every voucher (parties × vouchers), which
+ * is what made Outstanding, the voucher lists and anything built on them slow on a few thousand vouchers.
+ *
+ * The index is only ever used for the SAME vouchers under the SAME Masters: it is kept against the array it was read from, and before
+ * every use each voucher in that array is checked to be the very object that was read (a voucher is never changed in place — an
+ * alteration or a cancellation is a new object). So an array someone grew or edited in place is simply read again; a stale answer cannot
+ * be given. That check is a pointer comparison per voucher: nothing beside re-deriving every bill.
+ */
+const BILL_LINES = new WeakMap<readonly Voucher[], { readonly masters: Masters; readonly read: readonly Voucher[]; readonly byLedger: ReadonlyMap<LedgerId, readonly AllocatedLine[]> }>();
+
+function billLinesOf(vouchers: readonly Voucher[], masters: Masters): ReadonlyMap<LedgerId, readonly AllocatedLine[]> {
+  const known = BILL_LINES.get(vouchers);
+  if (known && known.masters === masters && known.read.length === vouchers.length && known.read.every((v, i) => v === vouchers[i])) return known.byLedger;
+  const byLedger = new Map<LedgerId, AllocatedLine[]>();
+  for (const v of vouchers) {
+    if (v.status !== 'posted') continue;
+    for (const line of allocatedLinesOf(v, masters)) {
+      const at = byLedger.get(line.ledgerId);
+      if (at) at.push(line);
+      else byLedger.set(line.ledgerId, [line]);
+    }
+  }
+  BILL_LINES.set(vouchers, { masters, read: [...vouchers], byLedger });
+  return byLedger;
+}
+
+/**
  * The bills of one party ledger that are not yet fully settled, oldest first. A "new" allocation raises a bill; an "against"
  * allocation on the opposite side settles part of it. Cancelled vouchers count for nothing.
  */
 export function openBills(vouchers: readonly Voucher[], masters: Masters, ledgerId: LedgerId, ignoreVoucher?: VoucherId): OpenBill[] {
   const bills = new Map<string, { ref: string; dueDate: LocalDate | undefined; side: 'debit' | 'credit'; net: bigint; raised: bigint; voucherId: VoucherId }>();
+  const lines = billLinesOf(vouchers, masters).get(ledgerId) ?? [];
   const pass = (kinds: readonly string[]) => {
-    for (const v of vouchers) {
-      if (v.status !== 'posted' || v.id === ignoreVoucher) continue;
-      for (const line of allocatedLinesOf(v, masters)) {
-        if (line.ledgerId !== ledgerId) continue;
-        for (const a of line.allocations) {
-          const ref = (a.ref ?? '').trim();
-          if (ref === '' || !kinds.includes(a.kind)) continue;
-          const delta = line.side === 'debit' ? a.amount : -a.amount;
-          const bill = bills.get(ref);
-          if (a.kind === 'new') {
-            if (bill) {
-              bill.net += delta;
-              bill.raised += delta;
-            } else bills.set(ref, { ref, dueDate: a.dueDate, side: line.side, net: delta, raised: delta, voucherId: v.id });
-          } else if (bill) {
+    for (const line of lines) {
+      if (line.voucherId === ignoreVoucher) continue;
+      for (const a of line.allocations) {
+        const ref = (a.ref ?? '').trim();
+        if (ref === '' || !kinds.includes(a.kind)) continue;
+        const delta = line.side === 'debit' ? a.amount : -a.amount;
+        const bill = bills.get(ref);
+        if (a.kind === 'new') {
+          if (bill) {
             bill.net += delta;
-          }
+            bill.raised += delta;
+          } else bills.set(ref, { ref, dueDate: a.dueDate, side: line.side, net: delta, raised: delta, voucherId: line.voucherId });
+        } else if (bill) {
+          bill.net += delta;
         }
       }
     }
