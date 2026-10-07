@@ -65,7 +65,7 @@ describe('what the mobile screens show is what the desktop reports say', () => {
     const desktop = voucherListRows({ vouchers: books.vouchers, lines: books.lines, masters: books.masters, orders: books.orders, kind: 'sales', asOf: localDate(TODAY) });
     expect(docList(books, 'sales', TODAY)).toEqual([...desktop].reverse());
     for (const l of TRANSACTION_GROUPS.flatMap((g) => g.lists)) expect(listTitleOf(l.kind)).toBe(l.title);
-    expect(TRANSACTION_GROUPS.map((g) => g.group)).toEqual(['Sales', 'Purchase', 'General']);
+    expect(TRANSACTION_GROUPS.map((g) => g.group)).toEqual(['Sales', 'Purchase', 'Inventory', 'General']);
   });
 
   it('an invoice is shown with the engine’s own figures; an accounting voucher with what it posted', async () => {

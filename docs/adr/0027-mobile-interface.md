@@ -58,10 +58,32 @@ other voucher is still entered on the desktop.
 6. Not on the phone yet: one-time (written) lines, choosing another party address, order-line picking on an invoice typed from scratch,
    cancelling, emailing — all still in the desktop version.
 
+## Stage 3: Scan, purchase bills, reports
+1. **Scan** (`mobile/ScanScreen.tsx`, `mobile/scan.ts`) is the AI Inbox for a thumb, under a plainer name: Take photo / Choose file → "What
+   is it?" → `books.sendDocument`; what was read waits in a list (`books.inbox`), re-checked while a document is being read. A tap opens
+   it in the touch entry page filled by the desktop's own `salesFormFromProposal`, posted under the item's id (so only once); a long
+   press throws it away (`books.rejectInbox`). What the reader could not match stays in the document's words: an unmatched party or line
+   opens its list searched for those words, and "+ Create" starts from what the document printed (`partySeedOf`, `itemSeedOf`). Receipt
+   and Payment advices are listed and completed on the desktop. A document shared to the app arrives at Scan (`mobile/mount.tsx` reads the
+   `#/inbox` address); the rule that sent a phone to the desktop inbox for it is gone. The Gateway's "waiting" figure is what was last
+   known, refreshed in the background at most once a minute — never a request in the way of drawing the Gateway.
+2. **Purchase bills by touch**: the entry page is side-driven by `docProfile` — supplier, purchase ledger, a required supplier invoice
+   number (a repeat is refused by the engine's `billRefProblems`), goods received into the main godown, the rate this supplier last
+   charged. An open Purchase Order has "Bill received". "Paid from" stays on the desktop.
+3. **Ship to** on a customer's document: the party's billing address, its own shipping address and its saved addresses; the place of
+   supply follows where the goods go, exactly as the desktop's Party Details does, and the engine works the GST out from that.
+4. **Reports** (`mobile/ReportsScreen.tsx`): the Sales and Purchase Order Registers (the desktop's `orderRegisterRows`; Pending / All,
+   earliest due first), Receivable, Payable, the Day Book. Order lists carry the customer's PO beside the number. The Stock list has tabs:
+   All / Committed / On order.
+5. **Stock Journal** (`mobile/StockJournalScreen.tsx`): "+ Out" / "+ In" lines on the desktop's `StockForm`, judged by `previewStock`;
+   listed under Transactions › Inventory and shown as what moved. Creating only.
+6. Still to come: Receipt / Payment entry on the phone; the rule-based on-device bill reader (standard GST bills read without the AI,
+   AI as the fallback) with the Android app.
+
 ## Consequences
 - The existing phone tests of the DESKTOP app (`e2e/mobile.spec`, the assistant's phone test) now ask for `?ui=desktop`: a touch phone no
   longer gets the desktop shell by itself. Nothing else in the desktop suite changed.
 - A phone user who needs something only the desktop has (purchases, receipts, masters, GST reports) uses "Desktop version"; the choice sticks
   until they switch back.
-- Still to come: stage 3 — the Android app (it already shows this interface, being a WebView on the site): share a PDF through
+- Still to come: the Android app (it already shows this interface, being a WebView on the site): share a PDF through
   the share sheet, status-bar colour, a new APK.

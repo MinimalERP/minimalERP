@@ -56,7 +56,7 @@ test.describe('on a phone', () => {
     await openDemo(page);
     await row(page, /^Transactions/).tap();
     await expect(title(page)).toHaveText('Transactions');
-    await expect(page.locator('.m-group-title')).toHaveText(['Sales', 'Purchase', 'General']);
+    await expect(page.locator('.m-group-title')).toHaveText(['Sales', 'Purchase', 'Inventory', 'General']);
     await row(page, 'Sales Vouchers').tap();
     await expect(title(page)).toHaveText('Sales Vouchers');
     const invoices = page.getByTestId('doc-row');
@@ -135,12 +135,14 @@ test.describe('on a phone', () => {
     expect(problems).toEqual([]);
   });
 
-  test('a document shared to the app opens the desktop AI Inbox, which can take it — and the next visit is mobile again', async ({ page }) => {
+  test('a document shared to the app arrives at Scan in the mobile interface, and Back from it is the Gateway', async ({ page }) => {
+    await openDemo(page);
     await page.goto('/?share=1#/inbox?shared=1');
-    await expect(page.locator('.shell')).toBeVisible();
-    await expect(page.getByTestId('mobile-app')).toHaveCount(0);
-    await page.goto('/');
     await expect(page.getByTestId('mobile-app')).toBeVisible();
+    await expect(page.locator('.shell')).toHaveCount(0);
+    await expect(title(page)).toHaveText('Scan');
+    await page.goBack();
+    await expect(title(page)).toHaveText('Demo Manufacturing Pvt Ltd');
   });
 
   test('Desktop version switches to the full app and is remembered; ?ui=mobile comes back', async ({ page }) => {

@@ -1,4 +1,5 @@
 import type { BaseKind } from '@minimalerp/domain';
+import type { InboxItem } from '@minimalerp/ports';
 
 /**
  * Where the mobile interface is — the desktop's own way of moving, for a thumb: a Gateway of plain rows, each opening a list or a menu on
@@ -16,6 +17,13 @@ export type Page =
   | { readonly page: 'item'; readonly itemId: string }
   | { readonly page: 'outstanding'; readonly side: 'receivable' | 'payable' }
   | { readonly page: 'utilities' }
+  | { readonly page: 'reports' }
+  | { readonly page: 'orderRegister'; readonly side: 'sales' | 'purchase' }
+  | { readonly page: 'dayBook' }
+  /** A new Stock Journal: stock out of a godown and into one, no accounts touched. */
+  | { readonly page: 'stockJournal' }
+  /** Scan: photograph or choose a document to be read, and the ones read and waiting to be checked and saved. */
+  | { readonly page: 'scan' }
   /** A new stock item or customer, in the few fields a sale needs (from the Stock / Parties lists). */
   | { readonly page: 'create'; readonly what: 'item' | 'customer' }
   /** What can be made on the phone: the list of documents to start. */
@@ -24,10 +32,10 @@ export type Page =
    * Entering a document by touch: a new one of `kind` (optionally for a party, or for what an order / challan still has pending), or the
    * posted `voucherId` being altered.
    */
-  | { readonly page: 'entry'; readonly kind: EntryKind; readonly voucherId?: string; readonly partyId?: string; readonly fromOrder?: string; /** With `fromOrder`: only these lines of the order. */ readonly fromOrderLines?: readonly string[] };
+  | { readonly page: 'entry'; readonly kind: EntryKind; readonly voucherId?: string; readonly partyId?: string; readonly fromOrder?: string; /** With `fromOrder`: only these lines of the order. */ readonly fromOrderLines?: readonly string[]; /** A document read by Scan: the form starts as what was read, and is posted under its id. */ readonly proposal?: InboxItem };
 
-/** The documents the phone enters (stage 2): the selling side's. Everything else is entered on the desktop. */
-export type EntryKind = 'sales' | 'salesOrder' | 'quotation' | 'deliveryChallan';
+/** The documents the phone enters: the selling side's, and the Purchase bill. Everything else is entered on the desktop. */
+export type EntryKind = 'sales' | 'salesOrder' | 'quotation' | 'deliveryChallan' | 'purchase';
 
 interface HistoryWindow {
   readonly history: { pushState(data: unknown, unused: string): void; back(): void };

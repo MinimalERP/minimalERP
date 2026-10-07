@@ -9,12 +9,16 @@ import type { PrintCoordinator } from '../ui/printCoordinator';
 import { printCompanyOf } from '../ui/printing';
 import { formatAmount, formatDate, formatQuantity, todayText } from '../vouchers/format';
 import { invoiceDocFromBooks } from '../vouchers/invoicePrint';
-import { TRANSACTION_GROUPS, type DocRow, docList, docView, goToHits, homeFigures, itemList, itemPage, listTitleOf, partyList, partyPage } from './data';
+import { type StockTab, TRANSACTION_GROUPS, type DocRow, inStockTab, docList, docView, goToHits, homeFigures, itemList, itemPage, listTitleOf, partyList, partyPage } from './data';
 import { CreateScreen } from './CreateScreen';
 import { switchUi } from './device';
 import { Entry } from './EntryScreen';
 import { ENTRY_KINDS, canAlter, entryTitle, invoiceFrom, isEntryKind, pendingOrderLines } from './entry';
 import type { MobileNav, Page } from './nav';
+import { DayBook, OrderRegister, ReportsMenu } from './ReportsScreen';
+import { ScanScreen } from './ScanScreen';
+import { StockJournalScreen } from './StockJournalScreen';
+import { refreshWaiting, scanWaiting } from './scan';
 import { Empty, Frame, Group, Row, Search, matches, rupees } from './ui';
 
 /**
@@ -72,6 +76,16 @@ function Pages(props: PageProps) {
       return <Outstanding books={books} nav={nav} side={top.side} today={today} />;
     case 'utilities':
       return <Utilities {...props} />;
+    case 'scan':
+      return <ScanScreen books={books} nav={nav} />;
+    case 'stockJournal':
+      return <StockJournalScreen books={books} nav={nav} />;
+    case 'reports':
+      return <ReportsMenu nav={nav} />;
+    case 'orderRegister':
+      return <OrderRegister books={books} nav={nav} side={top.side} today={today} />;
+    case 'dayBook':
+      return <DayBook books={books} nav={nav} today={today} />;
     case 'new':
       return <NewMenu nav={nav} />;
     case 'create':
@@ -79,7 +93,7 @@ function Pages(props: PageProps) {
       return <CreateScreen books={books} what={top.what} onClose={() => nav.back()} onSaved={(id) => nav.replace(top.what === 'item' ? { page: 'item', itemId: id } : { page: 'party', partyId: id })} />;
     case 'entry':
       // keyed: a different document is a different form, never the last one's state
-      return <Entry key={`${top.kind}|${top.voucherId ?? ''}|${top.partyId ?? ''}|${top.fromOrder ?? ''}|${(top.fromOrderLines ?? []).join(',')}`} books={books} nav={nav} kind={top.kind} voucherId={top.voucherId} partyId={top.partyId} fromOrder={top.fromOrder} fromOrderLines={top.fromOrderLines} />;
+      return <Entry key={`${top.kind}|${top.voucherId ?? ''}|${top.partyId ?? ''}|${top.fromOrder ?? ''}|${(top.fromOrderLines ?? []).join(',')}|${top.proposal?.id ?? ''}`} books={books} nav={nav} kind={top.kind} voucherId={top.voucherId} partyId={top.partyId} fromOrder={top.fromOrder} fromOrderLines={top.fromOrderLines} proposal={top.proposal} />;
   }
 }
 
@@ -98,6 +112,15 @@ function Gateway({ books, nav, today }: PageProps & { today: string }) {
     return () => clearTimeout(t);
   }, [books.vouchers, books.lines, books.masters, today]);
   const figure = (m: bigint | undefined): string => (m === undefined ? '…' : rupees(m));
+  // how many scanned documents wait: what was last known, asked again in the background (never in the way of drawing the Gateway)
+  const waiting = scanWaiting(books);
+  useEffect(() => {
+    let live = true;
+    void refreshWaiting(books).then((n) => live && n !== waiting && drawn((x) => x + 1));
+    return () => {
+      live = false;
+    };
+  }, [books]);
   const hits = useMemo(() => goToHits(books, text), [books.vouchers, books.masters, text]);
   const open = (page: Page) => () => nav.open(page);
   return (
@@ -115,10 +138,12 @@ function Gateway({ books, nav, today }: PageProps & { today: string }) {
             <Row title="Payable" value={figure(home?.payable)} onOpen={open({ page: 'outstanding', side: 'payable' })} testId="home-payable" />
           </Group>
           <Group title="Gateway">
-            <Row title="New" sub="Invoice, order, quotation, challan" onOpen={open({ page: 'new' })} testId="gateway-new" />
+            <Row title="Scan" sub="Photo or file of a bill or a PO, to be read" value={waiting ? String(waiting) : undefined} note={waiting ? 'waiting' : undefined} onOpen={open({ page: 'scan' })} testId="gateway-scan" />
+            <Row title="New" sub="Invoice, order, quotation, challan, purchase bill" onOpen={open({ page: 'new' })} testId="gateway-new" />
             <Row title="Transactions" sub="Sales, purchases, receipts, payments" onOpen={open({ page: 'transactions' })} />
             <Row title="Parties" sub="Customers and suppliers, their bills" onOpen={open({ page: 'parties' })} />
             <Row title="Stock" sub="What is in the godowns" onOpen={open({ page: 'items' })} />
+            <Row title="Reports" sub="Order registers, outstanding, day book" onOpen={open({ page: 'reports' })} testId="gateway-reports" />
             <Row title="Utilities" sub="Company, desktop version, sign out" onOpen={open({ page: 'utilities' })} />
           </Group>
           {home && home.dueLines.length > 0 && (
@@ -141,7 +166,8 @@ function NewMenu({ nav }: { nav: MobileNav }) {
       {ENTRY_KINDS.map((k) => (
         <Row key={k.kind} title={k.title} sub={k.hint} onOpen={() => nav.open({ page: 'entry', kind: k.kind })} testId={`new-${k.kind}`} />
       ))}
-      <p class="m-note">Purchases, receipts, payments and the rest are entered in the desktop version.</p>
+      <Row title="Stock Journal" sub="Move stock between godowns, convert or adjust it" onOpen={() => nav.open({ page: 'stockJournal' })} testId="new-stockJournal" />
+      <p class="m-note">Receipts, payments and the rest are entered in the desktop version.</p>
     </Frame>
   );
 }
@@ -165,7 +191,7 @@ const DocRows = ({ rows, nav, showType }: { rows: readonly DocRow[]; nav: Mobile
     {rows.map((r) => (
       <Row
         key={r.voucherId}
-        title={r.cancelled ? `${r.number} — cancelled` : r.number}
+        title={[r.number, r.reference || r.billNo || undefined, r.cancelled ? 'cancelled' : undefined].filter(Boolean).join(' · ')}
         sub={[formatDate(r.date), showType ? r.typeName : undefined, r.particulars].filter(Boolean).join(' · ')}
         value={r.amount === 0n ? undefined : rupees(r.amount)}
         note={r.status || undefined}
@@ -193,6 +219,10 @@ function Documents({ books, nav, kind, today }: { books: Books; nav: MobileNav; 
         isEntryKind(kind) ? (
           <button type="button" class="m-button m-primary" data-testid="list-new" onClick={() => nav.open({ page: 'entry', kind })}>
             + New {entryTitle(kind)}
+          </button>
+        ) : kind === 'stockJournal' ? (
+          <button type="button" class="m-button m-primary" data-testid="list-new" onClick={() => nav.open({ page: 'stockJournal' })}>
+            + New Stock Journal
           </button>
         ) : undefined
       }
@@ -282,6 +312,12 @@ function Document({ books, nav, print, voucherId }: PageProps & { voucherId: str
             {bill && !cancelled ? <Row title={bill.pending > 0n ? 'Pending' : 'Settled'} value={rupees(bill.pending)} sub={bill.settled > 0n ? `${rupees(bill.settled)} settled` : undefined} tone={bill.pending > 0n ? undefined : 'muted'} testId="doc-pending" /> : null}
           </Group>
         </>
+      ) : view.stock ? (
+        <Group title="Stock moved">
+          {view.stock.map((l, i) => (
+            <Row key={i} title={`${l.direction === 'in' ? 'In' : 'Out'} · ${l.itemLabel}`} sub={`${l.direction === 'in' ? 'into' : 'from'} ${l.warehouseLabel}${l.direction === 'in' && l.rate ? ` · at ${l.rate}` : ''}`} value={l.qty} onOpen={() => nav.open({ page: 'item', itemId: l.itemId })} testId="doc-stock-line" />
+          ))}
+        </Group>
       ) : (
         <Group title="Entries">
           {view.journal.length === 0 ? <Empty>Nothing posted.</Empty> : view.journal.map((l, i) => <Row key={i} title={l.ledger} value={`${formatAmount(l.amount)} ${l.side === 'debit' ? 'Dr' : 'Cr'}`} />)}
@@ -299,8 +335,8 @@ function Document({ books, nav, print, voucherId }: PageProps & { voucherId: str
             </button>
           ) : null}
           {invoiceFrom(books, voucher) ? (
-            <button type="button" class="m-button m-primary" data-testid="doc-invoice" onClick={() => nav.open({ page: 'entry', kind: 'sales', fromOrder: voucher.id, ...(chosen.length > 0 ? { fromOrderLines: chosen } : {}) })}>
-              {chosen.length > 0 ? `Invoice selected (${chosen.length})` : invoiceFrom(books, voucher)}
+            <button type="button" class="m-button m-primary" data-testid="doc-invoice" onClick={() => nav.open({ page: 'entry', kind: view.baseKind === 'purchaseOrder' ? 'purchase' : 'sales', fromOrder: voucher.id, ...(chosen.length > 0 ? { fromOrderLines: chosen } : {}) })}>
+              {chosen.length > 0 ? `${view.baseKind === 'purchaseOrder' ? 'Bill' : 'Invoice'} selected (${chosen.length})` : invoiceFrom(books, voucher)}
             </button>
           ) : null}
         </div>
@@ -396,6 +432,13 @@ function PartyScreen({ books, nav, partyId, today }: { books: Books; nav: Mobile
         </Group>
       ) : null}
       {p.payable ? (
+        <div class="m-actions">
+          <button type="button" class="m-button m-primary" data-testid="party-bill" onClick={() => nav.open({ page: 'entry', kind: 'purchase', partyId: party.id })}>
+            + New purchase bill
+          </button>
+        </div>
+      ) : null}
+      {p.payable ? (
         <Group title="We owe">
           <Row title="Balance" value={rupees(p.payable.balance)} testId="party-payable" />
           <BillRows bills={p.payable.bills} nav={nav} />
@@ -423,8 +466,11 @@ function Outstanding({ books, nav, side, today }: { books: Books; nav: MobileNav
 
 function Items({ books, nav, today }: { books: Books; nav: MobileNav; today: string }) {
   const [text, setText] = useState('');
+  const [tab, setTab] = useState<StockTab>('all');
   const all = useMemo(() => itemList(books, today), [books.stock, books.orders, books.masters, today]);
-  const rows = all.filter((r) => matches(text, r.name, r.group));
+  const rows = all.filter((r) => inStockTab(r, tab) && matches(text, r.name, r.group));
+  const count = (t: StockTab) => all.filter((r) => inStockTab(r, t)).length;
+  const q = (r: (typeof all)[number], n: bigint) => `${formatQuantity(n as never, r.decimals)} ${r.unit}`.trim();
   return (
     <Frame
       nav={nav}
@@ -436,8 +482,37 @@ function Items({ books, nav, today }: { books: Books; nav: MobileNav; today: str
       }
     >
       <Search value={text} onInput={setText} label="Filter by item" />
+      <div class="m-field m-field-bare">
+        <span class="m-seg" role="group" aria-label="Which items">
+          {(
+            [
+              ['all', 'All'],
+              ['committed', 'Committed'],
+              ['onOrder', 'On order'],
+            ] as const
+          ).map(([t, label]) => (
+            <button key={t} type="button" class={tab === t ? 'm-seg-on' : ''} aria-pressed={tab === t} data-testid={`stock-tab-${t}`} onClick={() => setTab(t)}>
+              {label} ({count(t)})
+            </button>
+          ))}
+        </span>
+      </div>
       {rows.length === 0 ? (
-        <Empty>{all.length === 0 ? 'No stock items yet.' : 'No match.'}</Empty>
+        <Empty>{all.length === 0 ? 'No stock items yet.' : text.trim() !== '' ? 'No match.' : tab === 'committed' ? 'Nothing is waiting on a sales order.' : tab === 'onOrder' ? 'Nothing is on order from suppliers.' : 'No match.'}</Empty>
+      ) : tab !== 'all' ? (
+        // what the tab is about is the figure: how much is spoken for (and what that leaves free), or how much is still to come
+        rows.map((r) => (
+          <Row
+            key={r.itemId}
+            title={r.name}
+            sub={`${q(r, r.closing.qty)} in stock${tab === 'committed' ? ` · ${q(r, r.available)} free` : ''}`}
+            value={q(r, tab === 'committed' ? r.committed : r.onOrder)}
+            note={tab === 'committed' ? 'on sales orders' : 'to come'}
+            tone={tab === 'committed' && r.available < 0n ? 'bad' : undefined}
+            onOpen={() => nav.open({ page: 'item', itemId: r.itemId })}
+            testId="item-row"
+          />
+        ))
       ) : (
         rows.map((r) => <Row key={r.itemId} title={r.name} sub={r.group || undefined} value={`${formatQuantity(r.closing.qty, r.decimals)} ${r.unit}`.trim()} note={r.committed > 0n ? `${formatQuantity(r.available as never, r.decimals)} free` : undefined} tone={r.available < 0n ? 'bad' : undefined} onOpen={() => nav.open({ page: 'item', itemId: r.itemId })} testId="item-row" />)
       )}

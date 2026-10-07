@@ -7,7 +7,7 @@ import type { Books } from '../books/books';
  * Everything else about the record (opening stock, addresses, credit terms, drawings) is filled in on the desktop, on the same record.
  */
 
-export type CreateWhat = 'item' | 'customer';
+export type CreateWhat = 'item' | 'customer' | 'supplier';
 
 export interface ItemFields {
   readonly name: string;
@@ -57,14 +57,15 @@ export function itemCommand(id: string, f: ItemFields): unknown {
   return { op: 'create', kind: 'stockItem', id, data: { name: f.name.trim(), unitId: f.unitId, itemType: f.itemType, groupId: null, gstRateId: f.gstRateId === '' ? null : f.gstRateId, ...(text(f.hsn) ? { hsn: text(f.hsn) } : {}) } };
 }
 
-export function customerCommand(id: string, f: CustomerFields): unknown {
+/** A party made on the phone: a customer, or (for a purchase) a supplier. */
+export function customerCommand(id: string, f: CustomerFields, role: 'customer' | 'vendor' = 'customer'): unknown {
   return {
     op: 'create',
     kind: 'party',
     id,
     data: {
       name: f.name.trim(),
-      roles: ['customer'],
+      roles: [role],
       ...(text(f.phone) ? { phone: text(f.phone) } : {}),
       ...(text(f.gstin) ? { gstin: canonicalId(f.gstin) } : {}),
       ...(text(f.stateCode) ? { stateCode: text(f.stateCode) } : {}),
