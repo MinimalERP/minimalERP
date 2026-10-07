@@ -18,5 +18,10 @@ export function mountMobile(options: { readonly books: BooksHost; readonly root:
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     nav.open({ page: 'scan' });
   }
+  // The Android app's "New" shortcut (a long press on its icon).
+  if (/^#\/new(\?|$)/.test(window.location.hash)) {
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    nav.open({ page: 'new' });
+  }
   render(<MobileApp host={options.books} nav={nav} print={print} account={options.account} localBooks={options.localBooks} />, options.root);
 }

@@ -44,7 +44,7 @@ brings you back to the same row. **F10** opens a Stock Journal (stock moving bet
 
 ## Android app
 
-`apps/android` is a small app around the live site. It lets a bill shared from WhatsApp or any other app reach the AI Inbox: Chrome's own share to an installed web app drops the file. It also prints, and saves files to Downloads. To install it, open
+`apps/android` is a small app around the live site. It lets a bill shared from WhatsApp or any other app (or a PDF opened with it) reach Scan / the AI Inbox: Chrome's own share to an installed web app drops the file. It also prints in the copies asked for, sends an invoice's PDF to another app, saves files to Downloads, and has icon shortcuts to Scan and New. To install it, open
 <https://github.com/MinimalERP/minimalERP/releases/latest/download/MinimalERP.apk> on the phone, allow installing from this source,
 and log in with your usual account. Then remove the Chrome-installed MinimalERP, so the share sheet shows only one. Screens update with
 the site; `.github/workflows/android.yml` publishes a new APK only when the app itself changes. It is signed with one release key, kept

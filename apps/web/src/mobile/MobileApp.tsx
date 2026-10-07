@@ -8,13 +8,14 @@ import { PrintView } from '../ui/PrintView';
 import type { PrintCoordinator } from '../ui/printCoordinator';
 import { printCompanyOf } from '../ui/printing';
 import { formatAmount, formatDate, formatQuantity, todayText } from '../vouchers/format';
-import { invoiceDocFromBooks } from '../vouchers/invoicePrint';
+import { ANDROID_APK_URL, offerAndroidApp, openInApp } from '../ui/nativeApp';
 import { type StockTab, TRANSACTION_GROUPS, type DocRow, inStockTab, docList, docView, goToHits, homeFigures, itemList, itemPage, listTitleOf, partyList, partyPage } from './data';
 import { CreateScreen } from './CreateScreen';
 import { switchUi } from './device';
 import { Entry } from './EntryScreen';
 import { ENTRY_KINDS, canAlter, entryTitle, invoiceFrom, isEntryKind, pendingOrderLines } from './entry';
 import type { MobileNav, Page } from './nav';
+import { PrintSheet } from './PrintSheet';
 import { DayBook, OrderRegister, ReportsMenu } from './ReportsScreen';
 import { ScanScreen } from './ScanScreen';
 import { StockJournalScreen } from './StockJournalScreen';
@@ -241,6 +242,8 @@ function Documents({ books, nav, kind, today }: { books: Books; nav: MobileNav; 
 function Document({ books, nav, print, voucherId }: PageProps & { voucherId: string }) {
   const view = useMemo(() => docView(books, voucherId), [books.vouchers, books.lines, books.masters, voucherId]);
   const [picked, setPicked] = useState<readonly string[]>([]);
+  /** The sheet that asks which copies, and whether to print, share or save them. */
+  const [printing, setPrinting] = useState(false);
   if (!view) {
     return (
       <Frame nav={nav} title="Voucher">
@@ -255,11 +258,9 @@ function Document({ books, nav, print, voucherId }: PageProps & { voucherId: str
   const pending = pendingOrderLines(books, voucher);
   const chosen = picked.filter((id) => pending.has(id));
   const toggle = (id: string) => setPicked(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id]);
-  const printIt = () => {
-    const doc = invoiceDocFromBooks(voucher, books);
-    if (!doc) return;
-    print.printVoucher(doc);
-    print.choose('1'); // one copy, the Original: a phone prints or saves a PDF to send
+  const openPrinting = () => {
+    setPrinting(true);
+    nav.openLayer(() => setPrinting(false));
   };
   return (
     <Frame nav={nav} title={`${view.typeName} ${voucher.number}`}>
@@ -326,7 +327,7 @@ function Document({ books, nav, print, voucherId }: PageProps & { voucherId: str
       {(voucher.content as { narration?: string }).narration ? <p class="m-note">{(voucher.content as { narration?: string }).narration}</p> : null}
       {item && !cancelled ? (
         <div class="m-actions m-wrap">
-          <button type="button" class="m-button" data-testid="doc-print" onClick={printIt}>
+          <button type="button" class="m-button" data-testid="doc-print" onClick={openPrinting}>
             Print / PDF
           </button>
           {isEntryKind(view.baseKind) && canAlter(books, voucher) ? (
@@ -341,6 +342,7 @@ function Document({ books, nav, print, voucherId }: PageProps & { voucherId: str
           ) : null}
         </div>
       ) : null}
+      {printing ? <PrintSheet books={books} nav={nav} print={print} voucher={voucher} /> : null}
     </Frame>
   );
 }
@@ -573,6 +575,7 @@ function Utilities({ books, host, nav, account, localBooks }: PageProps) {
         <Row title="Desktop version" sub="The full keyboard app, with every voucher and report" onOpen={() => switchUi('desktop')} testId="to-desktop" />
         {account ? <Row title="Sign out" sub={account.email} onOpen={() => void account.signOut()} /> : null}
         {localBooks ? <Row title="Sign in" sub="These books are kept in this browser" onOpen={() => localBooks.signIn()} /> : null}
+        {offerAndroidApp() ? <Row title="Get the Android app" sub="Share bills into Scan, send PDFs, print" onOpen={() => void (openInApp(ANDROID_APK_URL) || window.open(ANDROID_APK_URL, '_blank', 'noopener'))} testId="get-app" /> : null}
       </Group>
     </Frame>
   );

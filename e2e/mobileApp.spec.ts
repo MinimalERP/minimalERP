@@ -119,7 +119,7 @@ test.describe('on a phone', () => {
     expect(problems).toEqual([]);
   });
 
-  test('an invoice prints from the phone: one Original, the document alone', async ({ page }) => {
+  test('an invoice prints from the phone: one Original unless more are asked for, the document alone', async ({ page }) => {
     const problems = watch(page);
     await openDemo(page);
     await page.evaluate(() => void (window.print = () => {}));
@@ -128,6 +128,7 @@ test.describe('on a phone', () => {
     await page.getByTestId('doc-row').first().tap();
     const number = ((await title(page).textContent()) ?? '').replace('Sales ', '');
     await page.getByTestId('doc-print').tap();
+    await page.getByTestId('print-go').tap();
     const copies = page.locator('#print-root .print-copy');
     await expect(copies).toHaveCount(1);
     await expect(copies.first()).toContainText(number);

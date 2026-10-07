@@ -7,6 +7,8 @@ interface AndroidBridge {
   print(title: string): void;
   saveFile(name: string, mime: string, base64: string): void;
   openExternal(url: string): void;
+  /** Hands a file to another app through the phone's share sheet. Absent in the app's earlier builds. */
+  shareFile?(name: string, mime: string, base64: string): void;
 }
 
 function bridge(): AndroidBridge | undefined {
@@ -41,6 +43,17 @@ export function saveInApp(name: string, mime: string, bytes: Uint8Array): boolea
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   native.saveFile(name, mime, btoa(binary));
+  return true;
+}
+
+/** Whether this build of the app can hand a file to another app (an earlier build cannot: it is asked to update). */
+export const canShareInApp = (): boolean => typeof bridge()?.shareFile === 'function';
+
+/** Inside the app: the phone's share sheet (WhatsApp, mail, …) with the file. Returns false in a browser, or in a build that cannot. */
+export function shareInApp(name: string, mime: string, base64: string): boolean {
+  const native = bridge();
+  if (!native || typeof native.shareFile !== 'function') return false;
+  native.shareFile(name, mime, base64);
   return true;
 }
 
