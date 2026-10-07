@@ -426,7 +426,30 @@ public class MainActivity extends Activity {
         return last == null ? "shared-document" : last;
     }
 
+    /** WhatsApp itself, on its chats — the person finds the contact there. Both are offered when the phone has WhatsApp and WhatsApp Business. */
+    private boolean openWhatsApp() {
+        List<Intent> apps = new ArrayList<>();
+        for (String pack : new String[] {"com.whatsapp", "com.whatsapp.w4b"}) {
+            Intent launch = getPackageManager().getLaunchIntentForPackage(pack);
+            if (launch != null) apps.add(launch);
+        }
+        if (apps.isEmpty()) return false;
+        Intent open = apps.get(0);
+        if (apps.size() > 1) {
+            open = Intent.createChooser(apps.get(0), "Open WhatsApp");
+            open.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[] {apps.get(1)});
+        }
+        try {
+            startActivity(open);
+            return true;
+        } catch (ActivityNotFoundException e) {
+            return false;
+        }
+    }
+
     private void openOutside(String url) {
+        // "https://wa.me/" with no number: just WhatsApp (a link with a number opens that chat, as before)
+        if (url.matches("https://wa\\.me/?") && openWhatsApp()) return;
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
         } catch (ActivityNotFoundException e) {
