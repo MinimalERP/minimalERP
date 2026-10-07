@@ -78,12 +78,26 @@ other voucher is still entered on the desktop.
 5. **Stock Journal** (`mobile/StockJournalScreen.tsx`): "+ Out" / "+ In" lines on the desktop's `StockForm`, judged by `previewStock`;
    listed under Transactions › Inventory and shown as what moved. Creating only.
 6. Still to come: Receipt / Payment entry on the phone; the rule-based on-device bill reader (standard GST bills read without the AI,
-   AI as the fallback) with the Android app.
+   AI as the fallback).
+
+## Stage 4: copies, and the Android app
+1. **Print asks which copies** (`mobile/PrintSheet.tsx`, `mobile/print.ts`): "Print / PDF" on a document opens a sheet with the desktop's
+   own list (`COPY_COUNT_OPTIONS`: 1–4 copies, or Duplicate / Triplicate / Extra Copy alone), ticked at what this phone printed last.
+   **Print** is the desktop's `PrintCoordinator`; **Share PDF** and **Save PDF** are the desktop's `pdfOf` with the same labels — so a
+   phone's Duplicate is the desk's Duplicate. Nothing about a page is decided in mobile code.
+2. **Share PDF** leaves through the Android app's share sheet (`shareFile` on the bridge, `ui/nativeApp.ts`), or a browser's own file
+   sharing where it has one. The bridge is feature-tested, not versioned: an app built before sharing shows "update the app" and still
+   prints and saves. A browser that will not send a file drawn seconds after the tap keeps it, and the next tap sends it.
+3. **The Android app** (`apps/android`) stays one Activity and one provider, no libraries. Added: `shareFile` (the PDF is written to the
+   app's cache and read through `CaptureProvider` with a one-off grant); a plain "No connection" page with Try again, retried by itself
+   when the network returns, in place of the browser's error page; icon shortcuts **Scan** and **New** (`#/inbox`, `#/new`, read by
+   `mobile/mount.tsx`); "Open with MinimalERP" on a PDF, which arrives at Scan like a shared one.
+4. **A test build before release**: `.github/workflows/android.yml` run by hand on a branch publishes a pre-release APK (never "latest"),
+   so the app is checked on a real phone before the merge that publishes it to everyone.
 
 ## Consequences
 - The existing phone tests of the DESKTOP app (`e2e/mobile.spec`, the assistant's phone test) now ask for `?ui=desktop`: a touch phone no
   longer gets the desktop shell by itself. Nothing else in the desktop suite changed.
 - A phone user who needs something only the desktop has (purchases, receipts, masters, GST reports) uses "Desktop version"; the choice sticks
   until they switch back.
-- Still to come: the Android app (it already shows this interface, being a WebView on the site): share a PDF through
-  the share sheet, status-bar colour, a new APK.
+- The Android app shows this interface (it is a WebView on the site), and is the way a PDF reaches WhatsApp from a phone.
