@@ -18,7 +18,12 @@ import android.net.Network;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.os.Message;
+import android.os.ParcelFileDescriptor;
+import android.print.PageRange;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
@@ -65,6 +70,8 @@ public class MainActivity extends Activity {
     static final String OPEN_NEW = "com.minimalerp.app.NEW";
 
     private WebView web;
+    /** The page's own background (light or dark), which the WebView shows behind it while it loads. */
+    private int pageBackground;
     private ValueCallback<Uri[]> pickCallback;
     /** Where the camera was asked to write the photo, while it is open. */
     private File pendingPhoto;
@@ -329,8 +336,9 @@ public class MainActivity extends Activity {
     private FrameLayout fitted(WebView view) {
         boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         FrameLayout frame = new FrameLayout(this);
-        frame.setBackgroundColor(dark ? 0xFF16150F : 0xFFF6F5F1);
-        view.setBackgroundColor(dark ? 0xFF16150F : 0xFFF6F5F1);
+        pageBackground = dark ? 0xFF16150F : 0xFFF6F5F1;
+        frame.setBackgroundColor(pageBackground);
+        view.setBackgroundColor(pageBackground);
         frame.addView(view, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         frame.setOnApplyWindowInsetsListener((v, insets) -> {
             if (Build.VERSION.SDK_INT >= 30) {
@@ -478,7 +486,32 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 PrintManager printer = (PrintManager) getSystemService(PRINT_SERVICE);
                 String job = title == null || title.isEmpty() ? "MinimalERP" : title;
-                printer.print(job, web.createPrintDocumentAdapter(job), null);
+                // The WebView paints its own background into the paper's margins (the page's CSS cannot reach them): white while it
+                // prints, the app's colour again when the job is done.
+                web.setBackgroundColor(0xFFFFFFFF);
+                PrintDocumentAdapter pages = web.createPrintDocumentAdapter(job);
+                printer.print(job, new PrintDocumentAdapter() {
+                    @Override
+                    public void onStart() {
+                        pages.onStart();
+                    }
+
+                    @Override
+                    public void onLayout(PrintAttributes oldAttributes, PrintAttributes newAttributes, CancellationSignal cancel, LayoutResultCallback callback, Bundle extras) {
+                        pages.onLayout(oldAttributes, newAttributes, cancel, callback, extras);
+                    }
+
+                    @Override
+                    public void onWrite(PageRange[] ranges, ParcelFileDescriptor destination, CancellationSignal cancel, WriteResultCallback callback) {
+                        pages.onWrite(ranges, destination, cancel, callback);
+                    }
+
+                    @Override
+                    public void onFinish() {
+                        pages.onFinish();
+                        web.setBackgroundColor(pageBackground);
+                    }
+                }, null);
             });
         }
 
