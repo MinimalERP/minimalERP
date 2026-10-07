@@ -398,25 +398,24 @@ function PartyScreen({ books, nav, partyId, today }: { books: Books; nav: Mobile
   const digits = (party.phone ?? '').replace(/\D/g, '');
   return (
     <Frame nav={nav} title={party.name}>
-      {(digits || party.email) && (
-        <div class="m-actions">
+      <div class="m-actions">
+        <>
           {digits ? (
             <a class="m-button" href={`tel:${digits}`}>
               Call
             </a>
           ) : null}
-          {digits ? (
-            <a class="m-button" href={`https://wa.me/${digits.length === 10 ? `91${digits}` : digits}`} target="_blank" rel="noreferrer">
-              WhatsApp
-            </a>
-          ) : null}
+          {/* WhatsApp itself, not a chat on the party's number: the person picks the contact there (a master's number is often a landline) */}
+          <a class="m-button" href="https://wa.me/" target="_blank" rel="noreferrer" data-testid="party-whatsapp">
+            WhatsApp
+          </a>
           {party.email ? (
             <a class="m-button" href={`mailto:${party.email}`}>
               Email
             </a>
           ) : null}
-        </div>
-      )}
+        </>
+      </div>
       {p.receivable ? (
         <div class="m-actions">
           <button type="button" class="m-button m-primary" data-testid="party-invoice" onClick={() => nav.open({ page: 'entry', kind: 'sales', partyId: party.id })}>
