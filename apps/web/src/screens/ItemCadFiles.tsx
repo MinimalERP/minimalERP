@@ -1,25 +1,27 @@
 import { useEffect, useState } from 'preact/hooks';
-import { useServices } from '../shell/hooks';
+import { useCommandHandler, useScope, useServices } from '../shell/hooks';
 import type { ItemCadFileRow } from '../shell/services';
 import { downloadText } from '../ui/download';
+import { DrawingViewer } from '../ui/DrawingViewer';
 import { formatDate } from '../vouchers/format';
 
 /**
  * A stock item's CAD files: the drawings MinimalCAD (the drawing application, its own site, the same sign-in) keeps on the item. Any
  * number, each with a name of its own. They are the same rows MinimalCAD's parts library opens and saves — nothing is copied — so a file
- * saved there is the one listed here. From here a file is opened in MinimalCAD, downloaded, or (while altering the item) added and
- * deleted; a deletion asks once more, because a deleted drawing is gone for good.
+ * saved there is the one listed here. From here a file is viewed and printed (MinimalCAD's view-only page, over this form), opened in
+ * MinimalCAD to be changed, downloaded, or (while altering the item) added and deleted; a deletion asks once more, because a deleted drawing is gone for good.
  *
  * They are not part of the item's own form: each change is made at once, not on accept. Online books only (the browser-only books have
  * no MinimalCAD to share them with).
  */
-export function ItemCadFiles({ itemId, editable }: { readonly itemId: string; readonly editable: boolean }) {
+export function ItemCadFiles({ itemId, itemLabel, editable }: { readonly itemId: string; readonly itemLabel: string; readonly editable: boolean }) {
   const { cadFiles, books: host } = useServices();
   const companyId = host.current?.companyId;
   const [files, setFiles] = useState<readonly ItemCadFileRow[] | undefined>(undefined);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | undefined>(undefined);
   const [deleting, setDeleting] = useState<string | undefined>(undefined);
   const [newName, setNewName] = useState('');
+  const [viewing, setViewing] = useState<ItemCadFileRow | undefined>(undefined);
 
   const load = () => {
     if (!cadFiles || !companyId) return;
@@ -76,6 +78,9 @@ export function ItemCadFiles({ itemId, editable }: { readonly itemId: string; re
             <li key={f.id} data-testid="item-cad-file">
               <span class="item-cad-name">{f.name}</span>
               <span class="field-hint">saved {formatDate(f.updatedAt.slice(0, 10))}</span>
+              <button type="button" class="button" data-testid="cad-view" onClick={() => setViewing(f)}>
+                View / Print
+              </button>
               <a class="button" href={cadFiles.openUrl(f.id)} target="_blank" rel="noopener" data-testid="cad-open">
                 Open in MinimalCAD ↗
               </a>
@@ -118,6 +123,16 @@ export function ItemCadFiles({ itemId, editable }: { readonly itemId: string; re
           {notice.text}
         </p>
       )}
+      {viewing && <ItemDrawing title={`${itemLabel} / ${viewing.name}`} viewerUrl={cadFiles.viewerUrl} load={() => cadFiles.document(viewing.id)} onClose={() => setViewing(undefined)} />}
     </section>
   );
+}
+
+const DRAWING_SCOPE = 'overlay:item-drawing';
+
+/** The drawing over the form. Esc (app.back, through the keyboard scope like every other overlay) closes it. */
+function ItemDrawing(props: Parameters<typeof DrawingViewer>[0]) {
+  useScope(DRAWING_SCOPE, 'overlay', true);
+  useCommandHandler(DRAWING_SCOPE, 'app.back', () => (props.onClose(), true));
+  return <DrawingViewer {...props} />;
 }

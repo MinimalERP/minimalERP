@@ -743,7 +743,7 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
           </section>
         )}
         {/* the item's MinimalCAD drawings: an existing item only (a file belongs to an item that is in the books) */}
-        {kind === 'stockItem' && existing && <ItemCadFiles itemId={existing.id} editable={!readOnly} />}
+        {kind === 'stockItem' && existing && <ItemCadFiles itemId={existing.id} itemLabel={'name' in existing ? existing.name : ''} editable={!readOnly} />}
       </form>
 
       {pdfViewerFile && <ItemPdfViewer file={pdfViewerFile} onClose={() => setPdfViewerFile(undefined)} />}

@@ -24,6 +24,7 @@ import android.os.ParcelFileDescriptor;
 import android.print.PageRange;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
+import android.print.PrintDocumentInfo;
 import android.print.PrintManager;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
@@ -575,6 +576,47 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 toast(name + " could not be shared: " + e.getMessage());
             }
+        }
+
+        /**
+         * Prints a PDF the page made (an item's drawing): the phone's print window with the PDF's own page, offered on A4 landscape —
+         * the printer and its paper are chosen there.
+         */
+        @JavascriptInterface
+        public void printPdf(String name, String base64) {
+            final byte[] bytes;
+            try {
+                bytes = Base64.decode(base64, Base64.DEFAULT);
+            } catch (IllegalArgumentException e) {
+                toast("That PDF could not be printed");
+                return;
+            }
+            final String job = name == null || name.isEmpty() ? "MinimalERP" : name;
+            runOnUiThread(() -> {
+                PrintManager printer = (PrintManager) getSystemService(PRINT_SERVICE);
+                PrintAttributes paper = new PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4.asLandscape()).build();
+                printer.print(job, new PrintDocumentAdapter() {
+                    @Override
+                    public void onLayout(PrintAttributes oldAttributes, PrintAttributes newAttributes, CancellationSignal cancel, LayoutResultCallback callback, Bundle extras) {
+                        if (cancel.isCanceled()) {
+                            callback.onLayoutCancelled();
+                            return;
+                        }
+                        PrintDocumentInfo info = new PrintDocumentInfo.Builder(job).setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT).setPageCount(1).build();
+                        callback.onLayoutFinished(info, !newAttributes.equals(oldAttributes));
+                    }
+
+                    @Override
+                    public void onWrite(PageRange[] ranges, ParcelFileDescriptor destination, CancellationSignal cancel, WriteResultCallback callback) {
+                        try (FileOutputStream out = new FileOutputStream(destination.getFileDescriptor())) {
+                            out.write(bytes);
+                            callback.onWriteFinished(new PageRange[] {PageRange.ALL_PAGES});
+                        } catch (Exception e) {
+                            callback.onWriteFailed(e.getMessage());
+                        }
+                    }
+                }, paper);
+            });
         }
 
         /** "Try again" on the No connection page. */

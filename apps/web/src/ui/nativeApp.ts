@@ -9,6 +9,8 @@ interface AndroidBridge {
   openExternal(url: string): void;
   /** Hands a file to another app through the phone's share sheet. Absent in the app's earlier builds. */
   shareFile?(name: string, mime: string, base64: string): void;
+  /** Sends a PDF made by the page to the phone's printing. Absent in the app's earlier builds. */
+  printPdf?(name: string, base64: string): void;
 }
 
 function bridge(): AndroidBridge | undefined {
@@ -54,6 +56,17 @@ export function shareInApp(name: string, mime: string, base64: string): boolean 
   const native = bridge();
   if (!native || typeof native.shareFile !== 'function') return false;
   native.shareFile(name, mime, base64);
+  return true;
+}
+
+/** Whether this build of the app can print a PDF the page made (an earlier build cannot: the PDF is opened in the phone's viewer instead). */
+export const canPrintPdfInApp = (): boolean => typeof bridge()?.printPdf === 'function';
+
+/** Inside the app: the phone's print window with this PDF. Returns false in a browser, or in a build that cannot. */
+export function printPdfInApp(name: string, base64: string): boolean {
+  const native = bridge();
+  if (!native || typeof native.printPdf !== 'function') return false;
+  native.printPdf(name, base64);
   return true;
 }
 

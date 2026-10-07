@@ -87,7 +87,7 @@ function mountApp(books: BooksHost, saving: SaveTracker, account?: Account, loca
   // A phone (or a device that asked for it) gets the mobile interface instead: its own root over the same books, loaded only then.
   // Nothing of the desktop app below is started for it — and nothing below changes for everyone else.
   if (chosenUi(window, safeStorage()) === 'mobile') {
-    void import('./mobile/mount').then(({ mountMobile }) => mountMobile({ books, root: root(), account, localBooks }));
+    void import('./mobile/mount').then(({ mountMobile }) => mountMobile({ books, root: root(), account, localBooks, cadFiles }));
     return;
   }
   const services = createServices({
@@ -213,6 +213,7 @@ async function startCloud(config: CloudConfig): Promise<void> {
       add: (companyId, itemId, name, document) => cad.add(companyId, itemId, name, document),
       remove: (companyId, id) => cad.remove(companyId, id),
       openUrl: (fileId) => `${cadSite}#/item-file/${fileId}`,
+      viewerUrl: `${cadSite}view.html`,
     };
     mountApp(
       host,
