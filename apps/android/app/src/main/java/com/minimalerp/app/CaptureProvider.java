@@ -12,8 +12,9 @@ import java.io.File;
 import java.io.FileNotFoundException;
 
 /**
- * Hands the camera app a place to write the photo it takes for the AI Inbox, and the page the photo back: content://…capture/<name>,
- * a file in this app's cache (never the phone's gallery). Not exported; the camera gets one-off write access to the one URI it is given.
+ * Hands the camera app a place to write the photo it takes for Scan, and the page the photo back: content://…capture/<name>,
+ * a file in this app's cache (never the phone's gallery). The same folder holds a PDF on its way to another app (MainActivity's
+ * shareFile). Not exported; the camera gets one-off write access, the app a file is shared with one-off read access, to that one URI.
  */
 public class CaptureProvider extends ContentProvider {
     static final String AUTHORITY = "com.minimalerp.app.capture";
@@ -25,7 +26,7 @@ public class CaptureProvider extends ContentProvider {
     }
 
     static Uri uriFor(String name) {
-        return Uri.parse("content://" + AUTHORITY + "/" + name);
+        return new Uri.Builder().scheme("content").authority(AUTHORITY).appendPath(name).build(); // a voucher number may hold a space
     }
 
     /** The file a URI names — its last segment only, so nothing outside the captures folder can be reached. */
@@ -47,6 +48,9 @@ public class CaptureProvider extends ContentProvider {
 
     @Override
     public String getType(Uri uri) {
+        String name = String.valueOf(uri.getLastPathSegment()).toLowerCase();
+        if (name.endsWith(".pdf")) return "application/pdf";
+        if (name.endsWith(".png")) return "image/png";
         return "image/jpeg";
     }
 

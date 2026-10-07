@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_scan">Scan</string>
+    <string name="shortcut_scan_long">Scan a bill</string>
+    <string name="shortcut_new">New</string>
+    <string name="shortcut_new_long">New voucher</string>
+</resources>

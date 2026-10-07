@@ -3,6 +3,7 @@ package com.minimalerp.app;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
+import android.content.ComponentName;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.res.Configuration;
@@ -12,6 +13,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
 import android.media.ExifInterface;
+import android.net.ConnectivityManager;
+import android.net.Network;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -24,6 +27,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
+import android.webkit.WebResourceError;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -44,23 +48,32 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * MinimalERP on Android: the live site in a WebView, plus what a WebView cannot do alone — receive a shared bill (Chrome's own share
- * target drops the file), photograph one with the camera for the AI Inbox, print, save a file, open a link outside. The page talks to it through `window.MinimalERPAndroid`
- * (apps/web/src/ui/nativeApp.ts).
+ * MinimalERP on Android: the live site in a WebView, plus what a WebView cannot do alone — receive a shared or opened bill (Chrome's own
+ * share target drops the file), photograph one with the camera for Scan, print, send a PDF to another app, save a file, open a link
+ * outside, and say so plainly when there is no connection. The page talks to it through `window.MinimalERPAndroid`
+ * (apps/web/src/ui/nativeApp.ts). No libraries: this file, CaptureProvider and the platform.
  */
 public class MainActivity extends Activity {
     static final String SITE = "https://minimalerp.github.io/minimalERP/";
-    /** The Inbox refuses larger files; they are not read into memory at all. */
+    /** Scan refuses larger files; they are not read into memory at all. */
     static final int MAX_SHARED_BYTES = 10 * 1024 * 1024;
     static final int PICK_FILE = 1;
     /** A photo is made no larger than this on its long side: sharp enough to read a bill, a few hundred KB instead of many MB. */
     static final int PHOTO_LONG_SIDE = 2560;
+    /** The icon's long-press shortcuts (res/xml/shortcuts.xml). */
+    static final String OPEN_SCAN = "com.minimalerp.app.SCAN";
+    static final String OPEN_NEW = "com.minimalerp.app.NEW";
 
     private WebView web;
     private ValueCallback<Uri[]> pickCallback;
     /** Where the camera was asked to write the photo, while it is open. */
     private File pendingPhoto;
     private final List<JSONObject> shared = new ArrayList<>();
+    /** The "No connection" page is showing in place of this address; it is loaded again on Try again, or when the network is back. */
+    private String unreachable;
+    /** The site is loading again after "No connection": that page is then dropped from Back. */
+    private boolean recovering;
+    private ConnectivityManager.NetworkCallback networkWatch;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,6 +98,22 @@ public class MainActivity extends Activity {
                 openOutside(url);
                 return true;
             }
+
+            /** The site itself could not be reached (not a picture or a request inside it): our own plain page, not the browser's. */
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (!request.isForMainFrame()) return;
+                unreachable = request.getUrl().toString();
+                view.loadDataWithBaseURL(null, noConnectionPage(), "text/html", "UTF-8", null);
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                if (recovering && url != null && url.startsWith(SITE) && unreachable == null) {
+                    recovering = false;
+                    view.clearHistory(); // Back must not return to "No connection"
+                }
+            }
         });
         web.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -96,7 +125,7 @@ public class MainActivity extends Activity {
                 // "Take photo" (capture) opens the camera at once; "Upload" offers the camera beside the files
                 Intent chosen = camera != null && params.isCaptureEnabled() ? camera : files;
                 if (camera != null && chosen == files) {
-                    chosen = Intent.createChooser(files, "Upload a bill");
+                    chosen = Intent.createChooser(files, "Scan a bill");
                     chosen.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[] {camera});
                 }
                 try {
@@ -130,7 +159,9 @@ public class MainActivity extends Activity {
             }
         });
 
-        if (isShare(getIntent()) && receive(getIntent())) web.loadUrl(inboxUrl());
+        watchNetwork();
+        String asked = addressFor(getIntent());
+        if (asked != null) web.loadUrl(asked);
         else if (savedInstanceState != null) web.restoreState(savedInstanceState);
         else web.loadUrl(SITE);
     }
@@ -139,7 +170,66 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (isShare(intent) && receive(intent)) web.loadUrl(inboxUrl());
+        String asked = addressFor(intent);
+        if (asked != null) web.loadUrl(asked);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (networkWatch != null) {
+            try {
+                ((ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE)).unregisterNetworkCallback(networkWatch);
+            } catch (Exception ignored) {
+                // it was never registered
+            }
+        }
+        super.onDestroy();
+    }
+
+    /** Where this launch asks to go: Scan with the files shared or opened, a shortcut's page — or null for wherever the app was. */
+    private String addressFor(Intent intent) {
+        String action = intent == null ? null : intent.getAction();
+        if (isShare(intent)) return receive(intent) ? inboxUrl() : null;
+        if (OPEN_SCAN.equals(action)) return SITE + "?open=" + System.currentTimeMillis() + "#/inbox";
+        if (OPEN_NEW.equals(action)) return SITE + "?open=" + System.currentTimeMillis() + "#/new";
+        return null;
+    }
+
+    /** When the network comes back while "No connection" is showing, the site is tried again without being asked. */
+    private void watchNetwork() {
+        try {
+            networkWatch = new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(Network network) {
+                    runOnUiThread(MainActivity.this::tryAgain);
+                }
+            };
+            ((ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE)).registerDefaultNetworkCallback(networkWatch);
+        } catch (Exception e) {
+            networkWatch = null; // Try again still works by hand
+        }
+    }
+
+    private void tryAgain() {
+        if (unreachable == null) return;
+        String url = unreachable;
+        unreachable = null;
+        recovering = true;
+        web.loadUrl(url);
+    }
+
+    private String noConnectionPage() {
+        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        String back = dark ? "#16150f" : "#f6f5f1";
+        String text = dark ? "#f2f0e8" : "#1c1b17";
+        String muted = dark ? "#a8a498" : "#6b675c";
+        return "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>"
+            + "<style>html,body{height:100%;margin:0}body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;"
+            + "box-sizing:border-box;background:" + back + ";color:" + text + ";font:17px system-ui,sans-serif;text-align:center}"
+            + "p{margin:0;color:" + muted + ";font-size:15px;max-width:22em}h1{margin:0;font-size:22px;font-weight:600}"
+            + "button{margin-top:14px;min-height:52px;padding:0 28px;border:0;border-radius:10px;background:#0b5cad;color:#fff;font:inherit;font-weight:600}</style></head>"
+            + "<body><h1>No connection</h1><p>MinimalERP could not be reached. Check the phone's internet; it opens by itself when it is back.</p>"
+            + "<button onclick='MinimalERPAndroid.retry()'>Try again</button></body></html>";
     }
 
     @Override
@@ -198,7 +288,7 @@ public class MainActivity extends Activity {
 
     /**
      * The photo, upright (cameras often store it sideways with a note to turn it) and no larger than PHOTO_LONG_SIDE, as JPEG: what the
-     * AI Inbox reads, well inside its 10 MB limit. Left as it was if it cannot be read.
+     * reader takes, well inside Scan's 10 MB limit. Left as it was if it cannot be read.
      */
     private static void shrink(File photo) {
         try {
@@ -228,7 +318,7 @@ public class MainActivity extends Activity {
             if (ready != bitmap) ready.recycle();
             bitmap.recycle();
         } catch (Exception | OutOfMemoryError e) {
-            // the photo as the camera took it: the Inbox says so if it is too large
+            // the photo as the camera took it: Scan says so if it is too large
         }
     }
 
@@ -263,20 +353,24 @@ public class MainActivity extends Activity {
         bars.setSystemBarsAppearance(dark ? 0 : light, light);
     }
 
-    /** A fresh page load (the query makes it one even from the Inbox itself), so the Inbox mounts and takes the files. */
+    /** A fresh page load (the query makes it one even from Scan itself), so Scan mounts and takes the files. */
     private static String inboxUrl() {
         return SITE + "?share=" + System.currentTimeMillis() + "#/inbox?shared=1";
     }
 
+    /** A bill shared to the app, or a PDF opened with it ("Open with MinimalERP"). */
     private static boolean isShare(Intent intent) {
         String action = intent == null ? null : intent.getAction();
+        if (Intent.ACTION_VIEW.equals(action)) return intent.getData() != null && "content".equals(intent.getData().getScheme());
         return Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action);
     }
 
     /** Reads the shared files now, while this app holds the permission the sharing app granted. */
     private boolean receive(Intent intent) {
         List<Uri> uris = new ArrayList<>();
-        if (Intent.ACTION_SEND.equals(intent.getAction())) {
+        if (Intent.ACTION_VIEW.equals(intent.getAction())) {
+            uris.add(intent.getData());
+        } else if (Intent.ACTION_SEND.equals(intent.getAction())) {
             Uri one = intent.getParcelableExtra(Intent.EXTRA_STREAM);
             if (one != null) uris.add(one);
         } else {
@@ -391,6 +485,46 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 toast(name + " could not be saved: " + e.getMessage());
             }
+        }
+
+        /**
+         * Hands a file (an invoice's PDF) to another app — WhatsApp, mail — through the phone's share sheet. It is written to this app's
+         * cache and read through CaptureProvider with a one-off grant; what was shared before is cleared first.
+         */
+        @JavascriptInterface
+        public void shareFile(String name, String mime, String base64) {
+            try {
+                String cleaned = (name == null ? "" : name).replaceAll("[\\\\/:*?\"<>|]+", "-").replaceAll("\\.{2,}", ".").trim();
+                final String safe = cleaned.isEmpty() || cleaned.startsWith(".") ? "document.pdf" : cleaned;
+                File dir = CaptureProvider.dir(MainActivity.this);
+                File[] old = dir.listFiles();
+                if (old != null) for (File f : old) if (!f.equals(pendingPhoto)) f.delete();
+                try (FileOutputStream out = new FileOutputStream(new File(dir, safe))) {
+                    out.write(Base64.decode(base64, Base64.DEFAULT));
+                }
+                Uri uri = CaptureProvider.uriFor(safe);
+                Intent send = new Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_SUBJECT, safe);
+                send.setClipData(ClipData.newRawUri(safe, uri)); // carries the read grant to the app chosen
+                send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                Intent chooser = Intent.createChooser(send, "Send " + safe);
+                // this app takes shared PDFs too (into Scan): not a place to send our own invoice
+                chooser.putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, new ComponentName[] {new ComponentName(MainActivity.this, MainActivity.class)});
+                runOnUiThread(() -> {
+                    try {
+                        startActivity(chooser);
+                    } catch (ActivityNotFoundException e) {
+                        toast("No app can take " + safe);
+                    }
+                });
+            } catch (Exception e) {
+                toast(name + " could not be shared: " + e.getMessage());
+            }
+        }
+
+        /** "Try again" on the No connection page. */
+        @JavascriptInterface
+        public void retry() {
+            runOnUiThread(MainActivity.this::tryAgain);
         }
 
         @JavascriptInterface
