@@ -10,7 +10,9 @@ export interface BulkImportSummary {
 /** Items and Parties import DIRECTLY in bulk (they're master data — nothing to review row by row): each row is
  *  matched against the company's masters by name (case-insensitive, the same key the database itself enforces
  *  uniqueness on); a match becomes an alteration of the existing record, no match a new one with a deterministic
- *  id (so re-running the same file twice is a safe, idempotent replay, not a duplicate). */
+ *  id (so re-running the same file twice is a safe, idempotent replay, not a duplicate). The id is made from the
+ *  company too: a record's id is unique across ALL companies, so the same file imported into a second company
+ *  must not arrive with the ids the first company already holds. */
 export async function importItemsCsv(books: Books, csvText: string): Promise<BulkImportSummary> {
   const rows = parseItemsCsv(csvText);
   let created = 0;
@@ -25,7 +27,7 @@ export async function importItemsCsv(books: Books, csvText: string): Promise<Bul
         continue;
       }
       const existing = books.masters.stockItems.find((it) => it.name.toLowerCase() === row.name.toLowerCase());
-      const id = existing?.id ?? deterministicUuid(`import|stockItem|${row.name.toLowerCase()}`);
+      const id = existing?.id ?? deterministicUuid(`import|${books.companyId}|stockItem|${row.name.toLowerCase()}`);
       const done = await books.execute({ op: existing ? 'alter' : 'create', kind: 'stockItem', id, data: resolved.data });
       if (!done.ok) errors.push({ row: i + 1, message: done.issues.map((iss) => iss.message).join('; ') });
       else if (existing) updated++;
@@ -49,7 +51,7 @@ export async function importPartiesCsv(books: Books, csvText: string): Promise<B
         continue;
       }
       const existing = books.masters.parties.find((p) => p.name.toLowerCase() === row.name.toLowerCase());
-      const id = existing?.id ?? deterministicUuid(`import|party|${row.name.toLowerCase()}`);
+      const id = existing?.id ?? deterministicUuid(`import|${books.companyId}|party|${row.name.toLowerCase()}`);
       const done = await books.execute({ op: existing ? 'alter' : 'create', kind: 'party', id, data: resolved.data });
       if (!done.ok) errors.push({ row: i + 1, message: done.issues.map((iss) => iss.message).join('; ') });
       else if (existing) updated++;

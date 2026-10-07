@@ -4,8 +4,8 @@ import { type Books, BooksHost, type LocalBackend } from './books';
 import { importItemsCsv, importPartiesCsv, importVouchersCsv } from './csvImport';
 import { createLocalFactory, memoryStore } from './local';
 
-async function freshCompany(): Promise<Books> {
-  const host = new BooksHost(createLocalFactory({ makeBackend: (masters) => new MemoryBackend(masters) as unknown as LocalBackend, store: memoryStore(), newIdSeed: () => 'seed-1' }));
+async function freshCompany(seed = 'seed-1'): Promise<Books> {
+  const host = new BooksHost(createLocalFactory({ makeBackend: (masters) => new MemoryBackend(masters) as unknown as LocalBackend, store: memoryStore(), newIdSeed: () => seed }));
   const r = await host.create({ name: 'T', fyStart: '2024-04-01' });
   if (!r.ok) throw new Error(JSON.stringify(r.issues));
   return r.value;
@@ -32,6 +32,20 @@ describe('importItemsCsv', () => {
     expect(r.errors).toHaveLength(1);
     expect(r.errors[0]?.row).toBe(1);
     expect(books.masters.stockItems.map((i) => i.name)).toEqual(['Bolt']);
+  });
+
+  it('gives the same file different ids in a second company (an id is unique across all companies)', async () => {
+    const [one, two] = [await freshCompany('seed-1'), await freshCompany('seed-2')];
+    expect(one.companyId).not.toBe(two.companyId);
+    const csv = 'name,code,alias,group,unit,hsn,gstRate,itemType\nBolt,FG-1,,,Nos,7318,18,finished';
+    expect(await importItemsCsv(one, csv)).toMatchObject({ created: 1, errors: [] });
+    expect(await importItemsCsv(two, csv)).toMatchObject({ created: 1, errors: [] });
+    expect(two.masters.stockItems[0]?.id).not.toBe(one.masters.stockItems[0]?.id);
+
+    const parties = 'name,roles\nAcme Ltd,customer';
+    expect(await importPartiesCsv(one, parties)).toMatchObject({ created: 1, errors: [] });
+    expect(await importPartiesCsv(two, parties)).toMatchObject({ created: 1, errors: [] });
+    expect(two.masters.parties[0]?.id).not.toBe(one.masters.parties[0]?.id);
   });
 });
 
