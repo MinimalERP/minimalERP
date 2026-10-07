@@ -2,19 +2,24 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- To open the site again by itself when the connection returns (MainActivity.watchNetwork). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Android 11+: the camera app must be visible to this one to be offered (no CAMERA permission is needed: the camera app takes the photo). -->
     <queries>
         <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>
+        <!-- To open WhatsApp itself from a party's page (MainActivity.openWhatsApp). -->
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
     </queries>
 
     <application
         android:label="MinimalERP"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+        android:theme="@style/App"
         android:allowBackup="false">
 
         <activity
@@ -27,7 +32,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- A bill shared from WhatsApp or any other app: the AI Inbox asks what it is. -->
+            <!-- A bill shared from WhatsApp or any other app: Scan asks what it is. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
@@ -35,9 +40,17 @@
                 <data android:mimeType="application/pdf" />
                 <data android:mimeType="image/*" />
             </intent-filter>
+            <!-- A PDF in a file manager or a mail: "Open with MinimalERP" brings it to Scan too. (Pictures are left to the gallery.) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="application/pdf" />
+            </intent-filter>
+            <!-- A long press on the icon: Scan, New. -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
 
-        <!-- Where the camera writes a photo for the AI Inbox: this app's cache, not the gallery (CaptureProvider). -->
+        <!-- Where the camera writes a photo for Scan, and a PDF waits to be sent: this app's cache, not the gallery (CaptureProvider). -->
         <provider
             android:name=".CaptureProvider"
             android:authorities="com.minimalerp.app.capture"

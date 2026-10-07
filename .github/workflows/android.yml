@@ -2,7 +2,8 @@ name: Android app
 
 # Builds apps/android (the WebView shell around the site) and publishes MinimalERP.apk as a GitHub Release, so anyone can install it from
 # https://github.com/MinimalERP/minimalERP/releases/latest/download/MinimalERP.apk. The site itself updates through Pages; this only runs
-# when the shell changes.
+# when the shell changes. Run by hand on a branch, it publishes a test build instead (a pre-release nobody is sent to): install it on a
+# phone to check the app before it is merged.
 on:
   push:
     branches: [main]
@@ -39,7 +40,17 @@ jobs:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.p12
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      - name: Publish a test build (a branch, run by hand)
+        if: github.ref != 'refs/heads/main'
+        run: |
+          cp apps/android/app/build/outputs/apk/release/app-release.apk MinimalERP-test.apk
+          gh release create "android-test-${{ github.run_number }}" MinimalERP-test.apk --prerelease --latest=false --target "${{ github.sha }}" \
+            --title "MinimalERP Android test build ${{ github.run_number }}" \
+            --notes "A build to check before release, from ${{ github.ref_name }}. Not the app to install: that is the latest release."
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Publish the release
+        if: github.ref == 'refs/heads/main'
         run: |
           cp apps/android/app/build/outputs/apk/release/app-release.apk MinimalERP.apk
           gh release create "android-v${{ github.run_number }}" MinimalERP.apk --latest \

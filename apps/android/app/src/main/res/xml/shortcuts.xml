@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A long press on the app's icon: straight to Scan (photograph or choose a bill) or to New (an invoice, an order, a purchase bill). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="scan"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_scan"
+        android:shortcutLongLabel="@string/shortcut_scan_long">
+        <intent
+            android:action="com.minimalerp.app.SCAN"
+            android:targetPackage="com.minimalerp.app"
+            android:targetClass="com.minimalerp.app.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="new"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_new"
+        android:shortcutLongLabel="@string/shortcut_new_long">
+        <intent
+            android:action="com.minimalerp.app.NEW"
+            android:targetPackage="com.minimalerp.app"
+            android:targetClass="com.minimalerp.app.MainActivity" />
+    </shortcut>
+</shortcuts>
