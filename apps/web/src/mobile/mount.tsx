@@ -13,5 +13,10 @@ import './mobile.css';
 export function mountMobile(options: { readonly books: BooksHost; readonly root: HTMLElement; readonly account?: Account | undefined; readonly localBooks?: LocalBooks | undefined }): void {
   const nav = new MobileNav(window);
   const print = new PrintCoordinator();
+  // A document shared to the app (or to the installed site) arrives at the inbox address: on the phone that is Scan, which takes it.
+  if (/^#\/inbox(\?|$)/.test(window.location.hash)) {
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    nav.open({ page: 'scan' });
+  }
   render(<MobileApp host={options.books} nav={nav} print={print} account={options.account} localBooks={options.localBooks} />, options.root);
 }

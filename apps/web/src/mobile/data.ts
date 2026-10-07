@@ -5,18 +5,22 @@ import {
   type Money,
   type Party,
   type Voucher,
+  type DayBookRow,
   billStatusOf,
   dailyDigest,
+  dayBookRows,
   gstInvoices,
   money,
   partyLedgerId,
 } from '@minimalerp/domain';
 import type { Books } from '../books/books';
 import { type OutstandingBillRow, billRows, partyRows, partyTotals } from '../reports/outstandingReports';
+import { type OrderRow, orderRegisterRows } from '../reports/salesReports';
 import { type StockSummaryRow, availableOf, stockSummaryRows } from '../reports/stockReports';
 import { type VoucherListRow, voucherListRows } from '../reports/voucherLists';
 import type { ItemDocKind } from '../vouchers/kinds';
 import { type SalesForm, type SalesPreview, previewSales, salesFormFromVoucher, salesKindOf } from '../vouchers/salesModel';
+import { type StockLineForm, stockFormFromVoucher } from '../vouchers/stockModel';
 
 /**
  * What the mobile screens show, read from the books by the SAME functions the desktop reports use (Outstanding, Stock Summary, the voucher
@@ -175,6 +179,10 @@ function readItemList(books: Books, today: string): ItemListRow[] {
   return [...rows, ...never].map((r) => ({ ...r, available: availableOf(r) })).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** The Stock list's tabs: everything; what open sales orders are waiting for; what is still to come on purchase orders. */
+export type StockTab = 'all' | 'committed' | 'onOrder';
+export const inStockTab = (r: ItemListRow, tab: StockTab): boolean => (tab === 'all' ? true : tab === 'committed' ? r.committed > 0n : r.onOrder > 0n);
+
 export interface ItemPage {
   readonly row: ItemListRow;
   /** A service: it is billed, and holds no stock. */
@@ -232,6 +240,7 @@ export const TRANSACTION_GROUPS: readonly { readonly group: string; readonly lis
       { kind: 'returnableChallan', title: 'Returnable Challans' },
     ],
   },
+  { group: 'Inventory', lists: [{ kind: 'stockJournal', title: 'Stock Journal Vouchers' }] },
   {
     group: 'General',
     lists: [
@@ -295,12 +304,29 @@ function docRowsOf(books: Books, vouchers: readonly Voucher[], today: string): D
     .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : a.number < b.number ? 1 : -1));
 }
 
+// ---- Reports -------------------------------------------------------------------------------------------------------------
+
+/** The Sales (or Purchase) Order Register: the desktop register's own rows, for every order in the books, newest order first. */
+export const orderRegister = remember(readOrderRegister);
+
+function readOrderRegister(books: Books, side: 'sales' | 'purchase', today: string): OrderRow[] {
+  const first = books.masters.financialYears[0]?.start ?? day(today);
+  return orderRegisterRows(books.orders, books.masters, first, day('9999-12-31'), { side, asOf: day(today) }).reverse();
+}
+
+/** The Day Book of one day, newest first (cancelled vouchers included, as on the desktop: they explain a gap in the numbers). */
+export function dayBook(books: Books, date: string): DayBookRow[] {
+  return dayBookRows({ vouchers: books.vouchers, lines: books.lines, masters: books.masters, range: { from: day(date), to: day(date) } }).reverse();
+}
+
 export interface DocView {
   readonly voucher: Voucher;
   readonly typeName: string;
   readonly baseKind: BaseKind | undefined;
   /** An item document (invoice, order, quote, challan, note): the form and the engine's own figures for it. */
   readonly item: { readonly kind: ItemDocKind; readonly form: SalesForm; readonly preview: SalesPreview } | undefined;
+  /** A Stock Journal: what left and what arrived, where (it posts nothing to the accounts). */
+  readonly stock: readonly StockLineForm[] | undefined;
   /** What it posted, for a voucher that is not an item document — and for the curious on one that is. */
   readonly journal: readonly { readonly ledger: string; readonly side: 'debit' | 'credit'; readonly amount: Money }[];
   readonly bill: { readonly total: Money; readonly settled: Money; readonly pending: Money } | undefined;
@@ -318,6 +344,7 @@ export function docView(books: Books, voucherId: string): DocView | undefined {
     typeName: type?.name ?? 'Voucher',
     baseKind: type?.baseKind,
     item: kind && form ? { kind, form, preview: previewSales(form, kind, masters, books.stock, books.orders, undefined, books.vouchers) } : undefined,
+    stock: type?.baseKind === 'stockJournal' ? stockFormFromVoucher(voucher, masters).lines.filter((l) => l.itemId !== '') : undefined,
     journal: books.lines.filter((l) => l.voucherId === voucher.id).map((l) => ({ ledger: masters.ledger(l.ledgerId)?.name ?? '', side: l.side, amount: l.amount })),
     bill: billStatusOf(voucher, books.vouchers, masters),
   };

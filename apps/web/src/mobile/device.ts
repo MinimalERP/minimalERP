@@ -5,9 +5,8 @@
  *
  *   ?ui=mobile | ?ui=desktop   →   the choice saved on this device   →   a phone (a coarse pointer on a narrow screen)   →   desktop
  *
- * One address is the desktop app's whatever the device: the AI Inbox (`#/inbox…`), which is where a document shared to the app or to the
- * installed site lands. The mobile interface has no inbox of its own yet, and a shared bill must never arrive at a screen that cannot
- * take it.
+ * The address a shared document arrives at (`#/inbox…`) is no exception: on a phone it opens the mobile interface's Scan, which takes it
+ * (mobile/mount.tsx) — on a desktop the AI Inbox.
  */
 export type Ui = 'mobile' | 'desktop';
 
@@ -29,7 +28,7 @@ interface StorageLike {
 }
 
 interface WindowLike {
-  readonly location: { readonly search: string; readonly hash?: string };
+  readonly location: { readonly search: string };
   matchMedia(query: string): { readonly matches: boolean };
 }
 
@@ -55,13 +54,8 @@ const write = (storage: StorageLike | undefined, ui: Ui): void => {
   }
 };
 
-/** The desktop's own addresses on any device: the AI Inbox, where shared documents arrive. */
-export const isDesktopOnlyAddress = (hash: string | undefined): boolean => /^#\/inbox(\?|$)/.test(hash ?? '');
-
 /** The interface for this visit. An address that names one is remembered, so the next visit needs no `?ui=`. */
 export function chosenUi(win: WindowLike, storage: StorageLike | undefined): Ui {
-  // for this visit only: nothing is saved, so the phone is back in the mobile interface next time
-  if (isDesktopOnlyAddress(win.location.hash)) return 'desktop';
   const fromAddress = uiFromSearch(win.location.search);
   if (fromAddress) write(storage, fromAddress);
   return pickUi({ fromAddress, saved: read(storage), phone: isPhone(win) });

@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import type { InboxItem } from '@minimalerp/ports';
 import type { Books } from '../books/books';
 import { formatAmount, formatDate, formatQuantity } from '../vouchers/format';
 import { docProfile } from '../vouchers/kinds';
+import { inboxBanner, itemSeedOf, partySeedOf } from '../vouchers/proposalForms';
 import { type SalesForm, type SalesLineForm, customerOptions, itemOptions, previewSales, salesLedgerOptions } from '../vouchers/salesModel';
 import { CreateScreen } from './CreateScreen';
 import type { CreateWhat } from './create';
-import { entryTitle, headIssues, isBlankEntry, lineFor, lineIssues, startForm, stepQty, withDate, withParty } from './entry';
+import { entryTitle, headIssues, isBlankEntry, lineFor, lineIssues, needsItem, shipChoices, shipChosen, startForm, stepQty, withDate, withItem, withParty, withShipTo } from './entry';
 import type { EntryKind, MobileNav } from './nav';
 import { Empty, Frame, Group, Row, Search, matches, rupees } from './ui';
 
 /**
- * Entering a Sales Invoice, Sales Order, Quotation or Delivery Challan by touch — ONE page, the document itself: the customer, its lines,
+ * Entering a Sales Invoice, Sales Order, Quotation, Delivery Challan or Purchase Bill by touch — ONE page, the document itself: the party, its lines,
  * the total and Save under the thumb. A tap on the customer or "Add item" opens a full-screen list that filters as you type; a tap on an
  * item adds its line (one of it, at its last rate, from the godown that holds it) and opens it for the quantity. The form, its draft, the
  * figures and every refusal are the desktop's (`previewSales`): this page only fills the form in.
@@ -24,23 +26,27 @@ interface Props {
   readonly partyId?: string | undefined;
   readonly fromOrder?: string | undefined;
   readonly fromOrderLines?: readonly string[] | undefined;
+  /** A document read by Scan: the page opens on what was read, to be checked, completed and saved under its id. */
+  readonly proposal?: InboxItem | undefined;
 }
 
 const LIST = 80;
 
-export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrderLines }: Props) {
+export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrderLines, proposal }: Props) {
   const masters = books.masters;
   const p = docProfile(kind);
   const altering = voucherId !== undefined;
   /** A plain new document keeps a draft on this device (a call comes in, the app is closed: it is still there); one started from something is that thing's. */
-  const drafts = !altering && !partyId && !fromOrder;
+  const drafts = !altering && !partyId && !fromOrder && !proposal;
   const draftKey = `mobile:${kind}`;
 
   const initial = useRef<SalesForm | undefined>(undefined);
-  if (initial.current === undefined) initial.current = startForm(books, { kind, voucherId, partyId, fromOrder, fromOrderLines });
+  if (initial.current === undefined) initial.current = startForm(books, { kind, voucherId, partyId, fromOrder, fromOrderLines, proposal });
   const [form, setForm] = useState<SalesForm | undefined>(initial.current);
   const [picker, setPicker] = useState<'party' | 'item' | undefined>(undefined);
   const [editing, setEditing] = useState<string | undefined>(undefined);
+  /** The line whose item is being chosen: one the reader left in the document's own words. The list opens searched for those words. */
+  const [naming, setNaming] = useState<string | undefined>(undefined);
   /** A customer or item being made because the list did not have it: it opens in the list's place, and what it makes is chosen. */
   const [creating, setCreating] = useState<{ readonly what: CreateWhat; readonly name: string } | undefined>(undefined);
   const [more, setMore] = useState(false);
@@ -49,6 +55,8 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
   const [refused, setRefused] = useState('');
   const [restored, setRestored] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  /** The sheet that chooses where the goods are shipped (the party's addresses). */
+  const [shipping, setShipping] = useState(false);
 
   // a draft left here earlier comes back, once
   useEffect(() => {
@@ -97,9 +105,23 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
   const setLine = (key: string, patch: Partial<SalesLineForm>) => update((f) => ({ ...f, lines: f.lines.map((l) => (l.key === key ? { ...l, ...patch } : l)) }));
 
   // ---- layers: a list or a sheet over the page; Back closes it ----
-  const openPicker = (which: 'party' | 'item') => {
+  const openPicker = (which: 'party' | 'item', forLine?: string) => {
+    setNaming(forLine);
     setPicker(which);
     nav.openLayer(() => setPicker(undefined));
+  };
+  const who: 'supplier' | 'customer' = p.role === 'vendor' ? 'supplier' : 'customer';
+  /** The line an item is put on: the one being named (it keeps the quantity and rate the document printed), else a new one. */
+  const placeItem = (id: string): string => {
+    const named = naming ? form.lines.find((l) => l.key === naming) : undefined;
+    if (named) {
+      const line = withItem(books, kind, form, named, id);
+      update((f) => ({ ...f, lines: f.lines.map((l) => (l.key === named.key ? line : l)) }));
+      return line.key;
+    }
+    const line = lineFor(books, kind, form, id);
+    update((f) => ({ ...f, lines: [...f.lines, line] }));
+    return line.key;
   };
   const openLine = (key: string) => {
     setEditing(key);
@@ -111,10 +133,9 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
   };
   /** An item tapped: its line is added and opened for the quantity — in the place of the list, so one Back returns to the document. */
   const chooseItem = (id: string) => {
-    const line = lineFor(books, kind, form, id);
-    update((f) => ({ ...f, lines: [...f.lines, line] }));
+    const key = placeItem(id);
     setPicker(undefined);
-    setEditing(line.key);
+    setEditing(key);
     nav.swapLayer(() => setEditing(undefined));
   };
   /** "+ Create" in a list: the new record's form takes the list's place (one Back still returns to the document). */
@@ -125,15 +146,21 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
   };
   /** Saved: a customer is chosen and the form closes; an item becomes a line, opened for its quantity. */
   const created = (what: CreateWhat, id: string) => {
-    if (what === 'customer') {
+    if (what !== 'item') {
       update((f) => withParty(f, kind, books, id));
       return nav.closeLayer();
     }
-    const line = lineFor(books, kind, form, id);
-    update((f) => ({ ...f, lines: [...f.lines, line] }));
+    const key = placeItem(id);
     setCreating(undefined);
-    setEditing(line.key);
+    setEditing(key);
     nav.swapLayer(() => setEditing(undefined));
+  };
+  /** What a scanned document printed about the party or the line being made: its new record starts with it. */
+  const seedOf = (what: CreateWhat): Readonly<Record<string, string>> | undefined => {
+    if (!proposal) return undefined;
+    if (what !== 'item') return form.partyId === '' ? partySeedOf(proposal.proposal) : undefined;
+    const named = naming ? form.lines.find((l) => l.key === naming) : undefined;
+    return named ? itemSeedOf(masters, named, proposal.proposal.lines.find((x) => x.text === named.itemLabel)?.unit) : undefined;
   };
   /** The × at a line's end takes it off the document at once; "Remove" in its sheet does the same and closes the sheet. */
   const dropLine = (key: string) => update((f) => ({ ...f, lines: f.lines.filter((l) => l.key !== key) }));
@@ -170,7 +197,18 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
     const item = masters.stockItem(itemId as never);
     return item ? masters.unit(item.unitId) : undefined;
   };
-  const ledgers = salesLedgerOptions(masters, 'sales');
+  const ledgers = salesLedgerOptions(masters, p.side);
+  const purchase = p.invoice && p.side === 'purchase';
+  const note = inboxBanner(proposal);
+  const namingLine = naming ? form.lines.find((l) => l.key === naming) : undefined;
+  // a customer's document says where it is shipped: one of the party's own addresses
+  const partyNow = form.partyId ? masters.party(form.partyId as never) : undefined;
+  const ships = partyNow && p.role === 'customer' ? shipChoices(partyNow) : [];
+  const shipNow = partyNow ? shipChosen(partyNow, form.partyDetails) : 'same';
+  const openShipping = () => {
+    setShipping(true);
+    nav.openLayer(() => setShipping(false));
+  };
   const title = altering ? `${entryTitle(kind)} ${books.voucher(voucherId)?.number ?? ''}` : `New ${entryTitle(kind)}`;
 
   return (
@@ -207,22 +245,37 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
             </button>
           </p>
         )}
+        {note ? (
+          <p class="m-note m-strip" data-testid="entry-scanned">
+            {note.text}
+          </p>
+        ) : null}
         {refused ? (
           <p class="m-note bad m-strip" role="alert" data-testid="entry-refused">
             {refused}
           </p>
         ) : null}
 
-        <Group title="Customer">
+        <Group title={who}>
           <Row
-            title={form.partyLabel || 'Choose the customer'}
+            title={form.partyLabel || `Choose the ${who}`}
             sub={form.partyId ? [form.partyDetails?.gstin, form.partyDetails?.billTo?.lines].filter(Boolean).join(' · ') || undefined : undefined}
             note={form.partyId ? 'Change' : undefined}
             tone="muted"
-            problem={head.find((i) => i.field === 'party')?.message}
+            problem={head.find((i) => i.field === 'party')?.message ?? (form.partyId === '' && form.partyLabel !== '' ? `Not in the books yet: tap to choose or create this ${who}` : undefined)}
             onOpen={() => openPicker('party')}
             testId="entry-party"
           />
+          {partyNow && p.role === 'customer' ? (
+            <Row
+              title="Ship to"
+              sub={shipNow === 'same' ? 'Same as billing address' : (form.partyDetails?.shipTo?.lines ?? '')}
+              note="Change"
+              tone="muted"
+              onOpen={openShipping}
+              testId="entry-ship"
+            />
+          ) : null}
         </Group>
 
         <Group title="Items">
@@ -235,8 +288,8 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
                 title={l.itemLabel}
                 sub={[`${l.qty || '?'} ${unit?.symbol ?? l.unit ?? ''} × ${l.rate || '?'}`.replace('  ', ' '), gstOn && l.gstRate ? `GST ${l.gstRate}%` : undefined, l.orderLabel || undefined, p.order && l.due ? `due ${formatDate(l.due)}` : undefined].filter(Boolean).join(' · ')}
                 value={amount === undefined ? undefined : formatAmount(amount)}
-                problem={lineIssues(issues, i)[0]?.message}
-                onOpen={() => openLine(l.key)}
+                problem={needsItem(l) ? 'Not a stock item yet: tap to choose or create it' : lineIssues(issues, i)[0]?.message}
+                onOpen={() => (needsItem(l) ? openPicker('item', l.key) : openLine(l.key))}
                 testId="entry-line"
               />
                 <button type="button" class="m-line-x" aria-label={`Remove ${l.itemLabel}`} data-testid="entry-line-x" onClick={() => dropLine(l.key)}>
@@ -270,6 +323,15 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
             <span class="m-field-label">{p.refLabel}</span>
             <input type="text" class="m-input" aria-label={p.refAria} value={form.reference} autocomplete="off" onInput={(e) => update((f) => ({ ...f, reference: (e.target as HTMLInputElement).value }))} />
           </label>
+          {purchase ? (
+            <>
+              <label class="m-field">
+                <span class="m-field-label">Supplier inv no.</span>
+                <input type="text" class="m-input" aria-label="Supplier invoice number" data-testid="entry-billno" value={form.billNo} autocomplete="off" autocapitalize="characters" onInput={(e) => update((f) => ({ ...f, billNo: (e.target as HTMLInputElement).value }))} />
+              </label>
+              {head.find((i) => i.field === 'billno') ? <p class="m-note bad">{head.find((i) => i.field === 'billno')?.message}</p> : null}
+            </>
+          ) : null}
           {p.challan ? (
             <div class="m-field">
               <span class="m-field-label">Purpose</span>
@@ -292,8 +354,8 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
               ) : null}
               {p.invoice && (ledgers.length > 1 || form.salesLedgerId === '') ? (
                 <label class="m-field">
-                  <span class="m-field-label">Sales ledger</span>
-                  <select class="m-input" aria-label="Sales ledger" value={form.salesLedgerId} onChange={(e) => update((f) => ({ ...f, salesLedgerId: (e.target as HTMLSelectElement).value, salesLedgerLabel: ledgers.find((o) => o.id === (e.target as HTMLSelectElement).value)?.name ?? '' }))}>
+                  <span class="m-field-label">{p.ledgerLabel}</span>
+                  <select class="m-input" aria-label={p.ledgerLabel} value={form.salesLedgerId} onChange={(e) => update((f) => ({ ...f, salesLedgerId: (e.target as HTMLSelectElement).value, salesLedgerLabel: ledgers.find((o) => o.id === (e.target as HTMLSelectElement).value)?.name ?? '' }))}>
                     <option value="">Choose…</option>
                     {ledgers.map((o) => (
                       <option key={o.id} value={o.id}>
@@ -314,7 +376,7 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
             </button>
           )}
           {head
-            .filter((i) => i.field !== 'party' && i.field !== 'general' && i.field !== 'date')
+            .filter((i) => i.field !== 'party' && i.field !== 'general' && i.field !== 'date' && i.field !== 'billno')
             .map((i) => (
               <p key={i.field} class="m-note bad">
                 {i.message}
@@ -323,11 +385,25 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
         </Group>
       </Frame>
 
-      {picker === 'party' ? <Picker title="Customer" label="Search customers" options={customerOptions(masters, 'sales')} onChoose={chooseParty} onClose={() => nav.closeLayer()} empty="No such customer." createLabel="customer" onCreate={(typed) => startCreating('customer', typed)} /> : null}
+      {picker === 'party' ? (
+        <Picker
+          title={who}
+          label={`Search ${who}s`}
+          // a party the reader named but did not find: the list opens searched for that name
+          initial={form.partyId === '' ? form.partyLabel : ''}
+          options={customerOptions(masters, p.role === 'vendor' ? 'purchase' : 'sales')}
+          onChoose={chooseParty}
+          onClose={() => nav.closeLayer()}
+          empty={`No such ${who}.`}
+          createLabel={who}
+          onCreate={(typed) => startCreating(who, typed)}
+        />
+      ) : null}
       {picker === 'item' ? (
         <Picker
-          title="Add item"
+          title={namingLine ? 'Which item is this?' : 'Add item'}
           label="Search items"
+          initial={namingLine?.itemLabel ?? ''}
           options={itemOptions(masters, p.invoice || p.order || p.challan).map((o) => ({ ...o, value: stockOf(books, o.id, form.date) }))}
           onChoose={chooseItem}
           onClose={() => nav.closeLayer()}
@@ -336,13 +412,14 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
           onCreate={(typed) => startCreating('item', typed)}
         />
       ) : null}
-      {creating ? <CreateScreen books={books} what={creating.what} name={creating.name} onSaved={(id) => created(creating.what, id)} onClose={() => nav.closeLayer()} /> : null}
+      {creating ? <CreateScreen books={books} what={creating.what} name={creating.name} seed={seedOf(creating.what)} onSaved={(id) => created(creating.what, id)} onClose={() => nav.closeLayer()} /> : null}
       {editingLine ? (
         <LineSheet
           line={editingLine}
           unit={unitOf(editingLine.itemId)?.symbol ?? editingLine.unit ?? ''}
           gstOn={gstOn}
           order={p.order}
+          godownLabel={p.goodsOut ? 'Godown' : 'Receive into'}
           godowns={p.moves && !editingLine.challanId && masters.stockItem(editingLine.itemId as never)?.itemType !== 'service' ? masters.warehouses.filter((w) => w.isActive).map((w) => ({ id: w.id, name: w.name, held: formatQuantity(books.stock.qtyAt(editingLine.itemId as never, w.id, form.date as never), unitOf(editingLine.itemId)?.decimals ?? 0) })) : []}
           problems={lineIssues(issues, form.lines.indexOf(editingLine)).map((i) => i.message)}
           amount={preview.amounts.get(form.lines.indexOf(editingLine))}
@@ -350,6 +427,28 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
           onRemove={() => removeLine(editingLine.key)}
           onDone={() => nav.closeLayer()}
         />
+      ) : null}
+      {shipping && partyNow ? (
+        <div class="m-sheet-back" onClick={(e) => e.target === e.currentTarget && nav.closeLayer()}>
+          <div class="m-sheet" role="dialog" aria-label="Ship to" data-testid="ship-sheet">
+            <p class="m-sheet-title">Ship to</p>
+            {ships.map((c) => (
+              <Row
+                key={c.id}
+                title={c.label}
+                sub={c.lines || undefined}
+                selected={shipNow === c.id}
+                onHold={() => undefined}
+                onOpen={() => {
+                  update((f) => withShipTo(f, partyNow, c.id));
+                  nav.closeLayer();
+                }}
+                testId="ship-choice"
+              />
+            ))}
+            {ships.length === 1 ? <p class="m-note">This party has no other address. Add shipping addresses to the party in the desktop version (Party Details).</p> : null}
+          </div>
+        </div>
       ) : null}
       {leaving ? (
         <div class="m-sheet-back">
@@ -379,7 +478,7 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
 }
 
 /** What the book holds of an item on the document's date: "120 Nos" (nothing for a service). */
-function stockOf(books: Books, itemId: string, date: string): string | undefined {
+export function stockOf(books: Books, itemId: string, date: string): string | undefined {
   const item = books.masters.stockItem(itemId as never);
   if (!item || item.itemType === 'service') return undefined;
   const unit = books.masters.unit(item.unitId);
@@ -387,7 +486,7 @@ function stockOf(books: Books, itemId: string, date: string): string | undefined
 }
 
 /** A full-screen list that filters as you type: the way a customer or an item is chosen with a thumb. */
-function Picker({
+export function Picker({
   title,
   label,
   options,
@@ -396,6 +495,7 @@ function Picker({
   empty,
   createLabel,
   onCreate,
+  initial,
 }: {
   title: string;
   label: string;
@@ -403,11 +503,13 @@ function Picker({
   onChoose: (id: string) => void;
   onClose: () => void;
   empty: string;
-  /** What "+ Create" makes ("customer", "item"), with what was typed as its name. */
-  createLabel: string;
-  onCreate: (typed: string) => void;
+  /** What "+ Create" makes ("customer", "item"), with what was typed as its name. Left out: the list only chooses. */
+  createLabel?: string | undefined;
+  onCreate?: ((typed: string) => void) | undefined;
+  /** What the search starts with (a scanned document's own words for the party or the line). */
+  initial?: string | undefined;
 }) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initial ?? '');
   const hits = options.filter((o) => matches(text, o.name, o.sub));
   return (
     <div class="m-layer" role="dialog" aria-label={title} data-testid="picker">
@@ -421,9 +523,11 @@ function Picker({
         <Search value={text} onInput={setText} label={label} autoFocus />
         {hits.length === 0 ? <Empty>{options.length === 0 || text.trim() !== '' ? empty : 'Nothing to choose from.'}</Empty> : hits.slice(0, LIST).map((o) => <Row key={o.id} title={o.name} sub={o.sub || undefined} value={o.value} tone="muted" onOpen={() => onChoose(o.id)} testId="pick-row" />)}
         {hits.length > LIST ? <Empty>Type to narrow down ({hits.length - LIST} more).</Empty> : null}
-        <button type="button" class="m-row m-add" data-testid="pick-create" onClick={() => onCreate(text.trim())}>
-          {text.trim() !== '' ? `+ Create “${text.trim()}”` : `+ New ${createLabel}`}
-        </button>
+        {onCreate ? (
+          <button type="button" class="m-row m-add" data-testid="pick-create" onClick={() => onCreate(text.trim())}>
+            {text.trim() !== '' ? `+ Create “${text.trim()}”` : `+ New ${createLabel ?? ''}`}
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -435,6 +539,7 @@ function LineSheet({
   unit,
   gstOn,
   order,
+  godownLabel,
   godowns,
   problems,
   amount,
@@ -446,6 +551,8 @@ function LineSheet({
   unit: string;
   gstOn: boolean;
   order: boolean;
+  /** "Godown" where the goods leave it, "Receive into" where they arrive. */
+  godownLabel: string;
   godowns: readonly { id: string; name: string; held: string }[];
   problems: readonly string[];
   amount: bigint | undefined;
@@ -484,7 +591,7 @@ function LineSheet({
         ) : null}
         {godowns.length > 1 ? (
           <label class="m-field">
-            <span class="m-field-label">Godown</span>
+            <span class="m-field-label">{godownLabel}</span>
             <select class="m-input" aria-label="Godown" value={line.warehouseId} onChange={(e) => onChange({ warehouseId: (e.target as HTMLSelectElement).value, warehouseLabel: godowns.find((g) => g.id === (e.target as HTMLSelectElement).value)?.name ?? '' })}>
               {line.warehouseId === '' ? <option value="">Choose…</option> : null}
               {godowns.map((g) => (

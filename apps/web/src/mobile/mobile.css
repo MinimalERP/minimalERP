@@ -106,6 +106,7 @@
 .m-app .m-primary:disabled { opacity: 0.6; }
 .m-app .m-danger { color: var(--c-negative); border-color: var(--c-negative); }
 .m-app .m-wrap { flex-wrap: wrap; }
+.m-app .m-tall .m-button { min-height: 64px; font-size: 17px; }
 .m-app .m-wrap .m-button { flex: 1 1 40%; }
 .m-app .m-add { justify-content: center; color: var(--c-accent); font-weight: 600; }
 /* an item line of a document being entered: the line itself (tap to open it), and an × at its end that takes it off */
@@ -128,6 +129,8 @@
   background: var(--c-surface); border-bottom: 1px solid var(--c-border);
 }
 .m-app .m-group > .m-field:first-of-type { border-top: 1px solid var(--c-border); }
+.m-app .m-field-bare { background: none; border: 0; min-height: 0; padding: 0 12px 10px; }
+.m-app .m-group > .m-field-bare:first-of-type { border-top: 0; }
 .m-app .m-field-tall { align-items: flex-start; padding-top: 12px; }
 .m-app .m-field-label { flex: none; width: 7.5em; color: var(--c-text-muted); font-size: 14px; }
 .m-app .m-input {
