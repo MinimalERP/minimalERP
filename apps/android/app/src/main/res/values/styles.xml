@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The page asks the WebView whether the phone is light or dark, and the WebView answers from this theme: it must follow the phone. -->
+<resources>
+    <style name="App" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+</resources>

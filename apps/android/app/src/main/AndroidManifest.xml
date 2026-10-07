@@ -16,7 +16,7 @@
         android:label="MinimalERP"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+        android:theme="@style/App"
         android:allowBackup="false">
 
         <activity
