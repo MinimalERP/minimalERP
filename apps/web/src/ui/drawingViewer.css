@@ -1,0 +1,33 @@
+/* An item's drawing over the page (ui/DrawingViewer.tsx): the same on the desk and on the phone, so it leans on neither's own classes. */
+.drawing-viewer-back { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: #00000088; }
+.drawing-viewer {
+  display: flex; flex-direction: column; width: min(1400px, 96vw); height: min(1000px, 94dvh);
+  background: var(--c-surface); color: var(--c-text); border: 1px solid var(--c-border); border-radius: var(--radius); box-shadow: 0 12px 40px #00000055; overflow: hidden;
+}
+.drawing-viewer-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--c-border); }
+.drawing-viewer-head strong { flex: 1 1 12em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawing-viewer-scale { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--c-text-muted); }
+.drawing-viewer-scale select { font: inherit; color: var(--c-text); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 6px; min-height: 36px; padding: 0 6px; }
+.drawing-viewer-button {
+  font: inherit; min-height: 36px; padding: 0 14px; cursor: pointer;
+  color: var(--c-accent); background: var(--c-surface); border: 1px solid var(--c-accent); border-radius: 6px;
+}
+.drawing-viewer-button.primary { color: var(--c-accent-text); background: var(--c-accent); }
+.drawing-viewer-button:disabled { opacity: 0.5; cursor: default; }
+.drawing-viewer-note { margin: 0; padding: 6px 12px; font-size: var(--fs-sm); color: var(--c-text-muted); border-bottom: 1px solid var(--c-border); }
+.drawing-viewer-note.bad { color: var(--c-negative); }
+.drawing-viewer-problem { margin: auto; padding: 24px; text-align: center; }
+.drawing-viewer iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: #1e1e1e; }
+
+/* a phone: the whole screen, the buttons big enough for a thumb */
+@media (max-width: 700px) {
+  .drawing-viewer { width: 100vw; height: 100dvh; border: 0; border-radius: 0; }
+  .drawing-viewer-head { padding-top: calc(8px + env(safe-area-inset-top, 0)); }
+  .drawing-viewer-head strong { flex-basis: 100%; }
+  .drawing-viewer-button { flex: 1 1 auto; min-height: 44px; }
+  .drawing-viewer-scale select { min-height: 44px; }
+}
+
+@media print {
+  .drawing-viewer-back { display: none; }
+}

@@ -38,6 +38,8 @@ export interface CadFilesService {
   remove(companyId: string, id: string): Promise<CadAnswer<void>>;
   /** The address that opens this file in MinimalCAD. */
   openUrl(fileId: string): string;
+  /** MinimalCAD's view-only page: framed to show and print a drawing without leaving these books (ui/DrawingViewer.tsx). */
+  readonly viewerUrl: string;
 }
 
 /** Present when the books are kept in this browser although the site also has online books to sign in to. */

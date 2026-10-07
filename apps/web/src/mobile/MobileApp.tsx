@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { type Books, type BooksHost, type CompanyChoice } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { useSubscriptions } from '../shell/hooks';
-import type { Account, LocalBooks } from '../shell/services';
+import type { Account, CadFilesService, ItemCadFileRow, LocalBooks } from '../shell/services';
+import { DrawingViewer } from '../ui/DrawingViewer';
 import { PrintView } from '../ui/PrintView';
 import type { PrintCoordinator } from '../ui/printCoordinator';
 import { printCompanyOf } from '../ui/printing';
@@ -34,14 +35,16 @@ export interface MobileProps {
   readonly print: PrintCoordinator;
   readonly account?: Account | undefined;
   readonly localBooks?: LocalBooks | undefined;
+  /** The items' MinimalCAD drawings (online books only). */
+  readonly cadFiles?: CadFilesService | undefined;
 }
 
-export function MobileApp({ host, nav, print, account, localBooks }: MobileProps) {
+export function MobileApp({ host, nav, print, account, localBooks, cadFiles }: MobileProps) {
   useSubscriptions(host, nav, print);
   const books = host.current;
   return (
     <div class="m-app" data-testid="mobile-app">
-      {books ? <Pages books={books} host={host} nav={nav} print={print} account={account} localBooks={localBooks} /> : <NoCompany host={host} account={account} localBooks={localBooks} />}
+      {books ? <Pages books={books} host={host} nav={nav} print={print} account={account} localBooks={localBooks} cadFiles={cadFiles} /> : <NoCompany host={host} account={account} localBooks={localBooks} />}
       {books && print.docs.length > 0 && print.copies && <PrintView docs={print.docs} company={printCompanyOf(books.masters)} copies={print.copies} layouts={books.printLayouts} />}
     </div>
   );
@@ -72,7 +75,7 @@ function Pages(props: PageProps) {
     case 'items':
       return <Items books={books} nav={nav} today={today} />;
     case 'item':
-      return <ItemScreen books={books} nav={nav} itemId={top.itemId} today={today} />;
+      return <ItemScreen books={books} nav={nav} itemId={top.itemId} today={today} cadFiles={props.cadFiles} />;
     case 'outstanding':
       return <Outstanding books={books} nav={nav} side={top.side} today={today} />;
     case 'utilities':
@@ -521,7 +524,7 @@ function Items({ books, nav, today }: { books: Books; nav: MobileNav; today: str
   );
 }
 
-function ItemScreen({ books, nav, itemId, today }: { books: Books; nav: MobileNav; itemId: string; today: string }) {
+function ItemScreen({ books, nav, itemId, today, cadFiles }: { books: Books; nav: MobileNav; itemId: string; today: string; cadFiles?: CadFilesService | undefined }) {
   const p = useMemo(() => itemPage(books, itemId, today), [books.stock, books.orders, books.masters, books.vouchers, itemId, today]);
   if (!p) {
     return (
@@ -543,8 +546,38 @@ function ItemScreen({ books, nav, itemId, today }: { books: Books; nav: MobileNa
       <Group title="Latest movements">
         {p.movements.length === 0 ? <Empty>None this year.</Empty> : p.movements.map((m, i) => <Row key={i} title={m.number} sub={formatDate(m.date)} value={`${m.direction === 'in' ? '+' : '−'}${q(m.qty)}`} note={`${q(m.balance)} after`} onOpen={() => nav.open({ page: 'doc', voucherId: m.voucherId })} />)}
       </Group>
+      {cadFiles ? <ItemDrawings books={books} nav={nav} cadFiles={cadFiles} itemId={itemId} itemName={p.row.name} /> : null}
       {p.hsn ? <p class="m-note">HSN {p.hsn}</p> : null}
     </Frame>
+  );
+}
+
+/**
+ * The item's MinimalCAD drawings (the desktop item form's "CAD files"): a tap shows one over the page, to be looked at and printed on the
+ * shop floor. Nothing is listed while there are none, or while they cannot be read (the item page is about stock first).
+ */
+function ItemDrawings({ books, nav, cadFiles, itemId, itemName }: { books: Books; nav: MobileNav; cadFiles: CadFilesService; itemId: string; itemName: string }) {
+  const [files, setFiles] = useState<readonly ItemCadFileRow[]>([]);
+  const [viewing, setViewing] = useState<ItemCadFileRow | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    void cadFiles.list(books.companyId, itemId).then((r) => live && r.ok && setFiles(r.value));
+    return () => {
+      live = false;
+    };
+  }, [cadFiles, books.companyId, itemId]);
+  if (files.length === 0) return null;
+  const view = (f: ItemCadFileRow) => {
+    setViewing(f);
+    nav.openLayer(() => setViewing(undefined));
+  };
+  return (
+    <Group title="Drawings">
+      {files.map((f) => (
+        <Row key={f.id} title={f.name} sub={`saved ${formatDate(f.updatedAt.slice(0, 10))}`} value="View / Print" onOpen={() => view(f)} testId="item-drawing" />
+      ))}
+      {viewing ? <DrawingViewer title={`${itemName} / ${viewing.name}`} viewerUrl={cadFiles.viewerUrl} load={() => cadFiles.document(viewing.id)} onClose={() => nav.closeLayer()} /> : null}
+    </Group>
   );
 }
 
