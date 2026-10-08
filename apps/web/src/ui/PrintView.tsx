@@ -231,7 +231,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
     <>
       <CompanyHead company={company} docTitle={doc.docTitle} copyLabel={copyLabel} numberLabel={doc.numberLabel} number={doc.number} date={doc.date} poNo={doc.poNo} poLabel={doc.poLabel} titleCentred={doc.titleCentred} ewayBillNo={doc.ewayBillNo} dcNo={doc.dcNo} />
       <div class="inv-parties">
-        <AddressBlock label="Bill To" address={{ name: doc.party.name, ...doc.party.billTo }} gstin={doc.party.gstin} />
+        <AddressBlock label={doc.party.label ?? 'Bill To'} address={{ name: doc.party.name, ...doc.party.billTo }} gstin={doc.party.gstin} />
         <AddressBlock label="Ship To" address={sameAsBilling ? { name: doc.party.name, ...doc.party.billTo } : { name: doc.party.name, ...doc.party.shipTo }} />
       </div>
       {doc.placeOfSupply && (

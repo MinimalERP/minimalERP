@@ -30,7 +30,13 @@ const referenceSchema = z.string().trim().max(60).optional();
 
 export const orderLineSchema = z.object({
   id: lineIdSchema,
-  itemId: itemIdSchema,
+  /** The stock item — or, on a written line (Alt+T), none: then `description` says what is ordered. */
+  itemId: itemIdSchema.optional(),
+  /** A WRITTEN line: text instead of a stock item. It is on the order and its print, and comes onto the first invoice made from the order; nothing is counted against it. */
+  description: z.string().trim().min(1).max(200).optional(),
+  /** A written line's unit (a unit master's symbol) and HSN / SAC, as typed. */
+  unit: z.string().trim().min(1).max(20).optional(),
+  hsn: z.string().trim().max(10).optional(),
   qty: qtySchema,
   rate: rateSchema,
   /** When this line is wanted: each line of an order has its own. */
@@ -180,6 +186,21 @@ export function lineKindProblems(l: InvoiceLine, path: string, masters: Masters)
   if (l.orderRef) problems.push(issue(IssueCode.OrderRefInvalid, 'A written line cannot be against an order line', `${path}.orderRef`));
   if (l.challanRef) problems.push(issue(IssueCode.OrderRefInvalid, 'A written line cannot be against a challan', `${path}.challanRef`));
   return problems;
+}
+
+/**
+ * An order line is a stock (or service) item, or written text — never both or neither. A written line needs a quantity above zero; an item
+ * line is checked as an item.
+ */
+export function orderLineProblems(l: OrderLine, path: string, masters: Masters): Issue[] {
+  if (l.itemId !== undefined && l.description !== undefined) return [issue(IssueCode.SalesDocInvalid, 'A line is either a stock item or written text, not both', `${path}.itemId`)];
+  if (l.itemId !== undefined) {
+    const out = itemQtyProblems(l.itemId, l.qty, masters, path, { allowService: true });
+    if (l.unit !== undefined) out.push(issue(IssueCode.SalesDocInvalid, 'A stock item line takes the unit of its item', `${path}.unit`));
+    return out;
+  }
+  if (l.description === undefined) return [issue(IssueCode.SalesDocInvalid, 'Choose a stock item — or write the line and press Alt+T', `${path}.itemId`)];
+  return (parseQty(l.qty) ?? 0n) <= 0n ? [issue(IssueCode.StockLineInvalid, 'Enter a quantity above zero', `${path}.qty`)] : [];
 }
 
 /** A line's value must fit what the books hold. */

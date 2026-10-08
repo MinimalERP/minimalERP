@@ -141,7 +141,7 @@ export function withParty(form: SalesForm, kind: EntryKind, books: Books, partyI
     ...form,
     partyId: party.id,
     partyLabel: party.name,
-    partyDetails: partyDetailsOfParty(party),
+    partyDetails: partyDetailsOfParty(party, kind),
     ...(docProfile(kind).invoice && !form.dueTouched ? { due, dueText: formatDate(due) } : {}),
     // another customer's order lines cannot stay
     lines: form.partyId !== '' && form.partyId !== party.id ? form.lines.map((l) => ({ ...l, orderId: '', orderLineId: '', orderLabel: '', challanId: undefined, challanLineId: undefined })) : form.lines,

@@ -4,8 +4,7 @@ import type { VoucherId } from '../../ids';
 import { formatQty, parseQty } from '../../stock/quantity';
 import { draftBaseShape } from '../drafts';
 import { defineVoucherKind } from '../kind';
-import { customerProblems, documentShape, lineValueProblems, orderLineSchema } from './documents';
-import { itemQtyProblems } from './stockJournal';
+import { customerProblems, documentShape, lineValueProblems, orderLineProblems, orderLineSchema } from './documents';
 
 /**
  * Sales Order: what a customer has ordered — items, quantities, rates, and a DUE DATE ON EACH LINE — and the customer's own reference
@@ -40,7 +39,7 @@ export const salesOrderKind = defineVoucherKind<SalesOrderDraft>({
       const path = `lines.${i}`;
       if (ids.has(l.id)) problems.push(issue(IssueCode.SalesDocInvalid, 'Two lines carry the same id', `${path}.id`));
       ids.add(l.id);
-      problems.push(...itemQtyProblems(l.itemId, l.qty, masters, path, { allowService: true }));
+      problems.push(...orderLineProblems(l, path, masters));
       problems.push(...lineValueProblems(l, path));
       if (l.dueDate < draft.date) {
         problems.push(issue(IssueCode.SalesDocInvalid, `The due date is before the order date (${draft.date})`, `${path}.dueDate`));
@@ -70,7 +69,7 @@ export const salesOrderKind = defineVoucherKind<SalesOrderDraft>({
         } else if (line.itemId !== got.itemId) {
           problems.push(issue(IssueCode.OrderHasDeliveries, 'Goods were delivered against this line: its item cannot change', `lines.${i}.itemId`));
         } else if ((parseQty(line.qty) ?? 0n) < got.qty) {
-          const unit = masters.unit(masters.stockItem(line.itemId)?.unitId as never);
+          const unit = masters.unit(masters.stockItem(line.itemId as never)?.unitId as never);
           problems.push(
             issue(
               IssueCode.OrderHasDeliveries,

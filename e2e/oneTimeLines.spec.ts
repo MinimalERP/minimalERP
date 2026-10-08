@@ -142,4 +142,30 @@ test.describe('one-time lines', () => {
     await expect(heading(app)).toHaveText('New Delivery Challan'); // opened by Alt+F8: fast entry — saved, fresh for the next one
     await leaveByEscape(app, 'Gateway');
   });
+
+  test('a Purchase Order takes a written line too: Alt+T on the item cell, a due date like any order line, and it opens again as written', async ({ app }) => {
+    await app.keyboard.press('F9');
+    await app.keyboard.press('Shift+F9');
+    await expect(heading(app)).toHaveText('New Purchase Order');
+    await app.keyboard.type('bharat');
+    await app.keyboard.press('Enter'); // supplier → supplier ref
+    await app.keyboard.press('Enter'); // → the first line's item
+    await expect(app.locator('[data-vf="l0.item"]')).toBeFocused();
+    await writeOneTimeLine(app, 'Laser cutting as per DRG-221', '9988', '2', 'set');
+    await expect(app.getByTestId('one-time-note')).toContainText('Set');
+    await expect(app.locator('[data-vf="l0.ldue"]')).toHaveCount(1);
+    await app.keyboard.type('750');
+    await expect(app.getByTestId('total-amount')).toHaveText('1,500.00');
+    await app.keyboard.press('Alt+n'); // save and new
+    await expect(banner(app)).toContainText('saved.');
+
+    await app.keyboard.press('Escape');
+    await goTo(app, 'purchase orders');
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toHaveText('Purchase Orders');
+    await app.getByRole('grid').getByRole('row').filter({ hasText: '1,500.00' }).first().click();
+    await app.keyboard.press('Enter');
+    await expect(app.locator('[data-vf="l0.item"]')).toHaveValue('Laser cutting as per DRG-221');
+    await expect(app.getByTestId('order-status')).toHaveText('Open');
+  });
 });

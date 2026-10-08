@@ -63,6 +63,7 @@ export function layoutData(doc: InvoiceDoc | LedgerDoc, company: PrintCompany, c
     placeOfSupply: doc.placeOfSupply,
     party: {
       name: doc.party.name,
+      label: doc.party.label ?? 'Bill To',
       gstin: doc.party.gstin,
       billTo,
       shipTo: doc.party.shipTo ? { name: doc.party.shipTo.name ?? doc.party.name, lines: addressLines(doc.party.shipTo).map((text) => ({ text })) } : billTo,
@@ -81,7 +82,7 @@ export const LAYOUT_PLACEHOLDERS: Readonly<Record<LayoutShape, readonly string[]
   invoice: [
     'company.name', 'company.address', 'company.gstin', 'company.phone', 'company.email', 'company.bankName', 'company.bankAccountNo', 'company.bankIfsc',
     'company.bankBranch', 'company.invoiceNote', '#hasTerms', '#company.terms … text … /company.terms', 'images.logo', 'images.signature', 'copyLabel', 'title',
-    'numberLabel', 'number', 'date', 'poNo', 'poLabel', 'ewayBillNo', 'dcNo', 'placeOfSupply', 'party.name', 'party.gstin', '#party.billTo.lines … text …',
+    'numberLabel', 'number', 'date', 'poNo', 'poLabel', 'ewayBillNo', 'dcNo', 'placeOfSupply', 'party.name', 'party.label', 'party.gstin', '#party.billTo.lines … text …',
     '#party.shipTo.lines … text …', '#lines … sno desc hsn qty rate gstRate amount … /lines', 'subtotal', '#gst … cgst sgst igst … /gst', 'roundOff',
     'grandTotal', 'amountInWords', 'narration',
   ],
@@ -204,7 +205,7 @@ export const BUILT_IN_LAYOUTS: Readonly<Record<LayoutShape, string>> = {
 <div class="page">
 ${HEAD}
 <div class="parties">
-  <div><div class="label">Bill To</div><b>{{party.billTo.name}}</b>{{#party.billTo.lines}}<div>{{text}}</div>{{/party.billTo.lines}}{{#party.gstin}}<div>GSTIN: {{party.gstin}}</div>{{/party.gstin}}</div>
+  <div><div class="label">{{party.label}}</div><b>{{party.billTo.name}}</b>{{#party.billTo.lines}}<div>{{text}}</div>{{/party.billTo.lines}}{{#party.gstin}}<div>GSTIN: {{party.gstin}}</div>{{/party.gstin}}</div>
   <div><div class="label">Ship To</div><b>{{party.shipTo.name}}</b>{{#party.shipTo.lines}}<div>{{text}}</div>{{/party.shipTo.lines}}</div>
 </div>
 {{#placeOfSupply}}<div><b>Place of Supply:</b> {{placeOfSupply}}</div>{{/placeOfSupply}}

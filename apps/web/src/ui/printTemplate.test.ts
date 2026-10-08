@@ -57,6 +57,9 @@ describe('what a layout’s placeholders read', () => {
     });
     // the ship-to is the bill-to when none was given
     expect((d['party'] as { shipTo: unknown }).shipTo).toEqual((d['party'] as { billTo: unknown }).billTo);
+    // the party's block is headed Bill To unless the document says who it is
+    expect((d['party'] as { label: string }).label).toBe('Bill To');
+    expect(renderTemplate(BUILT_IN_LAYOUTS.invoice, layoutData({ ...invoice, party: { ...invoice.party, label: 'Vendor' } }, company, undefined, {}))).toMatchObject({ ok: true, html: expect.stringContaining('<div class="label">Vendor</div>') });
   });
 
   it('a payment’s lines Dr / Cr, and its total', () => {

@@ -21,6 +21,17 @@ export interface OrderLineDoc {
   readonly dueDate: LocalDate;
 }
 
+/** A written line of an order (Alt+T): text instead of a stock item. Nothing is delivered against it, so it has no pending and commits no stock. */
+export interface WrittenOrderLine {
+  readonly id: string;
+  readonly description: string;
+  readonly unit?: string | undefined;
+  readonly hsn?: string | undefined;
+  readonly qty: Qty;
+  readonly rate: Rate;
+  readonly dueDate: LocalDate;
+}
+
 /** Whose order it is: a customer's (we deliver) or our own to a supplier (we receive). */
 export type OrderSide = 'sales' | 'purchase';
 
@@ -34,7 +45,10 @@ export interface OrderDoc {
   readonly reference?: string | undefined;
   /** Closed by hand: nothing more may be delivered against it. */
   readonly closed: boolean;
+  /** Its stock (and service) item lines: the ones deliveries are counted against. */
   readonly lines: readonly OrderLineDoc[];
+  /** Its written lines, if any. */
+  readonly written?: readonly WrittenOrderLine[] | undefined;
 }
 
 /** A delivery: one line of a sales invoice filling (part of) one line of a sales order. */
@@ -186,7 +200,7 @@ interface OrderContent {
   partyId?: string;
   reference?: string;
   closed?: boolean;
-  lines?: { id?: string; itemId?: string; qty?: string; rate?: string; dueDate?: string; orderRef?: { orderId?: string; lineId?: string }; challanRef?: unknown }[];
+  lines?: { id?: string; itemId?: string; description?: string; unit?: string; hsn?: string; qty?: string; rate?: string; dueDate?: string; orderRef?: { orderId?: string; lineId?: string }; challanRef?: unknown }[];
 }
 
 /** A posted sales or purchase order as the book sees it (or undefined if what is stored is not one). */
@@ -194,11 +208,14 @@ export function orderDocOf(voucher: Voucher, side: OrderSide = 'sales'): OrderDo
   const c = voucher.content as unknown as OrderContent;
   if (typeof c.partyId !== 'string' || !Array.isArray(c.lines)) return undefined;
   const lines: OrderLineDoc[] = [];
+  const written: WrittenOrderLine[] = [];
   for (const l of c.lines) {
     const q = typeof l.qty === 'string' ? parseQty(l.qty) : undefined;
     const r = typeof l.rate === 'string' ? parseRate(l.rate) : undefined;
-    if (typeof l.id !== 'string' || typeof l.itemId !== 'string' || q === undefined || r === undefined || typeof l.dueDate !== 'string') return undefined;
-    lines.push({ id: l.id, itemId: l.itemId as StockItemId, qty: q, rate: r, dueDate: l.dueDate as LocalDate });
+    if (typeof l.id !== 'string' || q === undefined || r === undefined || typeof l.dueDate !== 'string') return undefined;
+    if (typeof l.itemId === 'string') lines.push({ id: l.id, itemId: l.itemId as StockItemId, qty: q, rate: r, dueDate: l.dueDate as LocalDate });
+    else if (typeof l.description === 'string') written.push({ id: l.id, description: l.description, unit: l.unit || undefined, hsn: l.hsn || undefined, qty: q, rate: r, dueDate: l.dueDate as LocalDate });
+    else return undefined;
   }
   return {
     voucherId: voucher.id,
@@ -209,6 +226,7 @@ export function orderDocOf(voucher: Voucher, side: OrderSide = 'sales'): OrderDo
     reference: c.reference === undefined || c.reference === '' ? undefined : c.reference,
     closed: c.closed === true,
     lines,
+    ...(written.length > 0 ? { written } : {}),
   };
 }
 

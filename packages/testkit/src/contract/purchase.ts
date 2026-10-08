@@ -89,6 +89,24 @@ export function purchaseContract(label: string, makeWorld: MakeMasterWorld): voi
       expect(await stockIn()).toBe(0n);
     });
 
+    it('an order line may be written text (Alt+T) instead of an item: it is kept, counts nothing as pending, and the item lines are received as ever', async () => {
+      const written = { id: 'w', description: 'Laser cutting as per DRG-221', unit: 'Nos', hsn: '9988', qty: '2', rate: '750', dueDate: '2024-05-25' };
+      const po = mustOk(await order('po1', { lines: [{ id: 'a', itemId: bolt(), qty: '100', rate: '10', dueDate: '2024-05-20' }, written] })).voucher;
+      expect((po.content as { lines: unknown[] }).lines[1]).toMatchObject({ id: 'w', description: 'Laser cutting as per DRG-221', unit: 'Nos', hsn: '9988' });
+      const book = async () => orderBookOf(await w.backend.list(w.companyId), await w.backend.load(w.companyId));
+      expect((await book()).state(po.id)).toMatchObject({ status: 'open', lines: [{ line: { id: 'a' } }], order: { written: [{ id: 'w', description: 'Laser cutting as per DRG-221' }] } });
+      // the item line is received in full, with the written line billed beside it as a one-time line: the order is then fulfilled
+      mustOk(await invoice('inv1', [await receive(po.id, 'a', '100'), { description: 'Laser cutting as per DRG-221', unit: 'Nos', qty: '2', rate: '750' }]));
+      expect((await book()).state(po.id)).toMatchObject({ status: 'closed', reason: 'fulfilled' });
+      // nothing can be received against a written line
+      expect(codesOf(await invoice('inv2', [{ description: 'Laser cutting', qty: '1', rate: '750', orderRef: { orderId: po.id, lineId: 'w' } }]))).toContain(IssueCode.OrderRefInvalid);
+      // an order of written lines alone is an order too; a line that is neither, or both, is refused
+      mustOk(await order('po2', { lines: [written] }));
+      expect(codesOf(await order('po3', { lines: [{ id: 'x', qty: '1', rate: '1', dueDate: '2024-05-20' }] }))).toEqual([IssueCode.SalesDocInvalid]);
+      expect(codesOf(await order('po4', { lines: [{ ...written, itemId: bolt() }] }))).toEqual([IssueCode.SalesDocInvalid]);
+      expect(codesOf(await order('po5', { lines: [{ ...written, qty: '0' }] }))).toEqual([IssueCode.StockLineInvalid]);
+    });
+
     it('an invoice posts Dr purchases / Cr the supplier, brings the goods IN at the rate, raises the supplier’s bill and fills the order line — in one step', async () => {
       const po = mustOk(await order('po1')).voucher;
       const inv = mustOk(await invoice('inv1', [await receive(po.id, 'a', '60')]));

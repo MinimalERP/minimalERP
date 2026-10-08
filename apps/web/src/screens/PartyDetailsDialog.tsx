@@ -67,9 +67,11 @@ interface Values {
 const byKey = (v: Values, key: string): string => (v as unknown as Record<string, string>)[key] ?? '';
 
 /** The values the window opens with: the voucher's own snapshot if it has one, else the party master. */
-function initialValues(party: Party | undefined, saved: PartyDetails | undefined): Values {
+function initialValues(party: Party | undefined, saved: PartyDetails | undefined, receiving = false): Values {
   if (saved) {
-    const ship = saved.shipTo;
+    // goods we receive: the supplier's own shipping address (kept as the ship-to by documents made before) is not where they come
+    const theirs = receiving && party?.shipping?.lines && saved.shipTo?.lines?.trim() === party.shipping.lines.trim();
+    const ship = theirs ? undefined : saved.shipTo;
     return {
       party: saved.partyId ?? '',
       partyLabel: party?.name ?? '',
@@ -90,6 +92,7 @@ function initialValues(party: Party | undefined, saved: PartyDetails | undefined
       saveAs: '',
     };
   }
+  const shipping = !receiving && party?.shipping?.lines ? party.shipping : undefined;
   return {
     party: party?.id ?? '',
     partyLabel: party?.name ?? '',
@@ -101,13 +104,13 @@ function initialValues(party: Party | undefined, saved: PartyDetails | undefined
     billPin: party?.pincode ?? '',
     registration: party?.gstRegistration ?? (party?.gstin ? 'regular' : ''),
     gstin: party?.gstin ?? '',
-    // The party's own shipping address, when it has one different from billing.
-    shipMode: party?.shipping?.lines ? SHIPPING : SAME,
-    consignee: party?.shipping?.lines ? party.name : '',
-    shipLines: party?.shipping?.lines ?? '',
-    shipState: party?.shipping?.stateCode ?? '',
-    shipPin: party?.shipping?.pincode ?? '',
-    place: party?.shipping?.lines ? (party.shipping.stateCode ?? party.stateCode ?? '') : (party?.stateCode ?? ''),
+    // The party's own shipping address, when it has one different from billing — never on goods we receive: those come to us.
+    shipMode: shipping ? SHIPPING : SAME,
+    consignee: shipping ? (party?.name ?? '') : '',
+    shipLines: shipping?.lines ?? '',
+    shipState: shipping?.stateCode ?? '',
+    shipPin: shipping?.pincode ?? '',
+    place: shipping ? (shipping.stateCode ?? party?.stateCode ?? '') : (party?.stateCode ?? ''),
     saveAs: '',
   };
 }
@@ -117,6 +120,8 @@ interface Props {
   /** The ledgers on the voucher: the first one that belongs to a party tells us which party this is. */
   readonly ledgerIds: readonly string[];
   readonly value: PartyDetails | undefined;
+  /** A purchase or a purchase order: the party is the supplier, and the goods are shipped to us — our own address, or one written here. */
+  readonly receiving?: boolean | undefined;
   readonly onDone: (result: PartyDetails | 'cancel') => void;
 }
 
@@ -124,7 +129,7 @@ interface Props {
  * The Party Details window: who the voucher is billed and shipped to, kept OUT of the entry form. Everything is prefilled from the party
  * master and can be changed for this voucher only; the voucher keeps a snapshot. A manual address can be saved to the party's address book.
  */
-export function PartyDetailsDialog({ books, ledgerIds, value, onDone }: Props) {
+export function PartyDetailsDialog({ books, ledgerIds, value, receiving = false, onDone }: Props) {
   const { keymapStore } = useServices();
   useSubscriptions(keymapStore);
   useScope(SCOPE, 'overlay', true);
@@ -139,7 +144,7 @@ export function PartyDetailsDialog({ books, ledgerIds, value, onDone }: Props) {
   }, [ledgerIds.join('|')]);
   const savedParty = value?.partyId ? masters.party(value.partyId as never) : undefined;
 
-  const [v, setV] = useState<Values>(() => initialValues(savedParty ?? partyFromLines, value));
+  const [v, setV] = useState<Values>(() => initialValues(savedParty ?? partyFromLines, value, receiving));
   const [focus, setFocus] = useState('party');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pick, setPick] = useState({ index: 0, touched: false });
@@ -150,14 +155,18 @@ export function PartyDetailsDialog({ books, ledgerIds, value, onDone }: Props) {
   const set = (patch: Partial<Values>) => setV((x) => ({ ...x, ...patch }));
 
   const applyParty = (p: Party | undefined) => {
-    const base = initialValues(p, undefined);
+    const base = initialValues(p, undefined, receiving);
     set({ ...base, saveAs: v.saveAs, shipMode: v.shipMode === MANUAL ? MANUAL : base.shipMode });
   };
 
   const partyOptions: Opt[] = masters.parties.filter((p) => p.isActive).map((p) => ({ value: p.id, label: p.name, sub: [p.gstin, p.phone].filter(Boolean).join(' · ') }));
-  const shipOptions: Opt[] = [{ value: SAME, label: 'Same as billing address' }, ...addressOptions(party, true)];
+  const shipOptions: Opt[] = receiving
+    ? [{ value: SAME, label: 'Our address', sub: masters.company.address }, { value: MANUAL, label: 'Enter manually…' }]
+    : [{ value: SAME, label: 'Same as billing address' }, ...addressOptions(party, true)];
+  // a place we receive goods at is ours, not one of the supplier's addresses: it is not saved to the party
+  const shipTyped = !receiving && v.shipMode === MANUAL;
   const fields: FieldDef[] = [
-    { key: 'party', label: 'Buyer (Bill to)', type: 'picker', options: partyOptions },
+    { key: 'party', label: receiving ? 'Vendor' : 'Buyer (Bill to)', type: 'picker', options: partyOptions },
     { key: 'mailing', label: 'Mailing name', type: 'text' },
     { key: 'billPick', label: 'Billing address', type: 'choice', options: addressOptions(party) },
     { key: 'billLines', label: 'Address', type: 'text' },
@@ -174,7 +183,7 @@ export function PartyDetailsDialog({ books, ledgerIds, value, onDone }: Props) {
         ] as FieldDef[])
       : []),
     { key: 'place', label: 'Place of supply', type: 'text', hint: 'defaults to the ship-to state' },
-    ...(v.party !== '' && (v.billPick === MANUAL || v.shipMode === MANUAL)
+    ...(v.party !== '' && (v.billPick === MANUAL || shipTyped)
       ? ([{ key: 'saveAs', label: 'Save address to party as', type: 'text', hint: 'a name like “Chakan unit”; leave empty to use it for this voucher only' }] as FieldDef[])
       : []),
   ];
@@ -209,7 +218,7 @@ export function PartyDetailsDialog({ books, ledgerIds, value, onDone }: Props) {
       return set({ billPick: value, billLines: a?.lines ?? '', billState: a?.stateCode ?? v.billState, billCountry: a?.country ?? 'India', billPin: a?.pincode ?? '', place: v.shipMode === SAME ? (a?.stateCode ?? v.place) : v.place });
     }
     if (key === 'shipMode') {
-      if (value === SAME || value === MANUAL) return set({ shipMode: value, ...(value === SAME ? { place: v.billState || v.place } : {}) });
+      if (value === SAME || value === MANUAL) return set({ shipMode: value, ...(value === SAME ? { place: v.billState || v.place } : receiving && v.consignee === '' ? { consignee: masters.company.name } : {}) });
       const a = billingAddress(party, value);
       return set({ shipMode: value, consignee: v.consignee || (party?.name ?? ''), shipLines: a?.lines ?? '', shipState: a?.stateCode ?? '', shipPin: a?.pincode ?? '', place: a?.stateCode ?? v.place });
     }
@@ -309,9 +318,9 @@ export function PartyDetailsDialog({ books, ledgerIds, value, onDone }: Props) {
 
     // "Save address to party": a manual address becomes a saved choice for next time.
     const label = v.saveAs.trim();
-    if (party && label !== '' && (v.billPick === MANUAL || v.shipMode === MANUAL)) {
+    if (party && label !== '' && (v.billPick === MANUAL || shipTyped)) {
       setBusy(true);
-      const useShip = v.shipMode === MANUAL;
+      const useShip = shipTyped;
       const entry: PartyAddress = {
         id: crypto.randomUUID(),
         label,

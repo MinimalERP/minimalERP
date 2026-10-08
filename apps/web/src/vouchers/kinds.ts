@@ -114,6 +114,12 @@ export function docProfile(kind: ItemDocKind): DocProfile {
   return { ...side, invoice, note: false, goodsOut: invoice && side.side === 'sales', order: !invoice, quote: false, challan: false, returnable: false, moves: invoice, refLabel, refAria };
 }
 
+/** A purchase or a purchase order: the goods come to us, so it is shipped to our own address unless another is chosen on the document. */
+export const receivedAtOurs = (kind: ItemDocKind): boolean => {
+  const p = docProfile(kind);
+  return p.side === 'purchase' && !p.goodsOut;
+};
+
 /** The note that takes back an invoice of this side: a Credit Note for a sale, a Debit Note for a purchase. */
 export const noteKindOf = (side: DocSide): NoteKind => (side === 'sales' ? 'creditNote' : 'debitNote');
 

@@ -12,7 +12,7 @@ import { useLeaveGuard } from '../../shell/useLeaveGuard';
 import { Kbd } from '../../ui/Kbd';
 import { defaultDate, resolveTypeId } from '../entryHelpers';
 import { addDays, formatAmount, formatDate, formatQuantity, mailedWhen, parseDateInput } from '../format';
-import { CHALLAN_STATUS, ENTRY_KINDS, type ItemDocKind, type SalesKind, docProfile, invoiceKindOf, isSalesKind, noteKindOf } from '../kinds';
+import { CHALLAN_STATUS, ENTRY_KINDS, type ItemDocKind, type SalesKind, docProfile, invoiceKindOf, isSalesKind, noteKindOf, receivedAtOurs } from '../kinds';
 import {
   type Option,
   type OrderOption,
@@ -258,8 +258,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const p = docProfile(kind);
   /** A company that charges GST: each invoice or quotation line has a GST %, and the tax is stated under the grid. */
   const gstOn = (p.invoice || p.quote || p.challan) && masters.company.chargeGst === true;
-  /** Where a written (Alt+T) line is offered: an invoice, a quotation, or a delivery challan (not returnable — its lines come back). */
-  const oneTimeHere = p.invoice || p.quote || (p.challan && !p.returnable);
+  /** Where a written (Alt+T) line is offered: an invoice, an order, a quotation, or a delivery challan (not returnable — its lines come back). */
+  const oneTimeHere = p.invoice || p.quote || p.order || (p.challan && !p.returnable);
   /** Where a service item is offered: an invoice (it is billed), an order (it has no godown and moves nothing itself), or a delivery
    * challan (not returnable) — job work on a part that was never our own stock, so nothing of ours leaves on it either. */
   const serviceHere = p.invoice || p.order || (p.challan && !p.returnable);
@@ -503,7 +503,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           ...x,
           partyId: party.id,
           partyLabel: party.name,
-          partyDetails: partyDetailsOfParty(party),
+          partyDetails: partyDetailsOfParty(party, kind),
           ...(p.invoice && !x.dueTouched ? { due: dueDateFor(masters, party.id, x.date), dueText: formatDate(dueDateFor(masters, party.id, x.date)) } : {}),
           lines: dropped ? x.lines.map((l) => (l.orderId === '' ? l : { ...l, orderId: '', orderLineId: '', orderLabel: '' })) : x.lines,
         };
@@ -1537,6 +1537,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
               books={books}
               ledgerIds={form.partyId === '' ? [] : [partyLedgerId(form.partyId, p.role)]}
               value={form.partyDetails}
+              receiving={receivedAtOurs(kind)}
               onDone={(result) => {
                 setPartyOpen(false);
                 if (result !== 'cancel') update((f) => ({ ...f, partyDetails: { ...result, partyId: f.partyId } }));

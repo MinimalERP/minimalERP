@@ -36,7 +36,7 @@ import {
   orderBookOf,
 } from '@minimalerp/domain';
 import { addDays, formatDate } from './format';
-import { type DocSide, type ItemDocKind, type SalesKind, docProfile, isItemDocKind } from './kinds';
+import { type DocSide, type ItemDocKind, type SalesKind, docProfile, isItemDocKind, receivedAtOurs } from './kinds';
 
 /**
  * The Sales Order / Sales Invoice form as the screen holds it: plain strings, so it can live in the screen-stack frame and be saved as a
@@ -137,7 +137,7 @@ export function withPurchasePrefill(form: SalesForm, prefill: PurchasePrefill, m
     date,
     partyId: party?.id ?? '',
     partyLabel: party?.name ?? prefill.supplier,
-    partyDetails: party ? partyDetailsOfParty(party) : undefined,
+    partyDetails: party ? partyDetailsOfParty(party, 'purchase') : undefined,
     billNo: prefill.billNo,
     due,
     dueText: formatDate(due),
@@ -226,11 +226,12 @@ export const dueDateFor = (masters: Masters, partyId: string, date: string): str
 
 /**
  * The party details a customer starts a document with: exactly what the Party Details window offers by default (billing address, its GST
- * facts, and the party's own shipping address when it has one). Changing them there is for this voucher only.
+ * facts, and the party's own shipping address when it has one). Changing them there is for this voucher only. A purchase or a purchase
+ * order (`kind`) is shipped to us, so the supplier's shipping address is not its ship-to.
  */
-export function partyDetailsOfParty(party: Party): PartyDetails {
+export function partyDetailsOfParty(party: Party, kind?: ItemDocKind): PartyDetails {
   const clean = (s: string | undefined): string | undefined => (s === undefined || s.trim() === '' ? undefined : s.trim());
-  const shipping = party.shipping?.lines ? party.shipping : undefined;
+  const shipping = party.shipping?.lines && !(kind && receivedAtOurs(kind)) ? party.shipping : undefined;
   const place = shipping ? (shipping.stateCode ?? party.stateCode) : party.stateCode;
   const registration = party.gstRegistration ?? (party.gstin ? 'regular' : undefined);
   return {
@@ -370,6 +371,18 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
     const l = form.lines[i] as SalesLineForm;
     const common = { itemId: l.itemId, qty: l.qty.trim(), rate: l.rate.trim() };
     const p = docProfile(kind);
+    // an order's written line: what is ordered, in words — with the line's own id and due date like any order line
+    if (l.oneTime && p.order) {
+      return {
+        id: l.key,
+        description: l.itemLabel.trim(),
+        ...((l.unit ?? '').trim() !== '' ? { unit: (l.unit ?? '').trim() } : {}),
+        ...((l.hsn ?? '').trim() !== '' ? { hsn: (l.hsn ?? '').trim() } : {}),
+        qty: l.qty.trim(),
+        rate: l.rate.trim(),
+        dueDate: l.due,
+      };
+    }
     if (l.oneTime && (p.invoice || p.quote || (p.challan && !p.returnable))) {
       return {
         // a quote or challan line carries its own id (there is no godown or order reference to key off instead); an invoice line does not
@@ -535,7 +548,7 @@ function localIssues(form: SalesForm, kind: ItemDocKind, kept: readonly number[]
     const l = form.lines[i] as SalesLineForm;
     // an invoice, an order, or a (non-returnable) challan line may name a service item: the check is skipped for every other kind
     const isService = (p.invoice || p.order || (p.challan && !p.returnable)) && l.itemId !== '' && masters?.stockItem(l.itemId as never)?.itemType === 'service';
-    const oneTimeHere = p.invoice || p.quote || (p.challan && !p.returnable);
+    const oneTimeHere = p.invoice || p.quote || p.order || (p.challan && !p.returnable);
     if (l.oneTime && oneTimeHere) {
       if (l.itemLabel.trim() === '') out.push({ field: `line.${i}.item`, message: 'Write what this line is' });
     } else {
@@ -799,20 +812,18 @@ export function switchSales(
         dueText: formatDate(dueDateFor(masters, form.partyId, form.date)),
         dueTouched: false,
         closed: false,
-        lines: form.lines.map((l) => ({ ...l, due: '', dueText: '', warehouseId: extra.warehouse?.id ?? '', warehouseLabel: extra.warehouse?.label ?? '', ...(l.itemId !== '' ? gstDefaults(masters, l.itemId) : {}) })),
+        lines: form.lines.map((l) => ({ ...l, due: '', dueText: '', warehouseId: l.oneTime ? '' : (extra.warehouse?.id ?? ''), warehouseLabel: l.oneTime ? '' : (extra.warehouse?.label ?? ''), ...(l.itemId !== '' ? gstDefaults(masters, l.itemId) : {}) })),
       },
       ...(filled ? { note: 'The lines’ due dates were cleared: an invoice has godowns instead, and its own due date for the bill.' } : {}),
     };
   }
   const hadRefs = form.lines.some((l) => l.orderId !== '' || !!l.challanId);
   const isService = (l: SalesLineForm) => !l.oneTime && l.itemId !== '' && masters.stockItem(l.itemId as never)?.itemType === 'service';
-  // an order is of stock items: a one-time (written) line, or a service line, cannot come along
-  const written = form.lines.filter((l) => l.oneTime && !isEmptyLine(l)).length;
+  // a service line cannot come along (a one-time, written line can: an order may say in words what is wanted)
   const serviced = form.lines.filter((l) => isService(l) && !isEmptyLine(l)).length;
-  const kept = form.lines.filter((l) => !l.oneTime && !isService(l));
+  const kept = form.lines.filter((l) => !isService(l));
   const notes = [
     ...(hadRefs ? [`The order references were cleared: an order is what ${p.side === 'sales' ? 'a customer asks for' : 'we ask a supplier for'}, so it is not against another order.`] : []),
-    ...(written > 0 ? [`${written} one-time line${written === 1 ? ' was' : 's were'} left out: an order is of stock items.`] : []),
     ...(serviced > 0 ? [`${serviced} service line${serviced === 1 ? ' was' : 's were'} left out: an order is of stock items.`] : []),
   ];
   return {
@@ -929,8 +940,10 @@ export function withOrderLines(
 
 /**
  * A new invoice for what an order still has to deliver: its customer, PO reference and party details, and a line for every order line with
- * something pending — quantity = what is pending, rate = what was agreed, each against its order line. Undefined if there is nothing to
- * invoice (the order is closed, or delivered in full). The date is today's, but never before the order's.
+ * something pending — quantity = what is pending, rate = what was agreed, each against its order line. The order's written lines (Alt+T)
+ * come too, as one-time lines, on the FIRST invoice made from it: nothing is counted against a written line, so once an invoice names the
+ * order they are taken as billed (and are not brought when only ticked lines are asked for). Undefined if there is nothing to invoice (the
+ * order is closed, or delivered in full). The date is today's, but never before the order's.
  */
 export function invoiceFormFromOrder(
   order: Voucher,
@@ -956,7 +969,8 @@ export function invoiceFormFromOrder(
   const date = args.date < state.order.date ? state.order.date : args.date;
   const side = state.order.side;
   const pending = openOrderLines(orders, state.order.partyId, undefined, args.id, side).filter((o) => o.orderId === order.id && (args.onlyLines === undefined || args.onlyLines.includes(o.lineId)));
-  if (pending.length === 0) return undefined;
+  const written = args.onlyLines === undefined && orders.linksTo(order.id).every((k) => k.voucherId === args.id) ? (state.order.written ?? []) : [];
+  if (pending.length === 0 && written.length === 0) return undefined;
   const blank = blankSalesForm(args.id, args.typeId, date, args.newKey(), { warehouse: args.warehouse, salesLedger: args.salesLedger });
   const snapshot = (order.content as unknown as { partyDetails?: PartyDetails }).partyDetails;
   const due = dueDateFor(masters, party.id, date);
@@ -965,10 +979,21 @@ export function invoiceFormFromOrder(
     partyId: party.id,
     partyLabel: party.name,
     reference: side === 'purchase' ? state.order.number : (state.order.reference ?? ''),
-    partyDetails: snapshot ?? partyDetailsOfParty(party),
+    partyDetails: snapshot ?? partyDetailsOfParty(party, side),
     due,
     dueText: formatDate(due),
-    lines: linesFromOrder(pending, masters, args.newKey, (itemId, qty) => (args.stock ? godownWithStock(masters, args.stock, itemId, date, args.warehouse, qty) : args.warehouse)),
+    lines: [
+      ...linesFromOrder(pending, masters, args.newKey, (itemId, qty) => (args.stock ? godownWithStock(masters, args.stock, itemId, date, args.warehouse, qty) : args.warehouse)),
+      ...written.map((w) => ({
+        ...blankSalesLine(args.newKey()),
+        oneTime: true,
+        itemLabel: w.description,
+        unit: w.unit ?? '',
+        hsn: w.hsn ?? '',
+        qty: trimPlaces(formatQty(w.qty, 4)),
+        rate: trimPlaces(formatRate(w.rate)),
+      })),
+    ],
   };
 }
 
@@ -985,8 +1010,7 @@ export function orderFormFromQuotation(
   if (masters.voucherType(quote.voucherTypeId)?.baseKind !== 'quotation') return undefined;
   if (quote.status !== 'posted') return undefined;
   const src = salesFormFromVoucher(quote, masters, orderBookOf([], masters));
-  // an order is of stock items: a one-time (written) line on the quote does not come along
-  const kept = src.lines.filter((l) => !isEmptyLine(l) && !l.oneTime);
+  const kept = src.lines.filter((l) => !isEmptyLine(l));
   if (kept.length === 0) return undefined;
   const date = args.date < quote.date ? quote.date : args.date;
   const blank = blankSalesForm(args.id, args.typeId, date, args.newKey());
@@ -1003,6 +1027,8 @@ export function orderFormFromQuotation(
       ...blankSalesLine(args.newKey(), undefined, date),
       itemId: l.itemId,
       itemLabel: l.itemLabel,
+      // a written (one-time) line on the quote is a written line on the order
+      ...(l.oneTime ? { oneTime: true, unit: l.unit ?? '', hsn: l.hsn ?? '' } : {}),
       qty: l.qty,
       rate: l.rate,
     })),

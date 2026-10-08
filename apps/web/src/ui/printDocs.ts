@@ -10,9 +10,11 @@ export interface PrintAddress {
 
 export interface PrintParty {
   readonly name: string;
+  /** What the party's block is headed — "Bill To" unless the document says otherwise ("Vendor" on a purchase order, which bills nobody). */
+  readonly label?: string | undefined;
   readonly gstin?: string | undefined;
   readonly billTo?: PrintAddress | undefined;
-  /** Absent: same as billing. */
+  /** Absent: same as billing. On a purchase or a purchase order it is always there: our own address, or the one chosen on the document. */
   readonly shipTo?: PrintAddress | undefined;
 }
 

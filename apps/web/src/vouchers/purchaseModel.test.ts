@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { type Books, BooksHost, type LocalBackend } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { createLocalFactory, memoryStore } from '../books/local';
+import { invoiceDocFromBooks, invoiceDocOf } from './invoicePrint';
 import { docProfile, invoiceKindOf, orderKindOf } from './kinds';
 import {
   blankSalesForm,
@@ -194,3 +195,114 @@ describe('switching between a purchase order and its invoice', () => {
     expect(s.note).toContain('due dates');
   });
 });
+
+describe('a purchase order as it prints', () => {
+  it('names the supplier as the Vendor and is shipped to us — or to the address written on it, never to the supplier', async () => {
+    const books = await demo();
+    const po = purchaseOrder(books)!;
+    const doc = invoiceDocFromBooks(po, books)!;
+    expect(doc.party).toMatchObject({ label: 'Vendor', name: 'Steel Supplies Pvt Ltd', billTo: { lines: 'GIDC Vatva, Ahmedabad' } });
+    expect(doc.party.shipTo).toEqual({ name: books.masters.company.name, lines: books.masters.company.address });
+
+    const form = salesFormFromVoucher(po, books.masters, books.orders);
+    const at = (shipTo: { name?: string; lines: string; stateCode?: string }) => {
+      const f = { ...form, partyDetails: { ...form.partyDetails, shipTo } };
+      return invoiceDocOf(po, f, 'purchaseOrder', previewSales(f, 'purchaseOrder', books.masters, books.stock, books.orders), books.masters)!;
+    };
+    const chosen = at({ lines: 'Gat 45, Chakan', stateCode: '27' });
+    expect(chosen.party.shipTo).toMatchObject({ name: books.masters.company.name, lines: 'Gat 45, Chakan' });
+    expect(chosen.placeOfSupply).toBe('Maharashtra (27)');
+
+    // a supplier with a shipping address of its own: that is where it sends from, not the order's ship-to
+    const kumar = books.masters.party(id('party', 'Kumar Engineering Works') as never)!;
+    expect(partyDetailsOfParty(kumar, 'purchaseOrder').shipTo).toBeUndefined();
+    expect(partyDetailsOfParty(kumar, 'salesOrder').shipTo).toMatchObject({ lines: 'SIPCOT Industrial Park, Hosur' });
+    const old = { ...form, partyId: kumar.id, partyDetails: partyDetailsOfParty(kumar) };
+    expect(invoiceDocOf(po, old, 'purchaseOrder', previewSales(old, 'purchaseOrder', books.masters, books.stock, books.orders), books.masters)?.party.shipTo?.name).toBe(books.masters.company.name);
+  });
+
+  it('a sales invoice still says Bill To', async () => {
+    const books = await demo();
+    const sale = books.vouchers.find((v) => books.masters.voucherType(v.voucherTypeId)?.baseKind === 'sales')!;
+    expect(invoiceDocFromBooks(sale, books)?.party.label).toBeUndefined();
+  });
+});
+
+describe('a written line (Alt+T) on a purchase order', () => {
+  const orderWith = (books: Books, lines: ('item' | 'written')[]) => {
+    const blank = blankSalesForm(crypto.randomUUID(), typeOf(books, 'purchaseOrder'), '2026-06-01', 'k0');
+    const party = books.masters.party(steel() as never)!;
+    return {
+      ...blank,
+      partyId: party.id,
+      partyLabel: party.name,
+      partyDetails: partyDetailsOfParty(party, 'purchaseOrder'),
+      lines: lines.map((what, i) =>
+        what === 'item'
+          ? { ...blank.lines[0]!, key: `k${i}`, itemId: id('stockItem', 'MS Sheet 2mm'), itemLabel: 'MS Sheet 2mm', qty: '100', rate: '59' }
+          : { ...blank.lines[0]!, key: `k${i}`, oneTime: true, itemLabel: 'Laser cutting as per DRG-221', unit: 'Set', hsn: '9988', qty: '2', rate: '750' },
+      ),
+    };
+  };
+  const post = async (books: Books, form: ReturnType<typeof orderWith>) => {
+    const r = await books.post(formToSalesDraft(form, 'purchaseOrder', books.masters).draft as never);
+    if (!r.ok) throw new Error(JSON.stringify(r.issues));
+    return r.value.voucher;
+  };
+  const invoiceOf = (books: Books, po: Parameters<typeof invoiceFormFromOrder>[0]) =>
+    invoiceFormFromOrder(po, books.orders, books.masters, { id: crypto.randomUUID(), typeId: typeOf(books, 'purchase'), date: '2026-06-20', newKey: () => crypto.randomUUID(), warehouse: main(books), salesLedger: defaultSalesLedger(books.masters, 'purchase'), stock: books.stock });
+
+  it('is accepted beside item lines, reads back as typed, prints — and only the item lines are counted as pending', async () => {
+    const books = await demo();
+    const form = orderWith(books, ['item', 'written']);
+    expect(previewSales(form, 'purchaseOrder', books.masters, books.stock, books.orders).issues).toEqual([]);
+    const po = await post(books, form);
+    const state = books.orders.state(po.id)!;
+    expect(state.status).toBe('open');
+    expect(state.lines.map((l) => l.line.id)).toEqual(['k0']);
+    expect(state.order.written).toMatchObject([{ id: 'k1', description: 'Laser cutting as per DRG-221', unit: 'Set', hsn: '9988' }]);
+    expect(salesFormFromVoucher(po, books.masters, books.orders).lines[1]).toMatchObject({ oneTime: true, itemLabel: 'Laser cutting as per DRG-221', unit: 'Set', hsn: '9988', qty: '2', rate: '750', due: '2026-06-01' });
+    expect(invoiceDocFromBooks(po, books)?.lines.map((l) => [l.desc, l.qty])).toEqual([['MS Sheet 2mm', '100.000 Kg'], ['Laser cutting as per DRG-221', '2 Set']]);
+  });
+
+  it('comes onto the first invoice made from the order as a one-time line, and not onto the next', async () => {
+    const books = await demo();
+    const po = await post(books, orderWith(books, ['item', 'written']));
+    const first = invoiceOf(books, po)!;
+    expect(first.lines.map((l) => [l.itemLabel, l.qty, l.rate, l.oneTime === true, l.orderId !== ''])).toEqual([
+      ['MS Sheet 2mm', '100', '59', false, true],
+      ['Laser cutting as per DRG-221', '2', '750', true, false],
+    ]);
+    // 40 of the 100 received, with the written line billed
+    const part = { ...first, billNo: 'SS/2001', lines: first.lines.map((l, i) => (i === 0 ? { ...l, qty: '40' } : l)) };
+    expect(previewSales(part, 'purchase', books.masters, books.stock, books.orders, undefined, books.vouchers).issues).toEqual([]);
+    const posted = await books.post(formToSalesDraft(part, 'purchase', books.masters).draft as never);
+    expect(posted.ok ? [] : posted.issues).toEqual([]);
+    expect(invoiceOf(books, po)?.lines.map((l) => [l.itemLabel, l.qty])).toEqual([['MS Sheet 2mm', '60']]);
+  });
+
+  it('an order of written lines alone is accepted, can be invoiced, and stays open until it is closed by hand', async () => {
+    const books = await demo();
+    const po = await post(books, orderWith(books, ['written']));
+    expect(books.orders.state(po.id)).toMatchObject({ status: 'open', lines: [] });
+    expect(invoiceOf(books, po)?.lines.map((l) => [l.itemLabel, l.oneTime])).toEqual([['Laser cutting as per DRG-221', true]]);
+  });
+
+  it('a line that is neither an item nor written is still refused, on its item cell', async () => {
+    const books = await demo();
+    const form = orderWith(books, ['item']);
+    form.lines = [{ ...form.lines[0]!, itemId: '', itemLabel: 'something' }];
+    const r = previewSales(form, 'purchaseOrder', books.masters, books.stock, books.orders);
+    expect(r.ok).toBe(false);
+    expect(r.issues[0]).toMatchObject({ field: 'line.0.item' });
+  });
+
+  it('switching an invoice to an order keeps its one-time lines', async () => {
+    const books = await demo();
+    const form = orderWith(books, ['item', 'written']);
+    const s = switchSales({ ...form, typeId: typeOf(books, 'purchase') }, 'purchase', 'purchaseOrder', typeOf(books, 'purchaseOrder'), books.masters);
+    expect(s.form.lines.map((l) => l.oneTime === true)).toEqual([false, true]);
+    expect(s.note ?? '').not.toContain('one-time');
+  });
+});
+

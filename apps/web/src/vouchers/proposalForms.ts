@@ -68,7 +68,7 @@ export function salesFormFromProposal(item: InboxItem, masters: Masters, a: Sale
     partyLabel: party?.name ?? p.party.name ?? '',
     reference: p.reference ?? '',
     ewayBillNo: '',
-    partyDetails: party ? partyDetailsOfParty(party) : undefined,
+    partyDetails: party ? partyDetailsOfParty(party, p.kind === 'purchase' ? 'purchase' : undefined) : undefined,
     salesLedgerId: isInvoice ? (a.salesLedger?.id ?? '') : '',
     salesLedgerLabel: isInvoice ? (a.salesLedger?.label ?? '') : '',
     billNo: p.billNo ?? '',

@@ -3,7 +3,7 @@ import type { Books } from '../books/books';
 import type { DocketDoc, InvoiceDoc } from '../ui/PrintView';
 import { placeOfSupplyText } from '../ui/printing';
 import { formatQuantity } from './format';
-import type { ItemDocKind } from './kinds';
+import { type ItemDocKind, docProfile, receivedAtOurs } from './kinds';
 import { type SalesForm, type SalesLineForm, type SalesPreview, previewSales, salesFormFromVoucher, salesKindOf } from './salesModel';
 
 /**
@@ -35,6 +35,12 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
   const note = kind === 'creditNote' || kind === 'debitNote';
   // a note prints the invoice it is for where an invoice prints its PO
   const noteFor = note && form.billNo.trim() !== '' ? form.billNo.trim() : undefined;
+  // a purchase or a purchase order comes to us: it is shipped to our address unless another was written on it. The supplier's own
+  // shipping address (documents made before this kept it as the ship-to) is where they send from, never where we receive.
+  const ours = receivedAtOurs(kind);
+  const supplierOwn = ours && form.partyId !== '' ? masters.party(form.partyId as never)?.shipping?.lines?.trim() : undefined;
+  const chosen = ours && details?.shipTo?.lines?.trim() === supplierOwn ? undefined : details?.shipTo;
+  const shipTo = ours ? { ...(chosen ?? { lines: masters.company.address }), name: chosen?.name ?? masters.company.name } : details?.shipTo;
   return {
     kind: 'invoice',
     voucherKind: kind,
@@ -48,8 +54,8 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
     poNo: noteFor ?? (form.reference || undefined),
     ewayBillNo: kind === 'sales' ? form.ewayBillNo || undefined : undefined,
     dcNo: [...new Set(form.lines.filter((l) => l.challanId).map((l) => l.orderLabel))].join(', ') || undefined,
-    placeOfSupply: placeOfSupplyText(details?.shipTo?.stateCode ?? details?.billTo?.stateCode ?? details?.placeOfSupply),
-    party: { name: details?.mailingName ?? form.partyLabel, gstin: details?.gstin, billTo: details?.billTo, shipTo: details?.shipTo },
+    placeOfSupply: placeOfSupplyText(ours ? (chosen?.stateCode ?? masters.company.stateCode) : (details?.shipTo?.stateCode ?? details?.billTo?.stateCode ?? details?.placeOfSupply)),
+    party: { name: details?.mailingName ?? form.partyLabel, ...(docProfile(kind).side === 'purchase' ? { label: 'Vendor' } : {}), gstin: details?.gstin, billTo: details?.billTo, shipTo },
     lines,
     subtotal: preview.total,
     gst: preview.gst,
