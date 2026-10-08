@@ -92,7 +92,7 @@ export function purchaseContract(label: string, makeWorld: MakeMasterWorld): voi
     it('an order line may be written text (Alt+T) instead of an item: it is kept, counts nothing as pending, and the item lines are received as ever', async () => {
       const written = { id: 'w', description: 'Laser cutting as per DRG-221', unit: 'Nos', hsn: '9988', qty: '2', rate: '750', dueDate: '2024-05-25' };
       const po = mustOk(await order('po1', { lines: [{ id: 'a', itemId: bolt(), qty: '100', rate: '10', dueDate: '2024-05-20' }, written] })).voucher;
-      expect((po.content as { lines: unknown[] }).lines[1]).toMatchObject({ id: 'w', description: 'Laser cutting as per DRG-221', unit: 'Nos', hsn: '9988' });
+      expect((po.content as unknown as { lines: unknown[] }).lines[1]).toMatchObject({ id: 'w', description: 'Laser cutting as per DRG-221', unit: 'Nos', hsn: '9988' });
       const book = async () => orderBookOf(await w.backend.list(w.companyId), await w.backend.load(w.companyId));
       expect((await book()).state(po.id)).toMatchObject({ status: 'open', lines: [{ line: { id: 'a' } }], order: { written: [{ id: 'w', description: 'Laser cutting as per DRG-221' }] } });
       // the item line is received in full, with the written line billed beside it as a one-time line: the order is then fulfilled
