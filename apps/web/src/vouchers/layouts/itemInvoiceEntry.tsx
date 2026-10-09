@@ -808,6 +808,12 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     setOneTimeFor(current.line);
     return true;
   };
+  /** On an item line, a way straight to that item's own master — to check its stock, drawing or last sale without leaving (and losing) the voucher's draft. */
+  const openItemDetails = (): boolean => {
+    if (current.line === undefined || !line?.itemId) return false;
+    app.navigate({ type: 'master', kind: 'stockItem', mode: 'display', id: line.itemId });
+    return true;
+  };
   const unitNames = masters.units.filter((u) => u.isActive).map((u) => u.symbol);
   const unitOf = (text: string) => {
     const t = text.trim().toLowerCase().replace(/\.$/, '');
@@ -1339,6 +1345,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       {mode !== 'create' && voucher?.status === 'posted' && p.invoice && !p.note && <Only scope={SCOPE} command="invoice.note" run={noteForInvoice} />}
       {mode !== 'create' && voucher?.status === 'posted' && p.invoice && !p.note && p.side === 'purchase' && <PurchaseInvoiceShown />}
       {!readOnly && oneTimeHere && current.kind === 'item' && oneTimeFor === undefined && <Only scope={SCOPE} command="voucher.oneTimeLine" run={openOneTime} />}
+      {current.line !== undefined && line?.itemId && <Only scope={SCOPE} command="voucher.itemDetails" run={openItemDetails} />}
       {oneTimeFor !== undefined && (
         <FieldsDialog
           title={`Line ${oneTimeFor + 1}: one-time line (not a stock item)`}

@@ -239,6 +239,7 @@ const commands: Command<AppContext>[] = [
   contextual('quotation.order', 'Create a sales order from this quotation', { label: 'Sales order', group: 'Actions', order: 15.5, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.removeLine', 'Remove this line', { label: 'Remove line', group: 'Actions', order: 14, on: ['voucher'] }),
   contextual('voucher.oneTimeLine', 'One-time line: write it instead of choosing a stock item', { label: 'One-time line', group: 'Actions', order: 14.5, on: ['voucher'], hideWhenUnavailable: true }),
+  contextual('voucher.itemDetails', 'Item details: open this line’s item in the Stock Item master', { label: 'Item details', group: 'Actions', order: 14.6, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.print', 'Print', { label: 'Print', group: 'Actions', order: 16, on: ['voucher'], fold: 'Print' }),
   contextual('voucher.docket', 'Dispatch docket: print the invoices and their items for the transporter', { label: 'Dispatch docket', group: 'Actions', order: 16.2, on: ['voucher', 'report'], hideWhenUnavailable: true, fold: 'Print' }),
   // Select is a switch: on, the rows (a list's vouchers, an order's lines) show tick boxes; off, the boxes go and nothing stays ticked.
