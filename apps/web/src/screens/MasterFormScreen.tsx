@@ -1,5 +1,5 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
-import { type Issue, type MasterKind, type MasterRecord, findMaster, isMasterActive, partyLedgerId } from '@minimalerp/domain';
+import { type Issue, type MasterKind, type MasterRecord, findMaster, isMasterActive, lastSaleOf, partyLedgerId } from '@minimalerp/domain';
 import type { ItemFile, StockItem, StockItemDetail } from '@minimalerp/domain';
 import { Fragment } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
@@ -17,7 +17,7 @@ import {
   valuesToData,
 } from '../books/forms';
 import { hasStockLedger, ledgersOfRecord } from '../books/entities';
-import { addDays } from '../vouchers/format';
+import { addDays, formatDate } from '../vouchers/format';
 import { useCommandHandler, useFrameState, useScope, useServices, useSubscriptions } from '../shell/hooks';
 import { Only } from '../shell/Only';
 import { WindowClose } from '../shell/WindowClose';
@@ -150,6 +150,7 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
     if (label !== undefined) setLabels({ ...((frame.state.get('labels') as Record<string, string> | undefined) ?? labels), [key]: label });
   };
 
+  const lastSale = kind === 'stockItem' && existing && books && masters ? lastSaleOf(books.vouchers, masters, existing.id as never) : undefined;
   const mainDrawingId = kind === 'stockItem' ? values.__mainDrawingId ?? '' : '';
   const itemDetails = kind === 'stockItem' ? decodeJson<StockItemDetail[]>(values.__details, existing && 'details' in existing ? [...(existing.details ?? [])] : []) : [];
   const storedMainDrawing = existing && 'mainDrawingFile' in existing ? existing.mainDrawingFile : undefined;
@@ -741,6 +742,11 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
             </div>
             {!readOnly && <button type="button" class="item-add-row" disabled={itemDetails.length >= 200} onClick={() => saveItemDetails([...itemDetails, { detail1: '', detail2: '', files: [] }])}>Add detail row</button>}
           </section>
+        )}
+        {kind === 'stockItem' && existing && (
+          <p class="field-hint" data-testid="item-last-sale">
+            {lastSale ? `Last sold at ₹${lastSale.rate} to ${lastSale.party || 'a party'} on ${formatDate(lastSale.date)} (invoice ${lastSale.number}).` : 'Not sold on any invoice yet.'}
+          </p>
         )}
         {/* the item's MinimalCAD drawings: an existing item only (a file belongs to an item that is in the books) */}
         {kind === 'stockItem' && existing && <ItemCadFiles itemId={existing.id} itemLabel={'name' in existing ? existing.name : ''} editable={!readOnly} />}

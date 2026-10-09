@@ -94,6 +94,7 @@ export * from './reports/digest';
 export * from './tasks/tasks';
 export * from './tasks/websiteEnquiries';
 export * from './reports/orderRegister';
+export * from './reports/lastSale';
 export * from './assistant/lookups';
 export * from './assistant/assistant';
 export * from './csv/format';
