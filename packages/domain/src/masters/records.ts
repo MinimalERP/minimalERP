@@ -105,27 +105,10 @@ export interface StockItem {
   readonly hsn?: string | undefined;
   readonly gstRateId: GstRateId | null;
   readonly itemType: ItemType;
-  /** Compatibility for the first release, where the main drawing pointed into a detail row. */
-  readonly mainDrawingId?: string | undefined;
-  /** Main drawing uploaded directly to this item. */
-  readonly mainDrawingFile?: ItemFile | undefined;
-  /** Main drawing shared from another stock item. Its file bytes stay on the source item. */
-  readonly mainDrawingItemId?: StockItemId | undefined;
-  readonly details?: readonly StockItemDetail[] | undefined;
+  /** Free words to find the item by -- a process, a material ("laser cutting, welding", "SS310"). Two lines of them. */
+  readonly tags1?: string | undefined;
+  readonly tags2?: string | undefined;
   readonly isActive: boolean;
-}
-
-export interface ItemFile {
-  readonly id: string;
-  readonly name: string;
-  readonly mimeType: string;
-  readonly base64: string;
-}
-
-export interface StockItemDetail {
-  readonly detail1: string;
-  readonly detail2: string;
-  readonly files: readonly ItemFile[];
 }
 
 /** A godown / store / location that holds stock. May be nested (Plant → Store 1). */

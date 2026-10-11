@@ -10,7 +10,6 @@ import {
   USER_BASE_KINDS,
   formatMoney,
   masterRecordName,
-  type StockItem,
 } from '@minimalerp/domain';
 import type { EntityDoc } from '@minimalerp/command';
 import { entityDocsOf } from './entities';
@@ -281,6 +280,9 @@ export const FORMS: Readonly<Record<MasterKind, FormSpec>> = {
         defaultValue: 'trading',
         choices: ITEM_TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] ?? t })),
       },
+      // Free words the item is found by (Go To, the item list, the item cell of a voucher): a process, a material.
+      text('tags1', 'Tags', { hint: 'Words to find this item by: laser cutting, welding, SS310' }),
+      text('tags2', 'Tags 2'),
       // Stock brought forward at the start of the year (posted as the item's opening-stock voucher). Services hold no stock.
       {
         key: 'openQty',
@@ -298,19 +300,8 @@ export const FORMS: Readonly<Record<MasterKind, FormSpec>> = {
         hint: 'Left blank: the main godown',
       }),
     ],
-    fromRecord: (record, values) => {
-      const item = record as StockItem;
-      return { ...values, __mainDrawingId: item.mainDrawingId ?? '', __mainDrawingFile: item.mainDrawingFile ? JSON.stringify(item.mainDrawingFile) : '', __mainDrawingItemId: item.mainDrawingItemId ?? '', __details: JSON.stringify(item.details ?? []) };
-    },
-    toData: (values, data) => {
-      let mainDrawingId: unknown = null;
-      let details: unknown = [];
-      if ((values.__mainDrawingId ?? '').trim() !== '') mainDrawingId = values.__mainDrawingId;
-      let mainDrawingFile: unknown = null;
-      try { if (values.__mainDrawingFile) mainDrawingFile = JSON.parse(values.__mainDrawingFile); } catch { /* ignore malformed transient state */ }
-      try { details = JSON.parse(values.__details ?? '[]'); } catch { /* ignore malformed transient state */ }
-      return { ...data, mainDrawingId, mainDrawingFile, mainDrawingItemId: values.__mainDrawingItemId || null, details };
-    },
+    // an emptied tag field clears the tag (left out, it would mean "leave as it is")
+    toData: (values, data) => ({ ...data, tags1: (values.tags1 ?? '').trim() || null, tags2: (values.tags2 ?? '').trim() || null }),
   },
   warehouse: {
     kind: 'warehouse',

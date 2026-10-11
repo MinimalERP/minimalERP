@@ -47,7 +47,7 @@ export function resolveItems(masters: Masters, text: string): { readonly exact?:
   // "14188-1 - PLT,ORIF…": a name that starts with the typed code and a separator is that code
   const byNameCode = items.find((i) => norm(i.name).startsWith(`${t} -`) || norm(i.name).startsWith(`${t} `));
   if (byNameCode) return { exact: byNameCode, matches: [byNameCode] };
-  const matches = items.filter((i) => norm(i.code).startsWith(t) || norm(i.name).includes(t) || norm(i.alias).includes(t));
+  const matches = items.filter((i) => norm(i.code).startsWith(t) || norm(i.name).includes(t) || norm(i.alias).includes(t) || norm(i.tags1).includes(t) || norm(i.tags2).includes(t));
   return { matches };
 }
 
@@ -68,14 +68,10 @@ const qtyText = (masters: Masters, item: StockItem, q: bigint) => {
 };
 
 const TYPE_WORDS: Record<string, string> = { raw: 'raw material', wip: 'work in progress', finished: 'finished (made by us)', trading: 'trading', service: 'service' };
-const itemNotes = (masters: Masters, item: StockItem) => {
-  const file = item.mainDrawingFile ?? (item.mainDrawingId ? item.details?.flatMap((row) => row.files).find((drawing) => drawing.id === item.mainDrawingId) : undefined);
-  const source = item.mainDrawingItemId ? masters.stockItems.find((candidate) => candidate.id === item.mainDrawingItemId) : undefined;
-  const sourceFile = source?.mainDrawingFile ?? (source?.mainDrawingId ? source.details?.flatMap((row) => row.files).find((drawing) => drawing.id === source.mainDrawingId) : undefined);
-  return {
-  ...(file ? { mainDrawing: file.name } : source && sourceFile ? { mainDrawing: sourceFile.name, mainDrawingFromItem: source.code || source.name } : {}),
-  ...(item.details?.length ? { details: item.details.map((row) => ({ detail1: row.detail1, detail2: row.detail2, files: row.files.map((file) => file.name) })) } : {}),
-  };
+/** The item's tags (a process, a material), when it has any. */
+const itemNotes = (_masters: Masters, item: StockItem) => {
+  const tags = [item.tags1, item.tags2].filter((t): t is string => t !== undefined && t !== '').join(', ');
+  return tags === '' ? {} : { tags };
 };
 
 /** find_items: a search — every item whose code starts with the words or whose name contains them (an exact code first), with its stock. */
@@ -85,7 +81,7 @@ export function findItems(b: AssistantBooks, query: string) {
   const matches =
     t === ''
       ? []
-      : [...(exact ? [exact] : []), ...b.masters.stockItems.filter((i) => i.isActive && i.id !== exact?.id && (norm(i.code).startsWith(t) || norm(i.name).includes(t) || norm(i.alias).includes(t)))];
+      : [...(exact ? [exact] : []), ...b.masters.stockItems.filter((i) => i.isActive && i.id !== exact?.id && (norm(i.code).startsWith(t) || norm(i.name).includes(t) || norm(i.alias).includes(t) || norm(i.tags1).includes(t) || norm(i.tags2).includes(t)))];
   const pos = positions(b.movements);
   const total = (i: StockItem) => [...(pos.get(i.id)?.values() ?? [])].reduce((a, x) => a + x, 0n);
   return {

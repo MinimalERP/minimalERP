@@ -143,7 +143,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher, stay }:
     () =>
       masters.stockItems
         .filter((i) => i.isActive && i.itemType !== 'service')
-        .map((i) => ({ id: i.id, name: i.name, sub: [masters.unit(i.unitId)?.symbol, i.code].filter(Boolean).join(' · ') }))
+        .map((i) => ({ id: i.id, name: i.name, sub: [masters.unit(i.unitId)?.symbol, i.code].filter(Boolean).join(' · '), keywords: [i.tags1, i.tags2].filter(Boolean).join(' ') }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     [masters],
   );

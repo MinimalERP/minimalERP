@@ -127,8 +127,8 @@ export function masterRecordToRow(kind: MasterKind, record: MasterRecord): Row {
         hsn: nul(i.hsn),
         gst_rate_id: i.gstRateId,
         item_type: i.itemType,
-        main_drawing: i.mainDrawingItemId ? { linkedStockItemId: i.mainDrawingItemId } : i.mainDrawingId ?? i.mainDrawingFile ?? null,
-        details: i.details ?? [],
+        tags1: nul(i.tags1),
+        tags2: nul(i.tags2),
         is_active: i.isActive,
       };
     }

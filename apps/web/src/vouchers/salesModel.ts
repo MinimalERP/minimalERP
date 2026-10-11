@@ -251,6 +251,8 @@ export interface Option {
   readonly id: string;
   readonly name: string;
   readonly sub: string;
+  /** Words the option is also found by, though the list does not show them (an item's tags). */
+  readonly keywords?: string | undefined;
 }
 
 /** The parties a document may be made out to: the active customers (sales) or vendors (purchase). */
@@ -308,7 +310,7 @@ export function paymentForPurchase(masters: Masters, purchase: Voucher, paidFrom
 export const itemOptions = (masters: Masters, allowService = false): Option[] =>
   masters.stockItems
     .filter((i) => i.isActive && (allowService || i.itemType !== 'service'))
-    .map((i) => ({ id: i.id, name: i.name, sub: [masters.unit(i.unitId)?.symbol, i.code].filter(Boolean).join(' · ') }))
+    .map((i) => ({ id: i.id, name: i.name, sub: [masters.unit(i.unitId)?.symbol, i.code].filter(Boolean).join(' · '), keywords: [i.tags1, i.tags2].filter(Boolean).join(' ') }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
 // ---- what an invoice line can fill -------------------------------------------------------------------------------
