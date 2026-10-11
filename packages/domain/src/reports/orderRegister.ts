@@ -20,6 +20,7 @@ export interface OrderRow {
   /** The customer's own reference (their PO number). */
   readonly reference: string;
   readonly party: string;
+  /** Empty on a written (one-time) line: then `item` is its text. */
   readonly itemId: string;
   readonly item: string;
   readonly unit: string;
@@ -48,7 +49,7 @@ export interface OrderRegisterOptions {
   readonly asOf: LocalDate;
 }
 
-/** One row per line of every order dated in the period, oldest order first, its lines in the order they were entered. */
+/** One row per line of every order dated in the period, oldest order first, its item lines in the order they were entered and then its written (one-time) lines. */
 export function orderRegisterRows(orders: OrderBook, masters: Masters, from: LocalDate, to: LocalDate, options: OrderRegisterOptions): OrderRow[] {
   const rows: OrderRow[] = [];
   for (const state of orders.all()) {
@@ -72,6 +73,32 @@ export function orderRegisterRows(orders: OrderBook, masters: Masters, from: Loc
         item: item?.name ?? '',
         unit: unit?.symbol ?? '',
         decimals: unit?.decimals ?? 0,
+        due: l.line.dueDate,
+        ordered: l.ordered,
+        delivered: l.delivered,
+        pending: l.pending,
+        filled: l.filled,
+        status: open ? 'Open' : 'Closed',
+        overdue: open && !l.filled && l.line.dueDate < options.asOf,
+        actionable: open && !l.filled,
+        pendingValue: open && !l.filled ? valueOf(l.pending, l.line.rate) : money(0n),
+      });
+    }
+    // a written line is no item's: the register of one item leaves it out
+    for (const l of options.itemId === undefined ? state.written : []) {
+      const open = state.status === 'open';
+      rows.push({
+        key: `${o.voucherId}|${l.line.id}`,
+        orderId: o.voucherId,
+        lineId: l.line.id,
+        number: o.number,
+        date: o.date,
+        reference: o.reference ?? '',
+        party,
+        itemId: '',
+        item: l.line.description,
+        unit: l.line.unit ?? '',
+        decimals: 0,
         due: l.line.dueDate,
         ordered: l.ordered,
         delivered: l.delivered,

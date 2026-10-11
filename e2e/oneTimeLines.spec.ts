@@ -167,5 +167,14 @@ test.describe('one-time lines', () => {
     await app.keyboard.press('Enter');
     await expect(app.locator('[data-vf="l0.item"]')).toHaveValue('Laser cutting as per DRG-221');
     await expect(app.getByTestId('order-status')).toHaveText('Open');
+
+    // the register lists the written line like any order line: nothing received yet, all of it pending
+    await app.evaluate(() => {
+      location.hash = '#/report/purchase-orders';
+    });
+    await expect(app.getByRole('heading', { name: 'Purchase Order Register' })).toBeVisible();
+    const row = app.getByRole('grid').getByRole('row').filter({ hasText: 'Laser cutting as per DRG-221' });
+    await expect(row).toContainText('0/2');
+    await expect(row).toHaveClass(/open-line/);
   });
 });

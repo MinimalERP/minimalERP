@@ -21,7 +21,7 @@ export interface OrderLineDoc {
   readonly dueDate: LocalDate;
 }
 
-/** A written line of an order (Alt+T): text instead of a stock item. Nothing is delivered against it, so it has no pending and commits no stock. */
+/** A written line of an order (Alt+T): text instead of a stock item. An invoice's written line fills it, line by line, like an item's; it commits no stock. */
 export interface WrittenOrderLine {
   readonly id: string;
   readonly description: string;
@@ -61,7 +61,8 @@ export interface OrderLink {
   readonly date: LocalDate;
   readonly orderId: VoucherId;
   readonly orderLineId: string;
-  readonly itemId: StockItemId;
+  /** The item delivered — none when a written (one-time) line fills a written line of the order. */
+  readonly itemId?: StockItemId | undefined;
   readonly qty: Qty;
 }
 
@@ -77,6 +78,15 @@ export interface OrderLineStatus {
   readonly filled: boolean;
 }
 
+/** A written line of the order with what has been billed against it. */
+export interface WrittenLineStatus {
+  readonly line: WrittenOrderLine;
+  readonly ordered: Qty;
+  readonly delivered: Qty;
+  readonly pending: Qty;
+  readonly filled: boolean;
+}
+
 export type OrderStatus = 'open' | 'closed';
 
 export interface OrderState {
@@ -86,7 +96,13 @@ export interface OrderState {
   /** Why a closed order is closed: every line delivered, or someone closed it. */
   readonly reason?: 'fulfilled' | 'manual' | undefined;
   readonly lines: readonly OrderLineStatus[];
+  /** Its written lines, each with what is delivered and pending like an item line. */
+  readonly written: readonly WrittenLineStatus[];
 }
+
+/** One line of an order by its id, whichever kind it is: what is ordered, delivered and pending on it. */
+export const orderLineStatusOf = (state: OrderState | undefined, lineId: string): OrderLineStatus | WrittenLineStatus | undefined =>
+  state?.lines.find((s) => s.line.id === lineId) ?? state?.written.find((s) => s.line.id === lineId);
 
 export interface OrderChange {
   /** Invoices whose deliveries leave the book (an invoice being altered or cancelled frees what it had filled). */
@@ -159,9 +175,14 @@ export class OrderBook {
       const pending = line.qty > delivered ? qty(line.qty - delivered) : ZERO_QTY;
       return { line, ordered: line.qty, delivered, pending, filled: pending === 0n };
     });
-    const fulfilled = lines.length > 0 && lines.every((l) => l.filled);
+    const written = (order.written ?? []).map((line): WrittenLineStatus => {
+      const delivered = this.deliveredOn(orderId, line.id);
+      const pending = line.qty > delivered ? qty(line.qty - delivered) : ZERO_QTY;
+      return { line, ordered: line.qty, delivered, pending, filled: pending === 0n };
+    });
+    const fulfilled = lines.length + written.length > 0 && lines.every((l) => l.filled) && written.every((l) => l.filled);
     const status: OrderStatus = order.closed || fulfilled ? 'closed' : 'open';
-    return { order, status, reason: status === 'open' ? undefined : order.closed ? 'manual' : 'fulfilled', lines };
+    return { order, status, reason: status === 'open' ? undefined : order.closed ? 'manual' : 'fulfilled', lines, written };
   }
 
   /**
@@ -236,24 +257,28 @@ export function orderLinksOf(voucher: Voucher, masters?: Masters): OrderLink[] {
   const out: OrderLink[] = [];
   const isService = (itemId: string) => masters?.stockItem(itemId as StockItemId)?.itemType === 'service';
   const moves = (l: { itemId?: string; challanRef?: unknown }) => typeof l.itemId === 'string' && l.challanRef === undefined && !isService(l.itemId);
-  // deliveries sit on the invoice's stock lines, numbered over them (a written line, or one billed against a challan, has none); a service
-  // delivered moves no stock, so its delivery is numbered after the stock lines
+  // deliveries sit on the invoice's stock lines, numbered over them (a line billed against a challan has none); a service delivered moves
+  // no stock, so its delivery is numbered after the stock lines — and a written line's, which moves none either, after the services
+  const serviceOf = (l: { itemId?: string; challanRef?: unknown }) => typeof l.itemId === 'string' && l.challanRef === undefined && isService(l.itemId);
   let stockLine = 0;
   let serviceLine = (c.lines ?? []).filter(moves).length;
+  let writtenLine = serviceLine + (c.lines ?? []).filter(serviceOf).length;
   (c.lines ?? []).forEach((l) => {
-    const service = typeof l.itemId === 'string' && l.challanRef === undefined && isService(l.itemId);
+    const service = serviceOf(l);
+    const written = typeof l.itemId !== 'string';
     if (moves(l)) stockLine++;
     else if (service) serviceLine++;
+    else if (written) writtenLine++;
     const q = typeof l.qty === 'string' ? parseQty(l.qty) : undefined;
     if (!l.orderRef || typeof l.orderRef.orderId !== 'string' || typeof l.orderRef.lineId !== 'string') return;
-    if (typeof l.itemId !== 'string' || q === undefined) return;
+    if (q === undefined || (written && typeof l.description !== 'string')) return;
     out.push({
       voucherId: voucher.id,
-      lineNo: service ? serviceLine : stockLine,
+      lineNo: written ? writtenLine : service ? serviceLine : stockLine,
       date: voucher.date,
       orderId: l.orderRef.orderId as VoucherId,
       orderLineId: l.orderRef.lineId,
-      itemId: l.itemId as StockItemId,
+      ...(written ? {} : { itemId: l.itemId as StockItemId }),
       qty: q,
     });
   });

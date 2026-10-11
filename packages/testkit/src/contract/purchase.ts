@@ -89,17 +89,29 @@ export function purchaseContract(label: string, makeWorld: MakeMasterWorld): voi
       expect(await stockIn()).toBe(0n);
     });
 
-    it('an order line may be written text (Alt+T) instead of an item: it is kept, counts nothing as pending, and the item lines are received as ever', async () => {
+    it('an order line may be written text (Alt+T) instead of an item: it is kept, and an invoice’s written line fills it line by line like an item’s', async () => {
       const written = { id: 'w', description: 'Laser cutting as per DRG-221', unit: 'Nos', hsn: '9988', qty: '2', rate: '750', dueDate: '2024-05-25' };
       const po = mustOk(await order('po1', { lines: [{ id: 'a', itemId: bolt(), qty: '100', rate: '10', dueDate: '2024-05-20' }, written] })).voucher;
       expect((po.content as unknown as { lines: unknown[] }).lines[1]).toMatchObject({ id: 'w', description: 'Laser cutting as per DRG-221', unit: 'Nos', hsn: '9988' });
       const book = async () => orderBookOf(await w.backend.list(w.companyId), await w.backend.load(w.companyId));
       expect((await book()).state(po.id)).toMatchObject({ status: 'open', lines: [{ line: { id: 'a' } }], order: { written: [{ id: 'w', description: 'Laser cutting as per DRG-221' }] } });
-      // the item line is received in full, with the written line billed beside it as a one-time line: the order is then fulfilled
-      mustOk(await invoice('inv1', [await receive(po.id, 'a', '100'), { description: 'Laser cutting as per DRG-221', unit: 'Nos', qty: '2', rate: '750' }]));
-      expect((await book()).state(po.id)).toMatchObject({ status: 'closed', reason: 'fulfilled' });
-      // nothing can be received against a written line
-      expect(codesOf(await invoice('inv2', [{ description: 'Laser cutting', qty: '1', rate: '750', orderRef: { orderId: po.id, lineId: 'w' } }]))).toContain(IssueCode.OrderRefInvalid);
+      const cutting = (qty: string, lineId = 'w') => ({ description: 'Laser cutting as per DRG-221', unit: 'Nos', qty, rate: '750', orderRef: { orderId: po.id, lineId } });
+      // a written line fills a written line and an item its own item's line — never across — and no more than was ordered
+      expect(codesOf(await invoice('bad1', [cutting('1', 'a')]))).toContain(IssueCode.OrderRefInvalid);
+      expect(codesOf(await invoice('bad2', [{ ...(await receive(po.id, 'a', '1')), orderRef: { orderId: po.id, lineId: 'w' } }]))).toContain(IssueCode.OrderRefInvalid);
+      expect(codesOf(await invoice('bad3', [cutting('3')]))).toContain(IssueCode.OverDelivery);
+      // the item line received in full and one of the two cut: the written line is half filled and the order stays open
+      const inv1 = mustOk(await invoice('inv1', [await receive(po.id, 'a', '100'), cutting('1')]));
+      expect((await links()).map((l) => [l.lineNo, l.orderLineId, l.itemId === undefined, l.qty])).toEqual([[1, 'a', false, 1000000n], [2, 'w', true, 10000n]]);
+      expect(inv1.plan.stock).toHaveLength(1); // the written line moves no stock
+      expect((await book()).state(po.id)).toMatchObject({ status: 'open', written: [{ line: { id: 'w' }, delivered: 10000n, pending: 10000n, filled: false }] });
+      expect(codesOf(await invoice('bad4', [cutting('2')]))).toContain(IssueCode.OverDelivery);
+      // a one-time line that names no order line counts against nothing
+      mustOk(await invoice('inv2', [{ description: 'Freight', qty: '1', rate: '100' }]));
+      expect((await book()).state(po.id)).toMatchObject({ status: 'open' });
+      // the other one cut: the order is fulfilled
+      mustOk(await invoice('inv3', [cutting('1')]));
+      expect((await book()).state(po.id)).toMatchObject({ status: 'closed', reason: 'fulfilled', written: [{ filled: true }] });
       // an order of written lines alone is an order too; a line that is neither, or both, is refused
       mustOk(await order('po2', { lines: [written] }));
       expect(codesOf(await order('po3', { lines: [{ id: 'x', qty: '1', rate: '1', dueDate: '2024-05-20' }] }))).toEqual([IssueCode.SalesDocInvalid]);

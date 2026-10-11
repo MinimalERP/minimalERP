@@ -32,7 +32,7 @@ export const orderLineSchema = z.object({
   id: lineIdSchema,
   /** The stock item — or, on a written line (Alt+T), none: then `description` says what is ordered. */
   itemId: itemIdSchema.optional(),
-  /** A WRITTEN line: text instead of a stock item. It is on the order and its print, and comes onto the first invoice made from the order; nothing is counted against it. */
+  /** A WRITTEN line: text instead of a stock item. It is on the order and its print, and an invoice's written line fills it like an item line. */
   description: z.string().trim().min(1).max(200).optional(),
   /** A written line's unit (a unit master's symbol) and HSN / SAC, as typed. */
   unit: z.string().trim().min(1).max(20).optional(),
@@ -162,7 +162,7 @@ export function onInvoiceLines(problems: readonly Issue[], places: readonly numb
  * A line is either a stock item, a service item, or a written one-time line, never both or neither. A service line is billed like a stock
  * item line but moves no stock: it has no godown and cannot be against a challan (goods that left) — it CAN be against an order line, which
  * it fills like any delivery, with nothing leaving a godown. A one-time line
- * needs its text, a quantity and a rate, and likewise cannot fill an order line.
+ * needs its text, a quantity and a rate; it can fill a WRITTEN line of an order (deliveryProblems checks which), never a challan.
  */
 export function lineKindProblems(l: InvoiceLine, path: string, masters: Masters): Issue[] {
   if (l.itemId !== undefined && l.description !== undefined) return [issue(IssueCode.SalesDocInvalid, 'A line is either a stock item or written text, not both', `${path}.itemId`)];
@@ -183,7 +183,6 @@ export function lineKindProblems(l: InvoiceLine, path: string, masters: Masters)
   const problems: Issue[] = [];
   const q = parseQty(l.qty) ?? 0n;
   if (q <= 0n) problems.push(issue(IssueCode.StockLineInvalid, 'Enter a quantity above zero', `${path}.qty`));
-  if (l.orderRef) problems.push(issue(IssueCode.OrderRefInvalid, 'A written line cannot be against an order line', `${path}.orderRef`));
   if (l.challanRef) problems.push(issue(IssueCode.OrderRefInvalid, 'A written line cannot be against a challan', `${path}.challanRef`));
   return problems;
 }
@@ -216,7 +215,7 @@ const shown = (masters: Masters, itemId: StockItemId, q: bigint): string => {
 
 /**
  * Every invoice line that names an order line must be one it can fill: the order exists, is the same customer's, is not closed, has that
- * line for the same item, is not dated after the invoice — and (over-delivery is refused) no more is delivered than is pending, counting
+ * line for the same item (a written line fills a written line), is not dated after the invoice — and (over-delivery is refused) no more is delivered than is pending, counting
  * the invoice's own other lines against the same order line. Problems sit on the exact line and cell.
  */
 export function deliveryProblems(
@@ -254,17 +253,20 @@ export function deliveryProblems(
       problems.push(issue(IssueCode.OrderRefInvalid, `This invoice is dated before ${order.number} (${order.date})`, path));
       return;
     }
-    const line = state.lines.find((s) => s.line.id === ref.lineId);
-    if (l.itemId === undefined) return; // a written line cannot fill an order line: lineKindProblems says so
+    const itemLine = state.lines.find((s) => s.line.id === ref.lineId);
+    const writtenLine = state.written.find((s) => s.line.id === ref.lineId);
+    const line = itemLine ?? writtenLine;
     if (!line) {
       problems.push(issue(IssueCode.OrderRefInvalid, `${order.number} has no such line any more`, path));
       return;
     }
-    if (line.line.itemId !== l.itemId) {
-      const wanted = masters.stockItem(line.line.itemId)?.name ?? 'another item';
+    // an item fills its own item's line; a written line fills a written line
+    if (itemLine ? itemLine.line.itemId !== l.itemId : l.itemId !== undefined) {
+      const wanted = itemLine ? (masters.stockItem(itemLine.line.itemId)?.name ?? 'another item') : `“${writtenLine?.line.description ?? ''}”, a written line`;
       problems.push(issue(IssueCode.OrderRefInvalid, `That line of ${order.number} is for ${wanted}`, path));
       return;
     }
+    const show = (q: bigint): string => (l.itemId !== undefined ? shown(masters, l.itemId as StockItemId, q) : `${formatQty(q as never, 0)}${writtenLine?.line.unit ? ` ${writtenLine.line.unit}` : ''}`);
     const key = `${ref.orderId}|${ref.lineId}`;
     const before = taken.get(key) ?? 0n;
     const q = parseQty(l.qty) ?? 0n;
@@ -275,8 +277,8 @@ export function deliveryProblems(
         issue(
           IssueCode.OverDelivery,
           left === 0n
-            ? `${order.number}: already ${w.done} in full — you are ${w.doing} ${shown(masters, l.itemId, q)}`
-            : `${order.number}: ${shown(masters, l.itemId, left)} pending, you are ${w.doing} ${shown(masters, l.itemId, q)}`,
+            ? `${order.number}: already ${w.done} in full — you are ${w.doing} ${show(q)}`
+            : `${order.number}: ${show(left)} pending, you are ${w.doing} ${show(q)}`,
           `lines.${i}.qty`,
         ),
       );
@@ -334,11 +336,11 @@ export function challanProblems(draft: { partyId: PartyId; date: string; lines: 
 /** The deliveries an invoice makes: one per line that names an order line, sitting on that line's number. */
 export function plannedLinksOf(lines: readonly InvoiceLine[], masters: Masters): PlannedLink[] {
   const out: PlannedLink[] = [];
-  const link = (l: InvoiceLine & { itemId: StockItemId }, lineNo: number) => {
+  const link = (l: InvoiceLine, lineNo: number) => {
     if (!l.orderRef) return;
-    out.push({ lineNo, orderId: l.orderRef.orderId as VoucherId, orderLineId: l.orderRef.lineId, itemId: l.itemId, qty: parseQty(l.qty) ?? (0n as never) });
+    out.push({ lineNo, orderId: l.orderRef.orderId as VoucherId, orderLineId: l.orderRef.lineId, ...(l.itemId !== undefined ? { itemId: l.itemId as StockItemId } : {}), qty: parseQty(l.qty) ?? (0n as never) });
   };
-  // numbered like the invoice's stock lines (1..n over the stock item lines): a written line moves no stock and fills no order
+  // numbered like the invoice's stock lines (1..n over the stock item lines)
   const stock = stockLinesOf(lines, masters);
   stock.forEach(({ line: l }, k) => link(l, k + 1));
   // a service line fills its order line with nothing leaving a godown: its delivery is numbered after the stock lines
@@ -346,5 +348,8 @@ export function plannedLinksOf(lines: readonly InvoiceLine[], masters: Masters):
   itemLinesOf(lines)
     .filter((x) => !moved.has(x.at))
     .forEach(({ line: l }, k) => link(l, stock.length + k + 1));
+  // a written line moves no stock either: its delivery against the order's written line is numbered after every item line
+  const items = itemLinesOf(lines).length;
+  lines.filter((l) => l.itemId === undefined).forEach((l, k) => link(l, items + k + 1));
   return out;
 }

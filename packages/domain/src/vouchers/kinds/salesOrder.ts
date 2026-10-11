@@ -56,7 +56,7 @@ export const salesOrderKind = defineVoucherKind<SalesOrderDraft>({
       if (deliveries.some((d) => d.date < draft.date)) {
         problems.push(issue(IssueCode.OrderHasDeliveries, 'The order cannot be dated after an invoice that was made against it', 'date'));
       }
-      const delivered = new Map<string, { qty: bigint; itemId: string }>();
+      const delivered = new Map<string, { qty: bigint; itemId: string | undefined }>();
       for (const d of deliveries) {
         const got = delivered.get(d.orderLineId);
         delivered.set(d.orderLineId, { qty: (got?.qty ?? 0n) + d.qty, itemId: d.itemId });
@@ -69,7 +69,7 @@ export const salesOrderKind = defineVoucherKind<SalesOrderDraft>({
         } else if (line.itemId !== got.itemId) {
           problems.push(issue(IssueCode.OrderHasDeliveries, 'Goods were delivered against this line: its item cannot change', `lines.${i}.itemId`));
         } else if ((parseQty(line.qty) ?? 0n) < got.qty) {
-          const unit = masters.unit(masters.stockItem(line.itemId as never)?.unitId as never);
+          const unit = line.itemId === undefined ? undefined : masters.unit(masters.stockItem(line.itemId as never)?.unitId as never);
           problems.push(
             issue(
               IssueCode.OrderHasDeliveries,
