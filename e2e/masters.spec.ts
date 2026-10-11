@@ -214,6 +214,17 @@ test.describe('creating masters from the keyboard', () => {
     await expect(focusedField(app)).toHaveAttribute('data-field', 'name');
   });
 
+  test('clicking an option chooses it and closes the list', async ({ app }) => {
+    await openCreate(app, 'create ledger', 'Create Ledger');
+    await app.keyboard.type('Bank Charges');
+    await app.keyboard.press('Tab');
+    await app.keyboard.type('bank');
+    await app.getByTestId('picker').getByRole('option', { name: /Bank OD A\/c/ }).click();
+    await expect(app.locator('[data-field="groupId"]')).toHaveValue('Bank OD A/c');
+    await expect(app.getByTestId('picker')).toHaveCount(0);
+    await expect(focusedField(app)).toHaveAttribute('data-field', 'groupId'); // the cursor stays where it was
+  });
+
   test('Shift+Tab goes back, ↑↓ move in the picker, Tab chooses', async ({ app }) => {
     await openCreate(app, 'create ledger', 'Create Ledger');
     await app.keyboard.type('Bank Charges');
