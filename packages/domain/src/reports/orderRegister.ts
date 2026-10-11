@@ -1,7 +1,8 @@
 import type { LocalDate } from '../dates';
 import type { Masters } from '../masters/masters';
 import type { OrderBook, OrderSide } from '../orders/orderBook';
-import type { Qty } from '../stock/quantity';
+import { type Money, money } from '../money';
+import { type Qty, valueOf } from '../stock/quantity';
 
 /**
  * The Sales (or Purchase) Order Register's rows: ONE ROW PER ORDER LINE — what was ordered, what has been delivered against it, what is
@@ -34,6 +35,8 @@ export interface OrderRow {
   readonly overdue: boolean;
   /** The order is open AND this line still has something to deliver: the rows to act on. */
   readonly actionable: boolean;
+  /** What is still to deliver, at the order's own rate (pending × rate, before tax): nothing on a filled line or a closed order. */
+  readonly pendingValue: Money;
 }
 
 export interface OrderRegisterOptions {
@@ -77,6 +80,7 @@ export function orderRegisterRows(orders: OrderBook, masters: Masters, from: Loc
         status: open ? 'Open' : 'Closed',
         overdue: open && !l.filled && l.line.dueDate < options.asOf,
         actionable: open && !l.filled,
+        pendingValue: open && !l.filled ? valueOf(l.pending, l.line.rate) : money(0n),
       });
     }
   }

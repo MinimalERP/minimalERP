@@ -547,6 +547,7 @@ test.describe('the Sales Order Register', () => {
     await expect(registerRow(app, 'PO-4471', 'ABC Hex Bolt M8')).not.toHaveClass(/open-line/); // delivered in full: plain
     await expect(registerRow(app, 'SH/PO/88', 'Machine Oil')).toHaveClass(/closed-order/); // the whole order is delivered: closed
     await expect(app.getByTestId('order-counts')).toContainText('3 orders · 3 open lines');
+    await expect(app.getByTestId('order-pending-value')).toHaveText('43,300.00'); // what is still to deliver, at the orders' rates
   });
 
   test('every column sorts and filters like the other reports: Alt+S on Fill, Alt+L on Status, typing narrows', async ({ app }) => {

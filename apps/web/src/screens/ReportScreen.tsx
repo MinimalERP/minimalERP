@@ -740,6 +740,11 @@ function ReportBody({
           </>
         )}
       </p>
+      {(report === 'sales-orders' || report === 'purchase-orders') && (
+        <p class="report-figures" data-testid="order-pending-line">
+          Pending order value (before GST) <strong data-testid="order-pending-value">{formatAmount(registerCounts(rows as readonly OrderRow[]).pendingValue)}</strong>
+        </p>
+      )}
 
       {report === 'vouchers' && listKind && <Only scope={SCOPE} command={`list.new.${listKind}`} run={newVoucher} />}
       {gridSupportsTypeFilter(report) && <Only scope={SCOPE} command="report.types" run={() => (setDialog('types'), true)} />}

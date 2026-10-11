@@ -86,7 +86,7 @@ describe('the Sales Order Register', () => {
     const { rows } = await rowsOf();
     expect(rows.map((r) => Math.round(fillRatio(r) * 100))).toEqual([100, 40, 0, 100, 0]);
     const counts = registerCounts(rows);
-    expect(counts).toEqual({ lines: 5, open: 3, overdue: 0, orders: 3 });
+    expect(counts).toEqual({ lines: 5, open: 3, overdue: 0, orders: 3, pendingValue: 4_330_000n }); // 180 × 55 + 20 × 1,400 + 800 × 6.75, in paise
   });
 
   it('is sortable and filterable by construction — the columns are the grid’s own', async () => {
