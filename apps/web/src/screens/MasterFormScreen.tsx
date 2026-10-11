@@ -1,6 +1,5 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
 import { type Issue, type MasterKind, type MasterRecord, findMaster, isMasterActive, lastSaleOf, partyLedgerId } from '@minimalerp/domain';
-import type { ItemFile, StockItem, StockItemDetail } from '@minimalerp/domain';
 import { Fragment } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import {
@@ -18,7 +17,7 @@ import {
 } from '../books/forms';
 import { hasStockLedger, ledgersOfRecord } from '../books/entities';
 import { addDays, formatDate } from '../vouchers/format';
-import { useCommandHandler, useFrameState, useScope, useServices, useSubscriptions } from '../shell/hooks';
+import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../shell/hooks';
 import { Only } from '../shell/Only';
 import { WindowClose } from '../shell/WindowClose';
 import { useLeaveGuard } from '../shell/useLeaveGuard';
@@ -30,35 +29,6 @@ import { SeriesAdvanceDialog } from './SeriesAdvanceDialog';
 
 const SCOPE = 'screen:master';
 const MAX_OPTIONS = 8;
-const MAX_ITEM_FILE_BYTES = 10 * 1024 * 1024;
-
-function decodeJson<T>(value: string | undefined, fallback: T): T {
-  try { return value === undefined ? fallback : JSON.parse(value) as T; } catch { return fallback; }
-}
-
-async function fileAsItemFile(file: File): Promise<ItemFile> {
-  if (file.size > MAX_ITEM_FILE_BYTES) throw new Error('Files must be 10 MB or smaller.');
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Could not read that file.'));
-    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read that file.'));
-    reader.readAsDataURL(file);
-  });
-  return { id: crypto.randomUUID(), name: file.name, mimeType: file.type || 'application/octet-stream', base64: dataUrl.split(',')[1] ?? '' };
-}
-
-function itemFileUrl(file: ItemFile): string {
-  return `data:${file.mimeType};base64,${file.base64}`;
-}
-
-function isPdf(file: ItemFile): boolean {
-  return file.mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-}
-
-function itemMainDrawing(item: StockItem): ItemFile | undefined {
-  return item.mainDrawingFile ?? (item.mainDrawingId ? item.details?.flatMap((row) => row.files).find((file) => file.id === item.mainDrawingId) : undefined);
-}
-
 /** What a screen opened for a result hands back to the field that asked for it. */
 export interface CreatedMaster {
   readonly kind: MasterKind;
@@ -119,11 +89,9 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
   const [banner, setBanner] = useState<{ text: string; tone: 'error' | 'ok' } | undefined>(undefined);
   const leave = useLeaveGuard();
   const [busy, setBusy] = useState(false);
-  const [pdfViewerFile, setPdfViewerFile] = useState<ItemFile | undefined>(undefined);
   const [pick, setPick] = useState({ index: 0, touched: false });
   /** The field whose popup list was closed with Esc. Typing, ↓ or moving to another field opens a list again. */
   const [pickerClosed, setPickerClosed] = useState<string | undefined>(undefined);
-  const [drawingSearch, setDrawingSearch] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
 
   // A ledger's opening balance only makes sense for balance-sheet groups (assets and liabilities).
@@ -151,23 +119,6 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
   };
 
   const lastSale = kind === 'stockItem' && existing && books && masters ? lastSaleOf(books.vouchers, masters, existing.id as never) : undefined;
-  const mainDrawingId = kind === 'stockItem' ? values.__mainDrawingId ?? '' : '';
-  const itemDetails = kind === 'stockItem' ? decodeJson<StockItemDetail[]>(values.__details, existing && 'details' in existing ? [...(existing.details ?? [])] : []) : [];
-  const storedMainDrawing = existing && 'mainDrawingFile' in existing ? existing.mainDrawingFile : undefined;
-  const mainDrawingItemId = values.__mainDrawingItemId ?? (existing && 'mainDrawingItemId' in existing ? existing.mainDrawingItemId ?? '' : '');
-  const directMainDrawing = values.__mainDrawingFile === undefined ? storedMainDrawing : values.__mainDrawingFile === '' ? undefined : decodeJson<ItemFile | undefined>(values.__mainDrawingFile, storedMainDrawing);
-  const oldDetailDrawing = itemDetails.flatMap((row) => row.files).find((file) => file.id === mainDrawingId);
-  const linkedDrawingItem = masters?.stockItems.find((item) => item.id === mainDrawingItemId);
-  const mainDrawingFile = directMainDrawing ?? oldDetailDrawing ?? (linkedDrawingItem ? itemMainDrawing(linkedDrawingItem) : undefined);
-  const saveMainDrawingFile = (file: ItemFile | undefined) => setValues({ ...freshValues(), __mainDrawingFile: file ? JSON.stringify(file) : '', __mainDrawingItemId: '', __mainDrawingId: '' });
-  const saveMainDrawingItem = (itemId: string) => setValues({ ...freshValues(), __mainDrawingItemId: itemId, __mainDrawingFile: '', __mainDrawingId: '' });
-  const drawingChoices = (masters?.stockItems ?? []).filter((item) => item.id !== id && itemMainDrawing(item) !== undefined && `${item.code ?? ''} ${item.name}`.toLocaleLowerCase().includes(drawingSearch.trim().toLocaleLowerCase()));
-  const saveItemDetails = (details: StockItemDetail[]) => {
-    const v = freshValues();
-    const selected = v.__mainDrawingId ?? '';
-    const found = details.some((row) => row.files.some((file) => file.id === selected));
-    setValues({ ...v, __details: JSON.stringify(details), ...(!found ? { __mainDrawingId: '' } : {}) });
-  };
   // What a ref/choice field shows: what is being typed, else the chosen record's name.
   const shown = (f: FieldSpec): string => {
     if (f.type !== 'ref' && f.type !== 'choice') return values[f.key] ?? '';
@@ -699,53 +650,6 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
             </Fragment>
           );
         })}
-        {kind === 'stockItem' && (
-          <section class="item-documents" aria-label="Stock item drawings and details" data-testid="item-documents">
-            <h2 class="form-section">Main drawing</h2>
-            {mainDrawingFile ? (
-              <div class="item-file-row">
-                <a href={itemFileUrl(mainDrawingFile)} download={!isPdf(mainDrawingFile) ? mainDrawingFile.name : undefined} onClick={(e) => { if (isPdf(mainDrawingFile)) { e.preventDefault(); setPdfViewerFile(mainDrawingFile); } }}>{mainDrawingFile.name}</a>
-                {linkedDrawingItem && <span class="field-hint">Linked from {linkedDrawingItem.code ? `${linkedDrawingItem.code} — ` : ''}{linkedDrawingItem.name}</span>}
-                {!readOnly && <button type="button" class="item-file-remove" onClick={() => saveMainDrawingFile(undefined)}>Remove main drawing</button>}
-              </div>
-            ) : <p class="field-hint">No main drawing linked.</p>}
-            {!readOnly && <div class="item-main-drawing-select">
-              <label class="field-label" for="main-drawing-upload">Upload this item’s main drawing</label>
-              <input id="main-drawing-upload" class="field-input" type="file" accept="application/pdf,.pdf" onChange={(e) => { const input = e.target as HTMLInputElement; const chosen = input.files?.[0]; input.value = ''; if (chosen) void fileAsItemFile(chosen).then(saveMainDrawingFile).catch((error: unknown) => setBanner({ text: error instanceof Error ? error.message : 'Could not read that file.', tone: 'error' })); }} />
-              <label class="field-label" for="main-drawing-search">Or link an existing item’s main drawing</label>
-              <input id="main-drawing-search" class="field-input" type="search" value={drawingSearch} placeholder="Search by part number or item name" onInput={(e) => setDrawingSearch((e.target as HTMLInputElement).value)} />
-              <select id="main-drawing-item" class="field-input" value={mainDrawingItemId} onChange={(e) => saveMainDrawingItem((e.target as HTMLSelectElement).value)}>
-                <option value="">No linked item</option>
-                {drawingChoices.map((item) => <option key={item.id} value={item.id}>{item.code ? `${item.code} — ` : ''}{item.name}</option>)}
-                {linkedDrawingItem && !drawingChoices.some((item) => item.id === linkedDrawingItem.id) && <option value={linkedDrawingItem.id}>{linkedDrawingItem.code ? `${linkedDrawingItem.code} — ` : ''}{linkedDrawingItem.name}</option>}
-              </select>
-            </div>}
-
-            <h2 class="form-section">Item details and files</h2>
-            <div class="item-details-scroll">
-              <table class="item-details-table">
-                <thead><tr><th scope="col">Detail 1</th><th scope="col">Detail 2</th><th scope="col">Files</th></tr></thead>
-                <tbody>
-                  {itemDetails.map((row, rowIndex) => (
-                    <tr key={rowIndex}>
-                      <td><input aria-label={`Detail 1, row ${rowIndex + 1}`} value={row.detail1} readOnly={readOnly} onInput={(e) => { const next = [...itemDetails]; next[rowIndex] = { ...row, detail1: (e.target as HTMLInputElement).value }; saveItemDetails(next); }} /></td>
-                      <td><input aria-label={`Detail 2, row ${rowIndex + 1}`} value={row.detail2} readOnly={readOnly} onInput={(e) => { const next = [...itemDetails]; next[rowIndex] = { ...row, detail2: (e.target as HTMLInputElement).value }; saveItemDetails(next); }} /></td>
-                      <td>
-                        <ul class="item-file-list">
-                          {row.files.map((file, fileIndex) => <li key={`${file.name}-${fileIndex}`}><a href={itemFileUrl(file)} download={!isPdf(file) ? file.name : undefined} onClick={(e) => { if (isPdf(file)) { e.preventDefault(); setPdfViewerFile(file); } }}>{file.name}</a>{!readOnly && <button type="button" class="item-file-remove" aria-label={`Remove ${file.name}`} onClick={() => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: row.files.filter((_, i) => i !== fileIndex) }; saveItemDetails(next); }}>×</button>}</li>)}
-                        </ul>
-                        {!readOnly && <label class="item-attach-file">Attach file<input type="file" multiple onChange={(e) => { const input = e.target as HTMLInputElement; const chosen = [...(input.files ?? [])]; input.value = ''; void Promise.all(chosen.map((file) => fileAsItemFile(file))).then((files) => { const next = [...itemDetails]; next[rowIndex] = { ...row, files: [...row.files, ...files].slice(0, 10) }; saveItemDetails(next); }).catch((error: unknown) => setBanner({ text: error instanceof Error ? error.message : 'Could not read those files.', tone: 'error' })); }} /></label>}
-                        {!readOnly && <button type="button" class="item-file-remove" aria-label={`Remove row ${rowIndex + 1}`} onClick={() => saveItemDetails(itemDetails.filter((_, i) => i !== rowIndex))}>×</button>}
-                      </td>
-                    </tr>
-                  ))}
-                  {itemDetails.length === 0 && <tr><td colSpan={3}>No rows. Details are optional.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-            {!readOnly && <button type="button" class="item-add-row" disabled={itemDetails.length >= 200} onClick={() => saveItemDetails([...itemDetails, { detail1: '', detail2: '', files: [] }])}>Add detail row</button>}
-          </section>
-        )}
         {kind === 'stockItem' && existing && (
           <p class="field-hint" data-testid="item-last-sale">
             {lastSale ? `Last sold at ₹${lastSale.rate} to ${lastSale.party || 'a party'} on ${formatDate(lastSale.date)} (invoice ${lastSale.number}).` : 'Not sold on any invoice yet.'}
@@ -755,28 +659,7 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
         {kind === 'stockItem' && existing && <ItemCadFiles itemId={existing.id} itemLabel={'name' in existing ? existing.name : ''} editable={!readOnly} />}
       </form>
 
-      {pdfViewerFile && <ItemPdfViewer file={pdfViewerFile} onClose={() => setPdfViewerFile(undefined)} />}
 
     </section>
-  );
-}
-
-const PDF_VIEWER_SCOPE = 'overlay:item-pdf';
-
-/** An item's PDF, shown over the form. Esc (app.back, through the keyboard scope like every other overlay) or a click outside closes it. */
-function ItemPdfViewer({ file, onClose }: { readonly file: ItemFile; readonly onClose: () => void }) {
-  useScope(PDF_VIEWER_SCOPE, 'overlay', true);
-  useCommandHandler(PDF_VIEWER_SCOPE, 'app.back', () => (onClose(), true));
-  return (
-    <div class="item-pdf-backdrop" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <section class="item-pdf-viewer" role="dialog" aria-modal="true" aria-label={`PDF viewer: ${file.name}`}>
-        <header class="item-pdf-viewer-head">
-          <strong>{file.name}</strong>
-          <a class="button" href={itemFileUrl(file)} download={file.name}>Download</a>
-          <button type="button" class="button" autoFocus onClick={onClose}>Close</button>
-        </header>
-        <iframe title={`PDF preview: ${file.name}`} src={itemFileUrl(file)} />
-      </section>
-    </div>
   );
 }

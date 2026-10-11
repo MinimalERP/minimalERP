@@ -55,7 +55,7 @@ function describe(kind: MasterKind, masters: Masters, r: Record<string, unknown>
         title: str('name') ?? '',
         subtitle: compact([unit, group, str('hsn') ? `HSN ${str('hsn')}` : undefined]).join(' · '),
         identifiers: compact([str('code'), str('alias'), str('hsn')]),
-        keywords: compact([str('alias')]),
+        keywords: compact([str('alias'), str('tags1'), str('tags2')]),
       };
     }
     case 'stockGroup':

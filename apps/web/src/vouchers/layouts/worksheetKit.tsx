@@ -23,6 +23,8 @@ export interface PickOption {
   readonly id: string;
   readonly name: string;
   readonly sub: string;
+  /** Words the option is also found by, though the list does not show them (an item's tags). */
+  readonly keywords?: string | undefined;
 }
 
 /** A problem's cell (`line.2.qty`) → the key of the field that shows it (`l2.qty`). */
@@ -157,7 +159,7 @@ export function Cell(props: {
 export function matchOptions(options: readonly PickOption[], typed: string, storedName: string, listWhenEmpty = false): PickOption[] {
   const t = typed.trim();
   if (t === '' || t === storedName) return listWhenEmpty ? options.slice(0, MAX_OPTIONS) : [];
-  const docs: EntityDoc[] = options.map((o) => ({ key: o.id, kind: '', scope: 'v', title: o.name, subtitle: o.sub, commandId: '', args: o.id }));
+  const docs: EntityDoc[] = options.map((o) => ({ key: o.id, kind: '', scope: 'v', title: o.name, subtitle: o.sub, ...(o.keywords ? { keywords: [o.keywords] } : {}), commandId: '', args: o.id }));
   return searchEntities(docs, t, { limit: MAX_OPTIONS }).map((h) => options.find((o) => o.id === h.key) as PickOption);
 }
 
