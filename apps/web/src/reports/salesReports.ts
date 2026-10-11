@@ -55,13 +55,14 @@ export function orderRegisterColumns(side: OrderSide = 'sales'): ColumnSpec<Orde
 /** The row's look: an open order's still-open line is bold; a fully delivered line is plain; a closed order's lines are muted. */
 export const orderRowClass = (r: OrderRow): string => (r.actionable ? 'open-line' : r.status === 'Closed' ? 'closed-order' : '');
 
-/** What the shown rows come to: how many lines, how many still open, how many orders. */
-export function registerCounts(rows: readonly OrderRow[]): { lines: number; open: number; overdue: number; orders: number } {
+/** What the shown rows come to: how many lines, how many still open, how many orders — and what the open lines are worth at the orders' rates. */
+export function registerCounts(rows: readonly OrderRow[]): { lines: number; open: number; overdue: number; orders: number; pendingValue: bigint } {
   return {
     lines: rows.length,
     open: rows.filter((r) => r.actionable).length,
     overdue: rows.filter((r) => r.overdue).length,
     orders: new Set(rows.map((r) => r.orderId)).size,
+    pendingValue: rows.reduce((s, r) => s + r.pendingValue, 0n),
   };
 }
 
