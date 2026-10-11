@@ -1,5 +1,5 @@
 import type { Frame } from '@minimalerp/command';
-import { type ChallanPurpose, type Masters, type Voucher, billStatusOf, gstr2bPeriodLabel, isMailKind, formatQty, formatRate, isQtyText, money, noteSettlementOf, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type ChallanPurpose, type Masters, type Voucher, billStatusOf, gstr2bPeriodLabel, isMailKind, formatQty, formatRate, isQtyText, money, noteSettlementOf, orderLineStatusOf, parseQty, partyLedgerId } from '@minimalerp/domain';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { Only } from '../../shell/Only';
@@ -342,7 +342,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const [selecting, setSelecting] = useFrameState<boolean>(frame, 'selecting', false);
   const [ticked, setTicked] = useFrameState<string[]>(frame, 'ticked', []);
   /** The order lines that still have something to invoice: only these can be ticked. */
-  const openLineIds: string[] = canSelectLines ? (orderState?.lines ?? []).filter((s) => !s.filled && s.pending > 0n).map((s) => s.line.id as string) : [];
+  const openLineIds: string[] = canSelectLines ? [...(orderState?.lines ?? []), ...(orderState?.written ?? [])].filter((s) => !s.filled && s.pending > 0n).map((s) => s.line.id as string) : [];
   const selectedLines = selecting ? ticked.filter((id) => openLineIds.includes(id)) : [];
   const toggleTick = (id: string) => setTicked(ticked.includes(id) ? ticked.filter((x) => x !== id) : [...ticked, id]);
   const toggleSelecting = (): boolean => {
@@ -830,7 +830,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       setBanner({ text: `Line ${i + 1} is a stock item line again: choose the item.`, tone: 'note' });
       return go(`l${i}.item`);
     }
-    const wasItem = (fresh().lines[i] as SalesLineForm).itemId !== '';
+    const before = fresh().lines[i] as SalesLineForm;
+    const wasItem = before.itemId !== '';
     setLine(i, {
       oneTime: true,
       itemId: '',
@@ -840,9 +841,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       unit: unitOf(v['unit'] ?? '')?.symbol ?? '',
       warehouseId: '',
       warehouseLabel: '',
-      orderId: '',
-      orderLineId: '',
-      orderLabel: '',
+      // a one-time line brought from an order stays against its order line when its text is edited; an item line turned one-time lets go of its own
+      ...(before.oneTime ? {} : { orderId: '', orderLineId: '', orderLabel: '' }),
       ...(wasItem ? { gstRate: '' } : {}),
     });
     setFieldErrors((e) => ({ ...e, [`line.${i}.item`]: '', [`line.${i}.qty`]: '' }));
@@ -1140,7 +1140,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     const billedLine = l.challanId ? books.orders.challans.withChange({ removeLinksOf: [form.id as never] }).state(l.challanId as never)?.lines.find((s) => s.line.id === l.challanLineId) : undefined;
     const amount = preview.amounts.get(i);
     const linked = l.orderId !== '' ? books.orders.state(l.orderId as never)?.lines.find((s) => s.line.id === l.orderLineId) : undefined;
-    const fillLine = orderState?.lines.find((s) => s.line.id === l.key);
+    const fillLine = orderLineStatusOf(orderState, l.key);
     const openLine = orderState?.status === 'open' && fillLine !== undefined && !fillLine.filled;
     return (
       <div key={`l${i}`} class={`${!idle && current.line === i ? 'vrow sales-row active' : 'vrow sales-row'}${openLine ? ' open-line' : ''}`}>

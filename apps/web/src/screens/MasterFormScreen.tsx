@@ -667,6 +667,9 @@ export function MasterFormScreen({ frame, kind, mode, id, seed, inline }: Props)
                         if (choice) {
                           patch(f.key, choice.value, choice.label);
                           setErrors((prev) => ({ ...prev, [f.key]: '' }));
+                          // a click has chosen: the list goes away, the cursor stays in the field
+                          setPick({ index: n, touched: false });
+                          setPickerClosed(f.key);
                         }
                       }}
                       renderItem={(o) => (

@@ -1114,7 +1114,7 @@ function stockLineToRpc(m: StockMovement): Row {
 }
 
 function linkToRpc(l: OrderLink): Row {
-  return { line_no: l.lineNo, order_id: l.orderId, order_line_id: l.orderLineId, item_id: l.itemId, qty: qtyToText(l.qty) };
+  return { line_no: l.lineNo, order_id: l.orderId, order_line_id: l.orderLineId, item_id: l.itemId ?? null, qty: qtyToText(l.qty) };
 }
 
 function linkFromRow(row: Row): OrderLink {
@@ -1124,7 +1124,7 @@ function linkFromRow(row: Row): OrderLink {
     date: text(row['entry_date']),
     orderId: text(row['order_id']),
     orderLineId: text(row['order_line_id']),
-    itemId: text(row['item_id']),
+    itemId: row['item_id'] == null ? null : text(row['item_id']),
     qty: text(row['qty']),
   });
 }

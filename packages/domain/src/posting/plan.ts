@@ -121,9 +121,10 @@ export function checkPlanInvariants(
 
 /**
  * What every order link must be: a positive quantity, on a real line of the same voucher's stock, once. A service delivered (or received) moves
- * no stock: its link sits on a line number of its own, past the stock lines.
+ * no stock, and neither does a written line (a link with no item): its link sits on a line number of its own, past the stock lines.
  */
-function checkLinkInvariants(links: readonly OrderLink[], stock: readonly StockMovement[], direction: 'in' | 'out', holdsNoStock: (itemId: string) => boolean): Issue[] {
+function checkLinkInvariants(links: readonly OrderLink[], stock: readonly StockMovement[], direction: 'in' | 'out', holdsNoStockItem: (itemId: string) => boolean): Issue[] {
+  const holdsNoStock = (itemId: string | undefined) => itemId === undefined || holdsNoStockItem(itemId);
   const problems: Issue[] = [];
   const seen = new Set<number>();
   links.forEach((l, i) => {
@@ -133,7 +134,7 @@ function checkLinkInvariants(links: readonly OrderLink[], stock: readonly StockM
     seen.add(l.lineNo);
     const m = stock.find((s) => s.lineNo === l.lineNo);
     if (holdsNoStock(l.itemId)) {
-      if (m) problems.push(issue(IssueCode.PlanInconsistentLines, 'A service delivered moves no stock: its delivery sits on no stock line', path));
+      if (m) problems.push(issue(IssueCode.PlanInconsistentLines, 'A service or a written line delivered moves no stock: its delivery sits on no stock line', path));
       return;
     }
     if (!m || m.direction !== direction || m.itemId !== l.itemId || m.qty !== l.qty) {

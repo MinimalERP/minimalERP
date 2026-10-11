@@ -1,5 +1,5 @@
 import { MemoryBackend } from '@minimalerp/adapter-memory';
-import { deterministicUuid } from '@minimalerp/domain';
+import { deterministicUuid, orderRegisterRows } from '@minimalerp/domain';
 import { describe, expect, it } from 'vitest';
 import { type Books, BooksHost, type LocalBackend } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
@@ -265,27 +265,40 @@ describe('a written line (Alt+T) on a purchase order', () => {
     expect(invoiceDocFromBooks(po, books)?.lines.map((l) => [l.desc, l.qty])).toEqual([['MS Sheet 2mm', '100.000 Kg'], ['Laser cutting as per DRG-221', '2 Set']]);
   });
 
-  it('comes onto the first invoice made from the order as a one-time line, and not onto the next', async () => {
+  it('comes onto an invoice made from the order as a one-time line against its own order line, for what is still pending on it', async () => {
     const books = await demo();
     const po = await post(books, orderWith(books, ['item', 'written']));
     const first = invoiceOf(books, po)!;
-    expect(first.lines.map((l) => [l.itemLabel, l.qty, l.rate, l.oneTime === true, l.orderId !== ''])).toEqual([
-      ['MS Sheet 2mm', '100', '59', false, true],
-      ['Laser cutting as per DRG-221', '2', '750', true, false],
+    expect(first.lines.map((l) => [l.itemLabel, l.qty, l.rate, l.oneTime === true, l.orderLineId])).toEqual([
+      ['MS Sheet 2mm', '100', '59', false, 'k0'],
+      ['Laser cutting as per DRG-221', '2', '750', true, 'k1'],
     ]);
-    // 40 of the 100 received, with the written line billed
-    const part = { ...first, billNo: 'SS/2001', lines: first.lines.map((l, i) => (i === 0 ? { ...l, qty: '40' } : l)) };
+    // 40 of the 100 received and one of the two sets billed: what is left of each comes onto the next invoice
+    const part = { ...first, billNo: 'SS/2001', lines: first.lines.map((l, i) => (i === 0 ? { ...l, qty: '40' } : { ...l, qty: '1' })) };
     expect(previewSales(part, 'purchase', books.masters, books.stock, books.orders, undefined, books.vouchers).issues).toEqual([]);
     const posted = await books.post(formToSalesDraft(part, 'purchase', books.masters).draft as never);
     expect(posted.ok ? [] : posted.issues).toEqual([]);
-    expect(invoiceOf(books, po)?.lines.map((l) => [l.itemLabel, l.qty])).toEqual([['MS Sheet 2mm', '60']]);
+    expect(invoiceOf(books, po)?.lines.map((l) => [l.itemLabel, l.qty])).toEqual([['MS Sheet 2mm', '60'], ['Laser cutting as per DRG-221', '1']]);
+    // billing more than is pending on the written line is refused, on its quantity
+    const over = { ...invoiceOf(books, po)!, billNo: 'SS/2002' };
+    over.lines = over.lines.map((l) => (l.oneTime ? { ...l, qty: '5' } : l));
+    expect(previewSales(over, 'purchase', books.masters, books.stock, books.orders, undefined, books.vouchers).issues.map((x) => x.field)).toEqual(['line.1.qty']);
   });
 
-  it('an order of written lines alone is accepted, can be invoiced, and stays open until it is closed by hand', async () => {
+  it('is a row of the order register like any line: pending at the order’s rate until it is billed', async () => {
     const books = await demo();
     const po = await post(books, orderWith(books, ['written']));
+    const rows = () => orderRegisterRows(books.orders, books.masters, '2026-06-01' as never, '2026-06-30' as never, { side: 'purchase', asOf: '2026-06-01' as never }).filter((r) => r.orderId === po.id);
+    expect(rows().map((r) => [r.item, r.itemId, r.unit, r.ordered, r.pending, r.actionable, r.pendingValue])).toEqual([['Laser cutting as per DRG-221', '', 'Set', 20000n, 20000n, true, 150000n]]);
+    // an order of written lines alone is invoiced and then closed, delivered in full
     expect(books.orders.state(po.id)).toMatchObject({ status: 'open', lines: [] });
-    expect(invoiceOf(books, po)?.lines.map((l) => [l.itemLabel, l.oneTime])).toEqual([['Laser cutting as per DRG-221', true]]);
+    const form = { ...invoiceOf(books, po)!, billNo: 'SS/2003' };
+    expect(form.lines.map((l) => [l.itemLabel, l.oneTime])).toEqual([['Laser cutting as per DRG-221', true]]);
+    const posted = await books.post(formToSalesDraft(form, 'purchase', books.masters).draft as never);
+    expect(posted.ok ? [] : posted.issues).toEqual([]);
+    expect(books.orders.state(po.id)).toMatchObject({ status: 'closed', reason: 'fulfilled' });
+    expect(rows().map((r) => [r.pending, r.status, r.pendingValue])).toEqual([[0n, 'Closed', 0n]]);
+    expect(invoiceOf(books, po)).toBeUndefined();
   });
 
   it('a line that is neither an item nor written is still refused, on its item cell', async () => {

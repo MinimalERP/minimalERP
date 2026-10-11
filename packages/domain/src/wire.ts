@@ -132,7 +132,8 @@ export interface OrderLinkWire {
   readonly date: string;
   readonly orderId: string;
   readonly orderLineId: string;
-  readonly itemId: string;
+  /** Absent (or null) on a written line's delivery. */
+  readonly itemId?: string | null | undefined;
   readonly qty: string;
 }
 
@@ -143,7 +144,7 @@ export function orderLinkToWire(l: OrderLink): OrderLinkWire {
     date: l.date,
     orderId: l.orderId,
     orderLineId: l.orderLineId,
-    itemId: l.itemId,
+    ...(l.itemId !== undefined ? { itemId: l.itemId } : {}),
     qty: `${l.qty / QTY_SCALE}.${(l.qty % QTY_SCALE).toString().padStart(4, '0')}`,
   };
 }
@@ -157,7 +158,7 @@ export function orderLinkFromWire(w: OrderLinkWire): OrderLink {
     date: localDate(w.date),
     orderId: asVoucherId(w.orderId),
     orderLineId: w.orderLineId,
-    itemId: asStockItemId(w.itemId),
+    ...(typeof w.itemId === 'string' && w.itemId !== '' ? { itemId: asStockItemId(w.itemId) } : {}),
     qty: qty(q),
   };
 }

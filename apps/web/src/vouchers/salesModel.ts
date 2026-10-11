@@ -318,7 +318,9 @@ export interface OrderOption {
   readonly lineId: string;
   readonly number: string;
   readonly reference: string | undefined;
+  /** Empty on a written (one-time) line of the order: then `written` says what it is. */
   readonly itemId: string;
+  readonly written?: { readonly description: string; readonly unit?: string | undefined; readonly hsn?: string | undefined } | undefined;
   readonly ordered: Qty;
   readonly delivered: Qty;
   readonly pending: Qty;
@@ -329,6 +331,7 @@ export interface OrderOption {
 /**
  * The order lines a customer's invoice can fill: the open orders of THAT customer, each line that still has something pending (for one
  * item, if given), the one due soonest first. `ownId` is the invoice being entered or altered: what it had delivered counts as pending again.
+ * With no item asked for (a whole order is being brought onto the invoice) the order's written lines still pending come too.
  */
 export function openOrderLines(orders: OrderBook, partyId: string, itemId: string | undefined, ownId: string, side: DocSide = 'sales'): OrderOption[] {
   const book = orders.withChange({ removeLinksOf: [ownId as never] });
@@ -343,6 +346,22 @@ export function openOrderLines(orders: OrderBook, partyId: string, itemId: strin
         number: state.order.number,
         reference: state.order.reference,
         itemId: l.line.itemId,
+        ordered: l.ordered,
+        delivered: l.delivered,
+        pending: l.pending,
+        rate: l.line.rate,
+        due: l.line.dueDate,
+      });
+    }
+    for (const l of itemId === undefined ? state.written : []) {
+      if (l.pending <= 0n) continue;
+      out.push({
+        orderId: state.order.voucherId,
+        lineId: l.line.id,
+        number: state.order.number,
+        reference: state.order.reference,
+        itemId: '',
+        written: { description: l.line.description, unit: l.line.unit, hsn: l.line.hsn },
         ordered: l.ordered,
         delivered: l.delivered,
         pending: l.pending,
@@ -391,6 +410,8 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
         ...((l.unit ?? '').trim() !== '' ? { unit: (l.unit ?? '').trim() } : {}),
         qty: l.qty.trim(),
         rate: l.rate.trim(),
+        // an invoice's one-time line brought from an order fills that order's written line
+        ...(p.invoice && l.orderId !== '' && l.orderLineId !== '' ? { orderRef: { orderId: l.orderId, lineId: l.orderLineId } } : {}),
         ...((l.gstRate ?? '').trim() !== '' ? { gstRate: (l.gstRate ?? '').trim() } : {}),
         ...((l.hsn ?? '').trim() !== '' ? { hsn: (l.hsn ?? '').trim() } : {}),
       };
@@ -898,7 +919,10 @@ export function godownWithStock(
   return best ?? fallback;
 }
 
-/** Invoice lines for order lines (a delivery, or on the purchase side a receipt): each carries the order line's item, what is pending, the agreed rate, and the reference to it. */
+/**
+ * Invoice lines for order lines (a delivery, or on the purchase side a receipt): each carries the order line's item, what is pending, the agreed
+ * rate, and the reference to it. A written line of the order comes as a one-time line, against its order line like any other.
+ */
 function linesFromOrder(
   options: readonly OrderOption[],
   masters: Masters,
@@ -907,17 +931,32 @@ function linesFromOrder(
 ): SalesLineForm[] {
   // a service line is billed with no godown (it holds no stock); it fills its order line all the same
   const isService = (itemId: string) => masters.stockItem(itemId as never)?.itemType === 'service';
-  return options.map((o) => ({
-    ...blankSalesLine(newKey(), isService(o.itemId) ? undefined : warehouseFor(o.itemId, o.pending)),
-    itemId: o.itemId,
-    ...gstDefaults(masters, o.itemId),
-    itemLabel: masters.stockItem(o.itemId as never)?.name ?? '',
-    qty: trimPlaces(formatQty(o.pending, 4)),
-    rate: trimPlaces(formatRate(o.rate)),
-    orderId: o.orderId,
-    orderLineId: o.lineId,
-    orderLabel: o.number,
-  }));
+  return options.map((o) =>
+    o.written
+      ? {
+          ...blankSalesLine(newKey()),
+          oneTime: true,
+          itemLabel: o.written.description,
+          unit: o.written.unit ?? '',
+          hsn: o.written.hsn ?? '',
+          qty: trimPlaces(formatQty(o.pending, 4)),
+          rate: trimPlaces(formatRate(o.rate)),
+          orderId: o.orderId,
+          orderLineId: o.lineId,
+          orderLabel: o.number,
+        }
+      : {
+          ...blankSalesLine(newKey(), isService(o.itemId) ? undefined : warehouseFor(o.itemId, o.pending)),
+          itemId: o.itemId,
+          ...gstDefaults(masters, o.itemId),
+          itemLabel: masters.stockItem(o.itemId as never)?.name ?? '',
+          qty: trimPlaces(formatQty(o.pending, 4)),
+          rate: trimPlaces(formatRate(o.rate)),
+          orderId: o.orderId,
+          orderLineId: o.lineId,
+          orderLabel: o.number,
+        },
+  );
 }
 
 /**
@@ -941,9 +980,8 @@ export function withOrderLines(
 /**
  * A new invoice for what an order still has to deliver: its customer, PO reference and party details, and a line for every order line with
  * something pending — quantity = what is pending, rate = what was agreed, each against its order line. The order's written lines (Alt+T)
- * come too, as one-time lines, on the FIRST invoice made from it: nothing is counted against a written line, so once an invoice names the
- * order they are taken as billed (and are not brought when only ticked lines are asked for). Undefined if there is nothing to invoice (the
- * order is closed, or delivered in full). The date is today's, but never before the order's.
+ * come the same way, as one-time lines against their own order lines, for what is still pending on them. Undefined if there is nothing to
+ * invoice (the order is closed, or delivered in full). The date is today's, but never before the order's.
  */
 export function invoiceFormFromOrder(
   order: Voucher,
@@ -969,8 +1007,7 @@ export function invoiceFormFromOrder(
   const date = args.date < state.order.date ? state.order.date : args.date;
   const side = state.order.side;
   const pending = openOrderLines(orders, state.order.partyId, undefined, args.id, side).filter((o) => o.orderId === order.id && (args.onlyLines === undefined || args.onlyLines.includes(o.lineId)));
-  const written = args.onlyLines === undefined && orders.linksTo(order.id).every((k) => k.voucherId === args.id) ? (state.order.written ?? []) : [];
-  if (pending.length === 0 && written.length === 0) return undefined;
+  if (pending.length === 0) return undefined;
   const blank = blankSalesForm(args.id, args.typeId, date, args.newKey(), { warehouse: args.warehouse, salesLedger: args.salesLedger });
   const snapshot = (order.content as unknown as { partyDetails?: PartyDetails }).partyDetails;
   const due = dueDateFor(masters, party.id, date);
@@ -982,18 +1019,7 @@ export function invoiceFormFromOrder(
     partyDetails: snapshot ?? partyDetailsOfParty(party, side),
     due,
     dueText: formatDate(due),
-    lines: [
-      ...linesFromOrder(pending, masters, args.newKey, (itemId, qty) => (args.stock ? godownWithStock(masters, args.stock, itemId, date, args.warehouse, qty) : args.warehouse)),
-      ...written.map((w) => ({
-        ...blankSalesLine(args.newKey()),
-        oneTime: true,
-        itemLabel: w.description,
-        unit: w.unit ?? '',
-        hsn: w.hsn ?? '',
-        qty: trimPlaces(formatQty(w.qty, 4)),
-        rate: trimPlaces(formatRate(w.rate)),
-      })),
-    ],
+    lines: linesFromOrder(pending, masters, args.newKey, (itemId, qty) => (args.stock ? godownWithStock(masters, args.stock, itemId, date, args.warehouse, qty) : args.warehouse)),
   };
 }
 
