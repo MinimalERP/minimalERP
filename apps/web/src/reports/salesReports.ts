@@ -20,14 +20,57 @@ export const fillRatio = (r: Pick<OrderRow, 'delivered' | 'ordered'>): number =>
 
 const q = (r: OrderRow, value: Qty): string => formatQuantity(value, r.decimals);
 
-export function orderRegisterColumns(side: OrderSide = 'sales'): ColumnSpec<OrderRow>[] {
+/** What open sales orders are waiting for of an item, and what there is of it: the two figures the register's Stock column sets side by side. */
+export interface ItemCover {
+  /** Pending on every open sales order (all of them, whatever the register is narrowed to). */
+  readonly committed: Qty;
+  /** In stock now, in every godown. */
+  readonly stock: Qty;
+}
+
+/** "3/80": three committed against orders, eighty in stock — read like Fill. */
+export const coverText = (c: ItemCover, decimals: number): string => `${formatQuantity(c.committed, decimals)}/${formatQuantity(c.stock, decimals)}`;
+
+/** More is committed than there is: some order for this item cannot be met from stock. */
+export const isShort = (c: ItemCover): boolean => c.committed > c.stock;
+
+/**
+ * The register's columns. What was ordered and delivered is read from Fill ("2/21"), so only what is pending has a column of its own.
+ * With `coverOf` (the sales register) a Stock column says committed / in stock for the line's item — empty where the line has no stock
+ * item (a service, a written line).
+ */
+export function orderRegisterColumns(side: OrderSide = 'sales', coverOf?: (itemId: string) => ItemCover | undefined): ColumnSpec<OrderRow>[] {
   const purchase = side === 'purchase';
+  const cover = (r: OrderRow): ItemCover | undefined => (r.itemId === '' ? undefined : coverOf?.(r.itemId));
+  const stock: ColumnSpec<OrderRow>[] = coverOf
+    ? [
+        {
+          id: 'stock',
+          label: 'Stock',
+          type: 'number',
+          align: 'right',
+          // sorts and ranges by what is free (in stock less committed): the worst shortage first
+          value: (r) => {
+            const c = cover(r);
+            return c ? num(c.stock - c.committed) : null;
+          },
+          text: (r) => {
+            const c = cover(r);
+            return c ? coverText(c, r.decimals) : '';
+          },
+          cellClass: (r) => {
+            const c = cover(r);
+            return c && isShort(c) ? 'short' : '';
+          },
+        },
+      ]
+    : [];
   return [
     { id: 'number', label: 'Order no.', type: 'text', value: (r) => r.number },
     { id: 'date', label: 'Date', type: 'date', value: (r) => r.date, text: (r) => formatDate(r.date) },
     { id: 'reference', label: purchase ? 'Supplier ref' : 'Cust PO / ref', type: 'text', value: (r) => r.reference },
-    { id: 'party', label: 'Party', type: 'text', value: (r) => r.party },
-    { id: 'item', label: 'Item', type: 'text', value: (r) => r.item },
+    { id: 'party', label: 'Party', type: 'text', narrow: 12, value: (r) => r.party },
+    { id: 'item', label: 'Item', type: 'text', narrow: 32, value: (r) => r.item },
     { id: 'fill', label: 'Fill', type: 'number', align: 'right', value: (r) => fillRatio(r), text: (r) => fillText(r) },
     {
       id: 'due',
@@ -36,9 +79,8 @@ export function orderRegisterColumns(side: OrderSide = 'sales'): ColumnSpec<Orde
       value: (r) => r.due,
       text: (r) => (r.overdue ? `${formatDate(r.due)} · overdue` : formatDate(r.due)),
     },
-    { id: 'ordered', label: 'Ordered', type: 'number', align: 'right', value: (r) => num(r.ordered), text: (r) => q(r, r.ordered) },
-    { id: 'delivered', label: purchase ? 'Received' : 'Delivered', type: 'number', align: 'right', value: (r) => num(r.delivered), text: (r) => q(r, r.delivered) },
     { id: 'pending', label: 'Pending', type: 'number', align: 'right', value: (r) => num(r.pending), text: (r) => (r.pending === 0n ? '' : q(r, r.pending)) },
+    ...stock,
     {
       id: 'status',
       label: 'Status',

@@ -552,6 +552,7 @@ textarea.field-input { resize: vertical; min-height: 5em; }
 .bill-tds { color: var(--c-text-muted); margin: 0 0 var(--sp-2); }
 .report-screen { max-width: 1280px; }
 .data-grid td { max-width: 26em; overflow: hidden; text-overflow: ellipsis; }
+.data-grid td.short { color: var(--c-negative); } /* more is committed than there is in stock */
 
 /* GST reports (ADR-0019): the check before the export, the tax-ledger reconciliation, GSTR-3B's headings and the input tax that is only "to review" */
 .gst-issues { margin: var(--sp-2) 0 0; padding-left: 1.4em; }

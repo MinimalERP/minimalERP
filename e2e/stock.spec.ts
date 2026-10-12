@@ -61,8 +61,11 @@ test.describe('the Stock Journal window', () => {
   test('a transfer between godowns is an Out and an In; it is saved, numbered STJ/, and changes no total', async ({ app }) => {
     await app.keyboard.press('F10');
     await fillLine(app, 'abc hex', 'finished', '10'); // Out of the Finished Goods Store
-    await expect(app.locator('[data-vf="l1.side"]')).toHaveValue('In'); // the next line is the other side
+    await expect(app.locator('[data-vf="l1.side"]')).toHaveValue('Out'); // the next line starts on the same side as the one above…
+    await app.keyboard.type('i'); // …so the side is changed once, where it changes
+    await expect(app.locator('[data-vf="l1.side"]')).toHaveValue('In');
     await fillLine(app, 'abc hex', 'main', '10', ''); // In to the main godown — the rate is prefilled with what the stock costs
+    await expect(app.locator('[data-vf="l2.side"]')).toHaveValue('In'); // and the line after an In is an In
     await expect(app.locator('[data-vf="l1.rate"]')).toHaveValue('4.5');
     await app.keyboard.press('Alt+n');
     await expect(banner(app)).toContainText('Stock Journal STJ/');
@@ -117,6 +120,15 @@ test.describe('the Stock Journal window', () => {
     await app.keyboard.press('F10');
     await fillLine(app, 'fabricated', 'finished', '1');
     await expect(app.getByTestId('stock-note').first()).toContainText('Stock: 60 Nos @ ₹950');
+  });
+
+  test('under the stock, what the item last sold and was last bought for — an idea of the rate; nothing for an item never invoiced', async ({ app }) => {
+    await app.keyboard.press('F10');
+    await fillLine(app, 'abc hex', 'finished', '1'); // the demo has invoiced the bolts
+    await expect(app.getByTestId('last-rate-note').first()).toContainText(/Last sold @ ₹[\d.]+ on \d+-[A-Z][a-z]{2}-\d{4}/);
+    await fillLine(app, 'fabricated', 'finished', '1'); // the frames were made and ordered, never invoiced
+    await expect(app.getByTestId('stock-note')).toHaveCount(2);
+    await expect(app.getByTestId('last-rate-note')).toHaveCount(1);
   });
 
   test('Esc keeps its order here too: the list, then back a field, then the question', async ({ app }) => {

@@ -23,6 +23,10 @@ export interface ColumnSpec<R> {
   text?(row: R): string;
   /** For `choice` columns: the options a filter may pick from. */
   readonly choices?: readonly { readonly value: string; readonly label: string }[];
+  /** Shown cut short at about this many characters, the whole text on hover: a column that only has to be recognised, not read in full. */
+  readonly narrow?: number;
+  /** A class for one row's cell: how a figure that needs attention is marked. */
+  cellClass?(row: R): string;
 }
 
 export type ColumnFilter =
