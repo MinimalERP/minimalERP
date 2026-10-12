@@ -258,8 +258,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const p = docProfile(kind);
   /** A company that charges GST: each invoice or quotation line has a GST %, and the tax is stated under the grid. */
   const gstOn = (p.invoice || p.quote || p.challan) && masters.company.chargeGst === true;
-  /** Where a written (Alt+T) line is offered: an invoice, an order, a quotation, or a delivery challan (not returnable — its lines come back). */
-  const oneTimeHere = p.invoice || p.quote || p.order || (p.challan && !p.returnable);
+  /** Where a written (Alt+T) line is offered: an invoice, an order, a quotation, or a challan (on a returnable one it goes and comes back, moving no stock). */
+  const oneTimeHere = p.invoice || p.quote || p.order || p.challan;
   /** Where a service item is offered: an invoice (it is billed), an order (it has no godown and moves nothing itself), or a delivery
    * challan (not returnable) — job work on a part that was never our own stock, so nothing of ours leaves on it either. */
   const serviceHere = p.invoice || p.order || (p.challan && !p.returnable);

@@ -404,7 +404,7 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
         dueDate: l.due,
       };
     }
-    if (l.oneTime && (p.invoice || p.quote || (p.challan && !p.returnable))) {
+    if (l.oneTime && (p.invoice || p.quote || p.challan)) {
       return {
         // a quote or challan line carries its own id (there is no godown or order reference to key off instead); an invoice line does not
         ...(p.quote || p.challan ? { id: l.key } : {}),
@@ -571,7 +571,7 @@ function localIssues(form: SalesForm, kind: ItemDocKind, kept: readonly number[]
     const l = form.lines[i] as SalesLineForm;
     // an invoice, an order, or a (non-returnable) challan line may name a service item: the check is skipped for every other kind
     const isService = (p.invoice || p.order || (p.challan && !p.returnable)) && l.itemId !== '' && masters?.stockItem(l.itemId as never)?.itemType === 'service';
-    const oneTimeHere = p.invoice || p.quote || p.order || (p.challan && !p.returnable);
+    const oneTimeHere = p.invoice || p.quote || p.order || p.challan;
     if (l.oneTime && oneTimeHere) {
       if (l.itemLabel.trim() === '') out.push({ field: `line.${i}.item`, message: 'Write what this line is' });
     } else {

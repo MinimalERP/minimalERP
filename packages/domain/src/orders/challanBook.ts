@@ -70,7 +70,8 @@ export interface ReturnableDoc {
   readonly number: string;
   readonly date: LocalDate;
   readonly partyId: PartyId;
-  readonly lines: readonly { readonly itemId: StockItemId; readonly warehouseId: string; readonly qty: Qty }[];
+  /** Every line as it went out: a stock item from its godown, or a written line (its text, no godown — it moved no stock). */
+  readonly lines: readonly { readonly itemId?: StockItemId | undefined; readonly description?: string | undefined; readonly warehouseId?: string | undefined; readonly qty: Qty }[];
 }
 
 /** The return of a returnable challan: the voucher that brought its goods back. */
@@ -180,12 +181,14 @@ export class ChallanBook {
 
 /** A posted returnable challan as the book sees it — a challan that went out, or a return that brought one back. */
 export function returnableOf(voucher: Voucher): { readonly challan?: ReturnableDoc; readonly back?: ReturnDoc } {
-  const c = voucher.content as unknown as { partyId?: string; returnOf?: string; lines?: { itemId?: string; warehouseId?: string; qty?: string }[] };
+  const c = voucher.content as unknown as { partyId?: string; returnOf?: string; lines?: { itemId?: string; description?: string; warehouseId?: string; qty?: string }[] };
   if (typeof c.returnOf === 'string') return { back: { voucherId: voucher.id, number: voucher.number, returnOf: c.returnOf as VoucherId } };
   if (typeof c.partyId !== 'string' || !Array.isArray(c.lines)) return {};
-  const lines = c.lines.flatMap((l) => {
+  const lines = c.lines.flatMap((l): ReturnableDoc['lines'] => {
     const q = typeof l.qty === 'string' ? parseQty(l.qty) : undefined;
-    return typeof l.itemId === 'string' && typeof l.warehouseId === 'string' && q !== undefined ? [{ itemId: l.itemId as StockItemId, warehouseId: l.warehouseId, qty: q }] : [];
+    if (q === undefined) return [];
+    if (typeof l.itemId === 'string') return typeof l.warehouseId === 'string' ? [{ itemId: l.itemId as StockItemId, warehouseId: l.warehouseId, qty: q }] : [];
+    return typeof l.description === 'string' ? [{ description: l.description.trim(), qty: q }] : [];
   });
   return { challan: { voucherId: voucher.id, number: voucher.number, date: voucher.date, partyId: c.partyId as PartyId, lines } };
 }
