@@ -181,4 +181,34 @@ describe('the returnable challan', () => {
     const wrongWay = await rejected(`update public.stock_movements set direction = 'in', value = 1 where voucher_id = $1`, [a.uuid('v:rc1')]);
     expect(wrongWay).toMatch(/STOCK_LINE_INVALID/);
   });
+
+  it('a written line goes out and comes back with the rest, moving no stock — a challan of written lines alone posts none at all', async () => {
+    const details = { partyId: a.uuid('party:repair'), mailingName: 'Repair Works' };
+    const moved = async (id: string) => (await db.pool.query(`select count(*)::int n from public.stock_movements where voucher_id = $1`, [id])).rows[0]?.n;
+    const send = (id: string, lines: unknown[]) => ({ id, voucherTypeId: a.uuid('type:returnableChallan'), date: '2024-06-01', partyId: a.uuid('party:repair'), partyDetails: details, lines });
+    const written = { id: 'w1', description: 'Customer’s spindle, for regrinding', unit: 'Nos', qty: '1', rate: '4500' };
+
+    // mixed: only the stock line moves
+    const mixed = [{ id: 'r1', itemId: a.uuid('item:bolt'), warehouseId: main, qty: '2', rate: '12' }, written];
+    const before = await held();
+    mustOk(await a.backend.post({ companyId: a.companyId, draft: send(a.uuid('v:rc-mixed'), mixed) }));
+    expect(await held()).toBe(before - 2);
+    expect(await moved(a.uuid('v:rc-mixed'))).toBe(1);
+    // the return must bring back the same lines, the written one included
+    const short = await a.backend.post({ companyId: a.companyId, draft: { ...send(a.uuid('v:rc-mixed-short'), [mixed[0]]), returnOf: a.uuid('v:rc-mixed') } });
+    expect(short.ok).toBe(false);
+    mustOk(await a.backend.post({ companyId: a.companyId, draft: { ...send(a.uuid('v:rc-mixed-back'), mixed), returnOf: a.uuid('v:rc-mixed') } }));
+    expect(await held()).toBe(before);
+
+    // written only: out and back with no stock and no journal
+    mustOk(await a.backend.post({ companyId: a.companyId, draft: send(a.uuid('v:rc-written'), [written]) }));
+    expect(await moved(a.uuid('v:rc-written'))).toBe(0);
+    mustOk(await a.backend.post({ companyId: a.companyId, draft: { ...send(a.uuid('v:rc-written-back'), [written]), returnOf: a.uuid('v:rc-written') } }));
+    expect(await moved(a.uuid('v:rc-written-back'))).toBe(0);
+    expect(await held()).toBe(before);
+
+    // a written line never has a godown
+    const withGodown = await a.backend.post({ companyId: a.companyId, draft: send(a.uuid('v:rc-bad'), [{ ...written, warehouseId: main }]) });
+    expect(withGodown.ok).toBe(false);
+  });
 });

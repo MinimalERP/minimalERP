@@ -143,6 +143,33 @@ test.describe('one-time lines', () => {
     await leaveByEscape(app, 'Gateway');
   });
 
+  test('a Returnable Challan takes a written line: no godown, it prints on the challan, and Mark returned brings it back', async ({ app }) => {
+    await app.getByRole('option', { name: /^Transactions/ }).click();
+    await app.getByRole('option', { name: /^Returnable Challans/ }).click();
+    await app.getByTestId('action-panel').locator('[data-command="list.new.returnableChallan"]').click();
+    await expect(heading(app)).toHaveText('New Returnable Challan');
+    await app.keyboard.type('steel');
+    await app.keyboard.press('Enter'); // supplier
+    await app.keyboard.press('Enter'); // no reference → the first line's item
+    await expect(app.locator('[data-vf="l0.item"]')).toBeFocused();
+    await writeOneTimeLine(app, 'Customer spindle for regrinding', '8466', '1', 'nos');
+    await expect(app.locator('[data-vf="l0.wh"]')).toHaveCount(0); // not our stock: no godown
+    await app.keyboard.type('4500');
+    await app.keyboard.press('Control+a');
+    await expect(heading(app)).toHaveText('Returnable Challans');
+
+    await app.keyboard.press('Enter');
+    await expect(app.locator('[data-vf="l0.item"]')).toHaveValue('Customer spindle for regrinding');
+    await expect(app.getByTestId('returnable-status')).toHaveText('Out');
+    await app.evaluate(() => void (window.print = () => {}));
+    await app.keyboard.press('Control+p');
+    await app.keyboard.press('Enter'); // 1 copy
+    await expect(app.locator('.print-root .print-copy').first().locator('table.items')).toContainText('Customer spindle for regrinding');
+
+    await app.getByTestId('action-panel').locator('[data-command="challan.markReturned"]').click();
+    await expect(app.getByTestId('returnable-status')).toHaveText(/^Returned · RC\//);
+  });
+
   test('a Purchase Order takes a written line too: Alt+T on the item cell, a due date like any order line, and it opens again as written', async ({ app }) => {
     await app.keyboard.press('F9');
     await app.keyboard.press('Shift+F9');

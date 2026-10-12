@@ -75,7 +75,21 @@ describe('the built-in layouts, written as layouts', () => {
     expect(r.ok && r.html).toContain('Hex Bolt &lt;M8&gt;');
     expect(r.ok && r.html).toContain('<li>Payment in 30 days</li>');
     expect(r.ok && r.html.match(/<ol>/g)).toHaveLength(1); // the terms are listed once, not once per term
+    expect(r.ok && r.html).not.toContain('title-centre">');
     const p = renderTemplate(BUILT_IN_LAYOUTS.ledger, layoutData(payment, company, 'Original', {}));
     expect(p.ok && p.html).toContain('₹ 3,000.00');
+  });
+
+  it('a returnable challan: its title centred, its own terms and not the invoice’s, no bank details, the receiver’s signature', () => {
+    const challan: InvoiceDoc = { ...invoice, voucherKind: 'returnableChallan', docTitle: 'Returnable Delivery Challan', titleCentred: true, returnable: { terms: ['Not a sale'], acknowledge: true } };
+    const r = renderTemplate(BUILT_IN_LAYOUTS.invoice, layoutData(challan, { ...company, bankName: 'HDFC Bank' }, 'Original', {}));
+    const html = r.ok ? r.html : '';
+    expect(html).toContain('<div class="title-centre">Returnable Delivery Challan</div>');
+    expect(html).not.toContain('<div class="title">');
+    expect(html).toContain('<li>Not a sale</li>');
+    expect(html).not.toContain('Goods once sold');
+    expect(html).not.toContain('HDFC Bank');
+    expect(html).toContain("Receiver's Signature");
+    expect(html).toContain('Total Value');
   });
 });

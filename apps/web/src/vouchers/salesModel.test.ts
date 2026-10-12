@@ -18,7 +18,7 @@ import { type Books, BooksHost, type LocalBackend } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { createLocalFactory, memoryStore } from '../books/local';
 import { addDays } from './format';
-import { invoiceDocFromBooks } from './invoicePrint';
+import { RETURNABLE_TERMS, invoiceDocFromBooks } from './invoicePrint';
 import {
   type SalesForm,
   blankSalesForm,
@@ -514,8 +514,22 @@ describe('the returnable challan', () => {
     expect(challan.number).toMatch(/^RC\//);
     expect(books.stock.qtyAt(oil, main.id, at)).toBe(before - 200000n);
 
+    // it prints as what it is — a returnable delivery challan, consigned to the supplier, under its own terms (never the invoice's)
+    expect(invoiceDocFromBooks(challan, books)).toMatchObject({
+      docTitle: 'Returnable Delivery Challan',
+      titleCentred: true,
+      party: { label: 'Consignee (Vendor)' },
+      returnable: { terms: RETURNABLE_TERMS, acknowledge: true },
+    });
+
     const back = await books.post(returnDraftOf(challan, { id: crypto.randomUUID(), date: '2026-06-01' }));
     if (!back.ok) throw new Error(JSON.stringify(back.issues));
+    // the return is our record of the goods coming back: no terms to hold the supplier to, nothing for them to sign
+    expect(invoiceDocFromBooks(back.value.voucher, books)).toMatchObject({
+      docTitle: 'Returnable Delivery Challan – Goods Returned',
+      party: { label: 'Returned By (Vendor)' },
+      returnable: { terms: [], acknowledge: false },
+    });
     expect(books.stock.qtyAt(oil, main.id, at)).toBe(before);
     expect(books.orders.challans.returnOf(challan.id)?.number).toBe(back.value.voucher.number);
 
