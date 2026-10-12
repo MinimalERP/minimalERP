@@ -5,7 +5,7 @@ import { type Books, BooksHost, type LocalBackend } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { createLocalFactory, memoryStore } from '../books/local';
 import { addDays } from '../vouchers/format';
-import { fillRatio, fillText, orderRegisterColumns, orderRegisterRows, orderRowClass, registerCounts } from './salesReports';
+import { type ItemCover, coverText, fillRatio, fillText, isShort, orderRegisterColumns, orderRegisterRows, orderRowClass, registerCounts } from './salesReports';
 
 const id = (kind: string, name: string) => deterministicUuid(`demo|${kind}|${name}`);
 
@@ -89,10 +89,32 @@ describe('the Sales Order Register', () => {
     expect(counts).toEqual({ lines: 5, open: 3, overdue: 0, orders: 3, pendingValue: 4_330_000n }); // 180 × 55 + 20 × 1,400 + 800 × 6.75, in paise
   });
 
+  it('with what is committed and in stock per item, a Stock column reads committed/stock, marks a shortage, and sorts by what is free', async () => {
+    const { books, rows } = await rowsOf();
+    const committed = books.orders.committedByItem();
+    const coverOf = (itemId: string): ItemCover => ({ committed: committed.get(itemId as never) ?? (0n as never), stock: books.stock.positionAt(itemId as never, localDate('9999-12-31')).qty });
+    const cols = orderRegisterColumns('sales', coverOf);
+    expect(cols.map((c) => c.label)).toEqual(['Order no.', 'Date', 'Cust PO / ref', 'Party', 'Item', 'Fill', 'Due', 'Pending', 'Stock', 'Status']);
+    const stock = cols.find((c) => c.id === 'stock');
+    const bracket = rows.find((r) => r.item === 'Mounting Bracket');
+    if (!stock || !bracket) throw new Error('no stock column or bracket row');
+    expect(stock.text?.(bracket)).toBe('180/680'); // 180 still pending on the one open order; 680 in stock
+    expect(stock.value(bracket)).toBe(500); // free: what sorting compares
+    expect(stock.cellClass?.(bracket)).toBe('');
+    // the same item on two rows reads the same: committed is the item's, across every open order
+    const bolts = rows.filter((r) => r.item === 'ABC Hex Bolt M8');
+    expect(new Set(bolts.map((r) => stock.text?.(r))).size).toBe(1);
+    expect(coverText({ committed: 30_000n as never, stock: 0n as never }, 0)).toBe('3/0');
+    expect(isShort({ committed: 30_000n as never, stock: 0n as never })).toBe(true);
+    expect(isShort({ committed: 30_000n as never, stock: 30_000n as never })).toBe(false);
+    // the purchase register has no Stock column
+    expect(orderRegisterColumns('purchase').map((c) => c.label)).toEqual(['Order no.', 'Date', 'Supplier ref', 'Party', 'Item', 'Fill', 'Due', 'Pending', 'Status']);
+  });
+
   it('is sortable and filterable by construction — the columns are the grid’s own', async () => {
     const { rows } = await rowsOf();
     const cols = orderRegisterColumns();
-    expect(cols.map((c) => c.label)).toEqual(['Order no.', 'Date', 'Cust PO / ref', 'Party', 'Item', 'Fill', 'Due', 'Ordered', 'Delivered', 'Pending', 'Status']);
+    expect(cols.map((c) => c.label)).toEqual(['Order no.', 'Date', 'Cust PO / ref', 'Party', 'Item', 'Fill', 'Due', 'Pending', 'Status']); // ordered and delivered are read from Fill
     const byFill = applyGridQuery(rows, cols, { sort: [{ column: 'fill', dir: 'asc' }], filters: {}, quick: '' });
     expect(byFill.map((r) => fillText(r))).toEqual(['0/20', '0/800', '120/300', '2,000/2,000', '40.000/40.000']);
     const open = applyGridQuery(rows, cols, { sort: [], filters: { status: { kind: 'in', values: ['Open'] } }, quick: '' });

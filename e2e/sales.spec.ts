@@ -532,15 +532,21 @@ test.describe('the Sales Order Register', () => {
     await openRegister(app);
   });
 
-  test('one row per order line: order no, PO, party, item, due, ordered, delivered, pending, fill and status — an open order’s open lines in bold', async ({ app }) => {
-    for (const label of ['Order no.', 'Date', 'Cust PO / ref', 'Party', 'Item', 'Due', 'Ordered', 'Delivered', 'Pending', 'Fill', 'Status']) {
+  test('one row per order line: order no, PO, party, item, fill, due, pending, stock and status — an open order’s open lines in bold', async ({ app }) => {
+    for (const label of ['Order no.', 'Date', 'Cust PO / ref', 'Party', 'Item', 'Due', 'Pending', 'Fill', 'Stock', 'Status']) {
       await expect(app.getByRole('columnheader', { name: new RegExp(label) })).toBeVisible();
     }
+    // what was ordered and delivered is read from Fill: no columns of their own
+    await expect(app.getByRole('columnheader', { name: /Ordered|Delivered/ })).toHaveCount(0);
     await expect(gridRows(app)).toHaveCount(5);
     const bracket = registerRow(app, 'PO-4471', 'Mounting Bracket');
     await expect(bracket).toContainText('ABC Industries');
     await expect(bracket).toContainText('120/300');
     await expect(bracket).toContainText('180'); // pending
+    await expect(bracket).toContainText('180/680'); // Stock: 180 committed on open orders / 680 in stock
+    await expect(bracket.locator('td.short')).toHaveCount(0);
+    await expect(registerRow(app, 'PO-4471', 'Fabricated Frame').locator('td.short')).toHaveCount(0); // 20 committed, 60 made
+    await expect(bracket.locator('td.narrow').first()).toHaveAttribute('title', 'ABC Industries'); // the party is cut short; its whole name is the cell's title
     await expect(bracket).toContainText('Open');
     await expect(bracket).toHaveClass(/open-line/);
     await expect(registerRow(app, 'PO-4471', 'ABC Hex Bolt M8')).toContainText('2,000/2,000');
@@ -559,7 +565,7 @@ test.describe('the Sales Order Register', () => {
     await app.keyboard.press('Alt+s');
     await expect(app.getByRole('columnheader', { name: /Fill/ })).toHaveAttribute('aria-sort', 'descending');
     await expect(gridRows(app).first()).toContainText('/'); // (a line delivered in full first)
-    for (let i = 0; i < 5; i++) await app.keyboard.press('Tab'); // → Status, past Due, Ordered, Delivered and Pending
+    for (let i = 0; i < 4; i++) await app.keyboard.press('Tab'); // → Status, past Due, Pending and Stock
     await app.keyboard.press('Alt+l');
     await expect(app.getByTestId('report-dialog')).toContainText('Filter Status');
     await app.keyboard.press('ArrowDown'); // All → Open

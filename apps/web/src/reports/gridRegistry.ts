@@ -24,7 +24,7 @@ import { dayBookColumns, ledgerColumns, type TypeChoice } from './definitions';
 import { type TbRow, bookGroupIds, tbColumns, tbRows } from './booksReports';
 import { type OutstandingBillRow, type PartyRow, billColumns, billRows, partyColumns, partyRows } from './outstandingReports';
 import { type VoucherListRow, listTitle, voucherListColumns, voucherListRows } from './voucherLists';
-import { type OrderRow, orderRegisterColumns, newestOrdersFirst, orderRegisterRows } from './salesReports';
+import { type ItemCover, type OrderRow, orderRegisterColumns, newestOrdersFirst, orderRegisterRows } from './salesReports';
 import { type SalesRegisterRow, newestInvoicesFirst, salesRegisterColumns, salesRegisterRows } from './salesRegister';
 import { type PartyItemRow, partyItemColumns, partyItemRows } from './partyItemReport';
 import { type StockLedgerRow, type StockSummaryRow, stockLedgerColumns, stockLedgerOf, stockSummaryColumns, stockSummaryRows } from './stockReports';
@@ -136,9 +136,19 @@ export function gridReportSlice(ctx: GridReportContext): GridReportSlice {
       };
     }
     case 'sales-orders':
-    case 'purchase-orders':
+    case 'purchase-orders': {
+      // the sales register sets what is committed beside what is in stock, per item: both as of now, whatever the period or the filters
+      const committed = report === 'sales-orders' ? books.orders.committedByItem() : undefined;
+      const covers = new Map<string, ItemCover | undefined>();
+      const coverOf = (id: string): ItemCover | undefined => {
+        if (!covers.has(id)) {
+          const item = masters.stockItem(id as never);
+          covers.set(id, !item || item.itemType === 'service' ? undefined : { committed: committed?.get(id as never) ?? (0n as never), stock: books.stock.positionAt(id as never, '9999-12-31' as never).qty });
+        }
+        return covers.get(id);
+      };
       return {
-        columns: orderRegisterColumns(report === 'purchase-orders' ? 'purchase' : 'sales'),
+        columns: orderRegisterColumns(report === 'purchase-orders' ? 'purchase' : 'sales', committed ? coverOf : undefined),
         baseRows: orderRegisterRows(books.orders, masters, range.from, range.to, {
           itemId: itemFromAddress,
           side: report === 'purchase-orders' ? 'purchase' : 'sales',
@@ -146,6 +156,7 @@ export function gridReportSlice(ctx: GridReportContext): GridReportSlice {
         }),
         rowOrder: 'newest-orders',
       };
+    }
     case 'sales-register':
       return {
         columns: salesRegisterColumns(),

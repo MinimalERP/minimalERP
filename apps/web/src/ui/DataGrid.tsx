@@ -80,7 +80,12 @@ export function DataGrid<R>(p: DataGridProps<R>) {
                 onClick={() => p.onPickRow(i)}
               >
                 {p.columns.map((c, ci) => (
-                  <td key={c.id} class={`${c.align === 'right' ? 'num' : ''} ${ci === p.activeCol && i === p.activeRow ? 'active-cell' : ''}`}>
+                  <td
+                    key={c.id}
+                    class={`${c.align === 'right' ? 'num' : ''} ${c.narrow ? 'narrow' : ''} ${c.cellClass?.(row) ?? ''} ${ci === p.activeCol && i === p.activeRow ? 'active-cell' : ''}`}
+                    style={c.narrow ? { maxWidth: `${c.narrow}ch` } : undefined}
+                    title={c.narrow ? String(cell(c, row)) : undefined}
+                  >
                     {p.selection?.columnId === c.id && (
                       <>
                         <input

@@ -66,6 +66,7 @@ import { DocketDialog } from '../DocketDialog';
 import type { CreatedMaster } from '../../screens/MasterFormScreen';
 import type { InvoiceDoc } from '../../ui/PrintView';
 import { invoiceDocOf } from '../invoicePrint';
+import { lastDealText, lastDeals } from '../lastRates';
 import { pendingBillOf } from '../settleBill';
 import {
   tryCommitVoucherDate,
@@ -292,6 +293,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
 
   // ---- the stock and the orders WITHOUT this voucher (what its own lines are checked and shown against), and the engine's verdict ----
   const base = useMemo(() => books.stock.withChange({ remove: [form.id as never] }), [books.stock, form.id]);
+  const lastDeal = useMemo(() => lastDeals(books.vouchers, masters), [books.vouchers, masters]);
   const preview = useMemo(() => previewSales(form, kind, masters, books.stock, books.orders, undefined, books.vouchers), [form, kind, masters, books.stock, books.orders, books.vouchers]);
   // a saved invoice: how much of it has come in (TDS included) and what is still pending — shown only once something has
   const bill = useMemo(() => (voucher && p.invoice && !p.note ? billStatusOf(voucher, books.vouchers, masters) : undefined), [voucher, p.invoice, p.note, books.vouchers, masters]);
@@ -1137,6 +1139,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const lineRow = (l: SalesLineForm, i: number) => {
     const isService = isServiceItem(l.itemId);
     const stock = p.moves && l.itemId !== '' && !l.challanId && !isService ? stockOf(l.itemId) : undefined;
+    // what the item last went for on an invoice — to this party if ever, else anyone: an idea of the rate
+    const lastNote = l.itemId !== '' ? lastDealText(lastDeal(l.itemId, p.side, form.partyId), p.side) : '';
     const billedLine = l.challanId ? books.orders.challans.withChange({ removeLinksOf: [form.id as never] }).state(l.challanId as never)?.lines.find((s) => s.line.id === l.challanLineId) : undefined;
     const amount = preview.amounts.get(i);
     const linked = l.orderId !== '' ? books.orders.state(l.orderId as never)?.lines.find((s) => s.line.id === l.orderLineId) : undefined;
@@ -1181,6 +1185,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             <div class="vbal" data-testid="stock-note">
               Stock: {stock}
               {heldIn(l.itemId) !== '' ? ` · in ${heldIn(l.itemId)}` : ''}
+            </div>
+          )}
+          {lastNote !== '' && !isFocus(`l${i}.item`) && (
+            <div class="vbal" data-testid="last-rate-note">
+              {lastNote}
             </div>
           )}
         </div>

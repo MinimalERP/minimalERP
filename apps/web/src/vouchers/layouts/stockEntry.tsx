@@ -10,6 +10,7 @@ import { useLeaveGuard } from '../../shell/useLeaveGuard';
 import { Kbd } from '../../ui/Kbd';
 import { godownWithStock, hiddenItemReason } from '../salesModel';
 import { defaultDate } from '../entryHelpers';
+import { lastDealText, lastDeals } from '../lastRates';
 import { formatAmount, formatDate, formatQuantity } from '../format';
 import {
   type LineValue,
@@ -115,6 +116,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher, stay }:
 
   // ---- the stock without this voucher (what its own lines are checked and shown against), and the engine's verdict ----
   const base = useMemo(() => books.stock.withChange({ remove: [form.id as never] }), [books.stock, form.id]);
+  const lastDeal = useMemo(() => lastDeals(books.vouchers, masters), [books.vouchers, masters]);
   const preview = useMemo(() => previewStock(form, masters, books.stock), [form, masters, books.stock]);
   /** The posted voucher as a plain movement document — every value comes from `preview.values`, the same figure the screen shows. */
   const buildPrintDoc = (): StockDoc | undefined => {
@@ -259,8 +261,8 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher, stay }:
   const addLine = (afterIndex: number) => {
     const f = fresh();
     const previous = f.lines[afterIndex] as StockLineForm;
-    // the other side than the line above: a transfer or a conversion is an Out and then an In
-    const added = blankStockLine(previous.direction === 'out' ? 'in' : 'out', defaultWarehouse(masters));
+    // the same side as the line above: several items go out, then several come in — the side is changed once, where it changes
+    const added = blankStockLine(previous.direction, defaultWarehouse(masters));
     update((x) => ({ ...x, lines: [...x.lines.slice(0, afterIndex + 1), added, ...x.lines.slice(afterIndex + 1)] }));
     go(`l${afterIndex + 1}.side`);
   };
@@ -461,6 +463,8 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher, stay }:
 
   const lineRow = (l: StockLineForm, i: number) => {
     const s = l.itemId !== '' ? stockOf(l.itemId) : undefined;
+    // no party on a stock voucher: what the item last sold for and was last bought for, with anyone
+    const lastNote = l.itemId !== '' ? [lastDealText(lastDeal(l.itemId, 'sales'), 'sales'), lastDealText(lastDeal(l.itemId, 'purchase'), 'purchase')].filter((t) => t !== '').join(' · ') : '';
     const worth = preview.values.get(i);
     const typedValue = l.direction === 'in' && parseQty(l.qty.trim()) !== undefined && parseRate(l.rate.trim()) !== undefined ? valueOf(parseQty(l.qty.trim()) as never, parseRate(l.rate.trim()) as never) : undefined;
     const value = worth?.value ?? typedValue;
@@ -497,6 +501,11 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher, stay }:
               Stock: {s.qty}
               {s.rate ? ` @ ₹${s.rate}` : ''}
               {heldIn(l.itemId) !== '' ? ` · in ${heldIn(l.itemId)}` : ''}
+            </div>
+          )}
+          {lastNote !== '' && !isFocus(`l${i}.item`) && (
+            <div class="vbal" data-testid="last-rate-note">
+              {lastNote}
             </div>
           )}
           {pickerList(`l${i}.item`)}

@@ -717,7 +717,7 @@ function ReportBody({
           <span data-testid="order-counts">
             {(() => {
               const c = registerCounts(rows as readonly OrderRow[]);
-              return `${c.orders} order${c.orders === 1 ? '' : 's'} · ${c.open} open line${c.open === 1 ? '' : 's'}${c.overdue > 0 ? ` (${c.overdue} overdue)` : ''} — bold lines are still to ${report === 'purchase-orders' ? 'receive' : 'deliver'}`;
+              return `${c.orders} order${c.orders === 1 ? '' : 's'} · ${c.open} open line${c.open === 1 ? '' : 's'}${c.overdue > 0 ? ` (${c.overdue} overdue)` : ''} — bold lines are still to ${report === 'purchase-orders' ? 'receive' : 'deliver'}${report === 'sales-orders' ? ' · Stock: committed on open orders / in stock' : ''}`;
             })()}
           </span>
         )}
