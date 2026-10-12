@@ -1185,11 +1185,13 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             <div class="vbal" data-testid="stock-note">
               Stock: {stock}
               {heldIn(l.itemId) !== '' ? ` · in ${heldIn(l.itemId)}` : ''}
+              {lastNote !== '' && <span data-testid="last-rate-note"> · {lastNote}</span>}
             </div>
           )}
-          {lastNote !== '' && !isFocus(`l${i}.item`) && (
-            <div class="vbal" data-testid="last-rate-note">
-              {lastNote}
+          {/* no stock note to join (an order, a quotation, a service): the rate note is the line */}
+          {!stock && lastNote !== '' && !isFocus(`l${i}.item`) && (
+            <div class="vbal">
+              <span data-testid="last-rate-note">{lastNote}</span>
             </div>
           )}
         </div>

@@ -501,11 +501,7 @@ export function StockVoucherEntry({ frame, books, mode, typeId, voucher, stay }:
               Stock: {s.qty}
               {s.rate ? ` @ ₹${s.rate}` : ''}
               {heldIn(l.itemId) !== '' ? ` · in ${heldIn(l.itemId)}` : ''}
-            </div>
-          )}
-          {lastNote !== '' && !isFocus(`l${i}.item`) && (
-            <div class="vbal" data-testid="last-rate-note">
-              {lastNote}
+              {lastNote !== '' && <span data-testid="last-rate-note"> · {lastNote}</span>}
             </div>
           )}
           {pickerList(`l${i}.item`)}
