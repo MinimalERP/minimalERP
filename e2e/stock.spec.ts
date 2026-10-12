@@ -122,10 +122,11 @@ test.describe('the Stock Journal window', () => {
     await expect(app.getByTestId('stock-note').first()).toContainText('Stock: 60 Nos @ ₹950');
   });
 
-  test('under the stock, what the item last sold and was last bought for — an idea of the rate; nothing for an item never invoiced', async ({ app }) => {
+  test('on the stock line, what the item last sold and was last bought for — an idea of the rate; nothing for an item never invoiced', async ({ app }) => {
     await app.keyboard.press('F10');
     await fillLine(app, 'abc hex', 'finished', '1'); // the demo has invoiced the bolts
     await expect(app.getByTestId('last-rate-note').first()).toContainText(/Last sold @ ₹[\d.]+ on \d+-[A-Z][a-z]{2}-\d{4}/);
+    await expect(app.getByTestId('stock-note').first().getByTestId('last-rate-note')).toHaveCount(1); // on the stock line itself, not a line of its own
     await fillLine(app, 'fabricated', 'finished', '1'); // the frames were made and ordered, never invoiced
     await expect(app.getByTestId('stock-note')).toHaveCount(2);
     await expect(app.getByTestId('last-rate-note')).toHaveCount(1);
