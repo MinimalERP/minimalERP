@@ -6,6 +6,19 @@ import { formatQuantity } from './format';
 import { type ItemDocKind, docProfile, receivedAtOurs } from './kinds';
 import { type SalesForm, type SalesLineForm, type SalesPreview, previewSales, salesFormFromVoucher, salesKindOf } from './salesModel';
 
+const RETURNABLE_TITLE = 'Returnable Delivery Challan';
+
+/** What a returnable challan prints in place of the company's invoice terms: the goods are lent, not sold. */
+export const RETURNABLE_TERMS: readonly string[] = [
+  'The goods are sent on a returnable basis for job work, repair or testing. This is not a sale: the goods remain our property.',
+  'The value shown is declared for transport and insurance only. Nothing is payable against this challan.',
+  'Return the goods in full and in good condition by the agreed date, quoting this challan number on your delivery document.',
+  'The goods are at your risk while in your custody. Any loss, damage or shortage will be charged at the value stated.',
+  'The goods are not to be used for any other purpose, or passed to a third party, without our written consent.',
+  'Process scrap and rejected pieces are to be returned or accounted for along with the goods.',
+  'Goods not returned within the time allowed under GST law will be treated as supplied and invoiced with tax.',
+];
+
 /**
  * An item document (invoice / order / quotation) as it prints — the same figures the screen shows: every amount comes from
  * `preview.amounts`/`total`/`gst`/`grand`, indexed exactly as `previewSales` computed them, so a printed figure can never disagree with it.
@@ -44,9 +57,11 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
   return {
     kind: 'invoice',
     voucherKind: kind,
-    // a delivery challan's title is its name alone, centred; that it is free of charge is said in the narration
-    docTitle: kind === 'sales' && masters.company.chargeGst === true ? 'Tax Invoice' : returnable && form.returnOf ? `${type.name} – Goods Returned` : type.name,
+    // a delivery challan's title is its name alone, centred; that it is free of charge is said in the narration.
+    // A returnable challan says what it is whatever its type was named: a delivery challan, to be returned.
+    docTitle: kind === 'sales' && masters.company.chargeGst === true ? 'Tax Invoice' : returnable ? (form.returnOf ? `${RETURNABLE_TITLE} – Goods Returned` : RETURNABLE_TITLE) : type.name,
     ...(delivery ? { titleCentred: true, poLabel: 'PO / Ref.' } : {}),
+    ...(returnable ? { titleCentred: true, poLabel: 'Reference', returnable: { terms: form.returnOf ? [] : RETURNABLE_TERMS, acknowledge: !form.returnOf } } : {}),
     ...(note ? { poLabel: noteFor ? 'Against Inv.' : 'Reference' } : {}),
     numberLabel: kind === 'sales' ? 'Invoice No.' : delivery || returnable ? 'Challan No.' : note ? 'Note No.' : undefined,
     number: voucher.number,
@@ -55,7 +70,8 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
     ewayBillNo: kind === 'sales' ? form.ewayBillNo || undefined : undefined,
     dcNo: [...new Set(form.lines.filter((l) => l.challanId).map((l) => l.orderLabel))].join(', ') || undefined,
     placeOfSupply: placeOfSupplyText(ours ? (chosen?.stateCode ?? masters.company.stateCode) : (details?.shipTo?.stateCode ?? details?.billTo?.stateCode ?? details?.placeOfSupply)),
-    party: { name: details?.mailingName ?? form.partyLabel, ...(docProfile(kind).side === 'purchase' ? { label: 'Vendor' } : {}), gstin: details?.gstin, billTo: details?.billTo, shipTo },
+    // nobody is billed on a returnable challan: the supplier is who the goods are consigned to (or, on the return, who sent them back)
+    party: { name: details?.mailingName ?? form.partyLabel, ...(returnable ? { label: form.returnOf ? 'Returned By (Vendor)' : 'Consignee (Vendor)' } : docProfile(kind).side === 'purchase' ? { label: 'Vendor' } : {}), gstin: details?.gstin, billTo: details?.billTo, shipTo },
     lines,
     subtotal: preview.total,
     gst: preview.gst,

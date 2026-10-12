@@ -113,12 +113,14 @@
 .print-root .inv-foot .terms { max-width: 55%; }
 .print-root .inv-foot .terms ol { margin: 0; padding-left: 16px; }
 .print-root .inv-foot .terms li { margin-bottom: 2px; }
+.print-root .inv-foot .terms.wide { max-width: none; } /* a returnable challan's own terms: nothing beside them, so the full width */
 .print-root .inv-foot .thanks { margin-top: 8px; font-style: italic; }
 
 .print-root .inv-sign { display: flex; justify-content: flex-end; margin-top: 18px; break-inside: avoid; page-break-inside: avoid; }
 .print-root .inv-sign > div { text-align: center; font-size: 11.5px; }
 .print-root .inv-sign .for-company { margin-bottom: 46px; } /* blank room for the stamp and signature */
 .print-root .inv-sign .sign-line { border-top: 1px solid #000; padding-top: 3px; min-width: 170px; }
+.print-root .inv-sign.two { justify-content: space-between; } /* the receiver signs for the goods on the left, we on the right */
 
 /* the dispatch docket */
 /* what the paper is, read from across the dispatch bay: large and boxed under the company's name */

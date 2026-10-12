@@ -184,13 +184,18 @@ test.describe('the Delivery Challan window', () => {
     await app.keyboard.press('Enter');
     await expect(app.getByTestId('returnable-status')).toHaveText('Out');
 
-    // it prints as it always has: its title in the corner with the number and date (only the Delivery Challan's is centred)
+    // it prints as a returnable delivery challan, its title centred, consigned to the supplier under its own terms — nothing of an invoice's
+    // (no "Bill To", bank details or invoice terms) — with a place for the receiver to sign for the goods
     await app.evaluate(() => void (window.print = () => {}));
     await app.keyboard.press('Control+p');
     await app.keyboard.press('Enter'); // 1 copy
     const copy = app.locator('.print-root .print-copy').first();
-    await expect(copy.locator('.inv-doc .title')).toHaveText('Returnable Challan');
-    await expect(copy.getByTestId('print-title-centre')).toHaveCount(0);
+    await expect(copy.getByTestId('print-title-centre')).toHaveText('Returnable Delivery Challan');
+    await expect(copy.locator('.inv-doc .title')).toHaveCount(0);
+    await expect(copy.locator('.inv-parties .label').first()).toHaveText('Consignee (Vendor)');
+    await expect(copy.getByTestId('print-challan-terms')).toContainText('This is not a sale: the goods remain our property.');
+    await expect(copy.locator('.inv-foot .bank')).toHaveCount(0);
+    await expect(copy.getByTestId('print-receiver-sign')).toContainText('Received the above goods in good condition');
     await expect(copy.locator('.inv-narration')).toContainText('Returnable – to be returned to us after the work.');
 
     await panel(app).locator('[data-command="challan.markReturned"]').click();

@@ -30,11 +30,14 @@ const addressLines = (a: PrintAddress | undefined): string[] =>
 
 /** What a layout's placeholders read, for one document and one copy. */
 export function layoutData(doc: InvoiceDoc | LedgerDoc, company: PrintCompany, copyLabel: string | undefined, images: Readonly<Record<string, string>>): TemplateData {
-  const terms = company.invoiceTerms?.split('\n').filter((t) => t.trim() !== '') ?? [];
+  // a returnable challan prints its own terms, never the invoice's (see `InvoiceDoc.returnable`)
+  const returnable = doc.kind === 'invoice' ? doc.returnable : undefined;
+  const terms = returnable ? returnable.terms : (company.invoiceTerms?.split('\n').filter((t) => t.trim() !== '') ?? []);
   const common = {
     company: { ...company, terms: terms.map((text) => ({ text })) },
     images: { logo: images['logo'], signature: images['signature'] },
     hasTerms: terms.length > 0,
+    termsLabel: returnable ? 'Terms & Conditions' : 'Terms',
     copyLabel,
     title: doc.docTitle,
     number: doc.number,
@@ -58,6 +61,12 @@ export function layoutData(doc: InvoiceDoc | LedgerDoc, company: PrintCompany, c
     numberLabel: doc.numberLabel ?? 'No.',
     poNo: doc.poNo,
     poLabel: doc.poLabel ?? 'PO No.',
+    titleCentred: doc.titleCentred === true,
+    returnable: returnable !== undefined,
+    acknowledge: returnable?.acknowledge === true,
+    shipLabel: returnable?.acknowledge ? 'Deliver To' : 'Ship To',
+    totalLabel: returnable ? 'Total Value' : 'Total',
+    wordsLabel: returnable ? 'Value in Words' : 'Amount in Words',
     ewayBillNo: doc.ewayBillNo,
     dcNo: doc.dcNo,
     placeOfSupply: doc.placeOfSupply,
@@ -82,9 +91,9 @@ export const LAYOUT_PLACEHOLDERS: Readonly<Record<LayoutShape, readonly string[]
   invoice: [
     'company.name', 'company.address', 'company.gstin', 'company.phone', 'company.email', 'company.bankName', 'company.bankAccountNo', 'company.bankIfsc',
     'company.bankBranch', 'company.invoiceNote', '#hasTerms', '#company.terms … text … /company.terms', 'images.logo', 'images.signature', 'copyLabel', 'title',
-    'numberLabel', 'number', 'date', 'poNo', 'poLabel', 'ewayBillNo', 'dcNo', 'placeOfSupply', 'party.name', 'party.label', 'party.gstin', '#party.billTo.lines … text …',
-    '#party.shipTo.lines … text …', '#lines … sno desc hsn qty rate gstRate amount … /lines', 'subtotal', '#gst … cgst sgst igst … /gst', 'roundOff',
-    'grandTotal', 'amountInWords', 'narration',
+    '#titleCentred', 'numberLabel', 'number', 'date', 'poNo', 'poLabel', 'ewayBillNo', 'dcNo', 'placeOfSupply', 'party.name', 'party.label', 'party.gstin', '#party.billTo.lines … text …',
+    'shipLabel', '#party.shipTo.lines … text …', '#lines … sno desc hsn qty rate gstRate amount … /lines', 'subtotal', '#gst … cgst sgst igst … /gst', 'roundOff',
+    'totalLabel', 'grandTotal', 'wordsLabel', 'amountInWords', 'narration', 'termsLabel', '#returnable', '#acknowledge',
   ],
   ledger: [
     'company.name', 'company.address', 'company.gstin', 'company.phone', 'company.email', 'images.logo', 'images.signature', 'copyLabel', 'title',
@@ -163,9 +172,12 @@ const STYLE = `<style>
   .sign img { max-height: 50px; display: block; margin: 0 auto 4px; }
   .sign .line { border-top: 1px solid #000; padding-top: 3px; min-width: 170px; margin-top: 38px; }
   .sign img + .line { margin-top: 0; }
+  .sign .recv { margin-right: auto; }
+  .title-centre { text-align: center; font-size: 15px; font-weight: bold; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px; }
 </style>`;
 
-const HEAD = `<div class="head">
+const HEAD = `{{#titleCentred}}<div class="title-centre">{{title}}</div>{{/titleCentred}}
+<div class="head">
   <div>
     {{#images.logo}}<img class="logo" src="{{images.logo}}" alt="">{{/images.logo}}
     <div class="name">{{company.name}}</div>
@@ -174,7 +186,7 @@ const HEAD = `<div class="head">
     <div>{{company.phone}} {{company.email}}</div>
   </div>
   <div class="doc">
-    <div class="title">{{title}}</div>
+    {{^titleCentred}}<div class="title">{{title}}</div>{{/titleCentred}}
     {{#copyLabel}}<div class="copy">{{copyLabel}}</div>{{/copyLabel}}
     <table>
       <tr><td>{{numberLabel}}</td><td>{{number}}</td></tr>
@@ -187,13 +199,16 @@ const HEAD = `<div class="head">
 </div>`;
 
 const FOOT = `<div class="foot">
-  <div>
+  {{^returnable}}<div>
     {{#company.bankName}}<div class="label">Bank details</div><div>{{company.bankName}}</div><div>A/c No. {{company.bankAccountNo}}</div><div>IFSC {{company.bankIfsc}}</div><div>{{company.bankBranch}}</div>{{/company.bankName}}
     {{#company.invoiceNote}}<div><i>{{company.invoiceNote}}</i></div>{{/company.invoiceNote}}
-  </div>
-  {{#hasTerms}}<div><div class="label">Terms</div><ol>{{#company.terms}}<li>{{text}}</li>{{/company.terms}}</ol></div>{{/hasTerms}}
+  </div>{{/returnable}}
+  {{#hasTerms}}<div><div class="label">{{termsLabel}}</div><ol>{{#company.terms}}<li>{{text}}</li>{{/company.terms}}</ol></div>{{/hasTerms}}
 </div>
-<div class="sign"><div>
+<div class="sign">{{#acknowledge}}<div class="recv">
+  <div class="for">Received the above goods in good condition</div>
+  <div class="line">Receiver's Signature, Stamp &amp; Date</div>
+</div>{{/acknowledge}}<div>
   <div class="for">For {{company.name}}</div>
   {{#images.signature}}<img src="{{images.signature}}" alt="">{{/images.signature}}
   <div class="line">Authorised Signatory</div>
@@ -206,7 +221,7 @@ export const BUILT_IN_LAYOUTS: Readonly<Record<LayoutShape, string>> = {
 ${HEAD}
 <div class="parties">
   <div><div class="label">{{party.label}}</div><b>{{party.billTo.name}}</b>{{#party.billTo.lines}}<div>{{text}}</div>{{/party.billTo.lines}}{{#party.gstin}}<div>GSTIN: {{party.gstin}}</div>{{/party.gstin}}</div>
-  <div><div class="label">Ship To</div><b>{{party.shipTo.name}}</b>{{#party.shipTo.lines}}<div>{{text}}</div>{{/party.shipTo.lines}}</div>
+  <div><div class="label">{{shipLabel}}</div><b>{{party.shipTo.name}}</b>{{#party.shipTo.lines}}<div>{{text}}</div>{{/party.shipTo.lines}}</div>
 </div>
 {{#placeOfSupply}}<div><b>Place of Supply:</b> {{placeOfSupply}}</div>{{/placeOfSupply}}
 <table class="items">
@@ -216,12 +231,12 @@ ${HEAD}
   </tbody>
 </table>
 <div class="totals">
-  <div><div class="label">Amount in Words</div>{{amountInWords}}</div>
+  <div><div class="label">{{wordsLabel}}</div>{{amountInWords}}</div>
   <table>
     <tr><td>Subtotal</td><td>{{subtotal}}</td></tr>
     {{#gst}}{{#cgst}}<tr><td>CGST</td><td>{{cgst}}</td></tr>{{/cgst}}{{#sgst}}<tr><td>SGST</td><td>{{sgst}}</td></tr>{{/sgst}}{{#igst}}<tr><td>IGST</td><td>{{igst}}</td></tr>{{/igst}}{{/gst}}
     {{#roundOff}}<tr><td>Round Off</td><td>{{roundOff}}</td></tr>{{/roundOff}}
-    <tr class="grand"><td>Total</td><td>₹ {{grandTotal}}</td></tr>
+    <tr class="grand"><td>{{totalLabel}}</td><td>₹ {{grandTotal}}</td></tr>
   </table>
 </div>
 {{#narration}}<p><b>Narration:</b> <i>{{narration}}</i></p>{{/narration}}

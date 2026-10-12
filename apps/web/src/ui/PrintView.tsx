@@ -171,6 +171,43 @@ function BankAndSign({ company }: { company: PrintCompany }) {
   );
 }
 
+/**
+ * A returnable challan's foot: its own terms across the page (never the invoice's, and no bank details — nothing is to be paid), then the
+ * receiver's signature for the goods beside ours.
+ */
+function ReturnableFoot({ company, returnable }: { company: PrintCompany; returnable: NonNullable<InvoiceDoc['returnable']> }) {
+  return (
+    <>
+      {returnable.terms.length > 0 && (
+        <div class="inv-foot">
+          <div class="terms wide" data-testid="print-challan-terms">
+            <div class="label">Terms &amp; Conditions</div>
+            <ol>
+              {returnable.terms.map((t, i) => (
+                <li key={i}>{t}</li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      )}
+      <div class="inv-sign two">
+        {returnable.acknowledge ? (
+          <div data-testid="print-receiver-sign">
+            <div class="for-company">Received the above goods in good condition</div>
+            <div class="sign-line">Receiver's Signature, Stamp &amp; Date</div>
+          </div>
+        ) : (
+          <div />
+        )}
+        <div>
+          <div class="for-company">For {company.name}</div>
+          <div class="sign-line">Authorised Signatory</div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function LedgerBody({ doc, company, copyLabel }: { doc: LedgerDoc; company: PrintCompany; copyLabel: string | undefined }) {
   return (
     <>
@@ -232,7 +269,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
       <CompanyHead company={company} docTitle={doc.docTitle} copyLabel={copyLabel} numberLabel={doc.numberLabel} number={doc.number} date={doc.date} poNo={doc.poNo} poLabel={doc.poLabel} titleCentred={doc.titleCentred} ewayBillNo={doc.ewayBillNo} dcNo={doc.dcNo} />
       <div class="inv-parties">
         <AddressBlock label={doc.party.label ?? 'Bill To'} address={{ name: doc.party.name, ...doc.party.billTo }} gstin={doc.party.gstin} />
-        <AddressBlock label="Ship To" address={sameAsBilling ? { name: doc.party.name, ...doc.party.billTo } : { name: doc.party.name, ...doc.party.shipTo }} />
+        <AddressBlock label={doc.returnable?.acknowledge ? 'Deliver To' : 'Ship To'} address={sameAsBilling ? { name: doc.party.name, ...doc.party.billTo } : { name: doc.party.name, ...doc.party.shipTo }} />
       </div>
       {doc.placeOfSupply && (
         <div class="inv-pos">
@@ -267,7 +304,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
       </table>
       <div class="inv-totals">
         <div class="amount-words">
-          <div class="label">Amount in Words</div>
+          <div class="label">{doc.returnable ? 'Value in Words' : 'Amount in Words'}</div>
           {amountInWords(doc.grandTotal)}
         </div>
         <table>
@@ -301,7 +338,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
               </tr>
             )}
             <tr class="grand">
-              <td>Grand Total</td>
+              <td>{doc.returnable ? 'Total Value' : 'Grand Total'}</td>
               <td>₹ {formatAmount(doc.grandTotal)}</td>
             </tr>
           </tbody>
@@ -309,7 +346,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
       </div>
       {doc.narration && <Narration text={doc.narration} />}
       {doc.paymentStatus && <PaymentStatusBox status={doc.paymentStatus} />}
-      <BankAndSign company={company} />
+      {doc.returnable ? <ReturnableFoot company={company} returnable={doc.returnable} /> : <BankAndSign company={company} />}
     </>
   );
 }

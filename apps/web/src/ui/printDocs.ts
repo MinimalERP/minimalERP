@@ -60,6 +60,12 @@ export interface InvoiceDoc {
   readonly poLabel?: string | undefined;
   /** The title printed across the top of the page, centred, rather than in the corner: a delivery challan, so it is not taken for an accounting voucher. */
   readonly titleCentred?: boolean | undefined;
+  /**
+   * A returnable challan: goods lent to a supplier, not sold. It prints these terms in place of the company's invoice terms (none on the
+   * return that brings the goods back), no bank details or thank-you note, its total as a stated value, and — where the goods are handed
+   * over (`acknowledge`) — a place for the receiver to sign for them.
+   */
+  readonly returnable?: { readonly terms: readonly string[]; readonly acknowledge: boolean } | undefined;
   /** The E-way Bill number for this invoice's movement of goods (Sales) — shown only when present. */
   readonly ewayBillNo?: string | undefined;
   /** The delivery challans a sales invoice bills ("DC/26-27/0004, DC/26-27/0007") — shown only when present. */
