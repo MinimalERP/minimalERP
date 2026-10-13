@@ -6,7 +6,7 @@ import { loadDemoCompany } from '../books/demo';
 import { createLocalFactory, memoryStore } from '../books/local';
 import { previewSales, returnDraftOf } from '../vouchers/salesModel';
 import { docList } from './data';
-import { canAlter, headIssues, invoiceFrom, isBlankEntry, lastRate, lineFor, lineIssues, newForm, returnableState, startForm, stepQty, withDate, withParty } from './entry';
+import { canAlter, headIssues, invoiceFrom, isBlankEntry, lastRate, lineFor, isUnwritten, lineIssues, newForm, returnableState, startForm, stepQty, withDate, withParty, writtenLine } from './entry';
 
 const id = (kind: string, name: string) => deterministicUuid(`demo|${kind}|${name}`);
 const SHARMA = id('party', 'Sharma Traders');
@@ -102,6 +102,24 @@ describe('touch entry fills the desktop’s own form', () => {
     // an order with nothing pending starts a plain invoice
     expect(startForm(books, { kind: 'sales', fromOrder: closed.id })?.lines).toEqual([]);
     expect(startForm(books, { kind: 'sales', partyId: ABC })?.partyId).toBe(ABC);
+  });
+
+  it('a written line: text instead of a stock item, one of it in Nos, no godown — saved on an invoice and moving no stock', async () => {
+    const books = await demo();
+    const form = withParty(newForm(books, 'sales')!, 'sales', books, SHARMA);
+    const blank = writtenLine(books, 'sales', form);
+    expect(blank).toMatchObject({ oneTime: true, itemId: '', itemLabel: '', qty: '1', unit: 'Nos', warehouseId: '' });
+    expect(isUnwritten(blank)).toBe(true);
+    expect(writtenLine(books, 'salesOrder', form).due).toBe(form.date); // an order's line is due with the order
+    const line = { ...blank, itemLabel: 'Fixture repair', rate: '1500' };
+    expect(isUnwritten(line)).toBe(false);
+    const made = preview(books, 'sales', { ...form, lines: [line] });
+    expect(made.issues).toEqual([]);
+    const posted = await books.post(made.draft);
+    if (!posted.ok) throw new Error(JSON.stringify(posted.issues));
+    expect((posted.value.voucher.content as unknown as { lines: { description?: string; unit?: string }[] }).lines[0]).toMatchObject({ description: 'Fixture repair', unit: 'Nos' });
+    // read back, it is a written line again
+    expect(startForm(books, { kind: 'sales', voucherId: posted.value.voucher.id })?.lines[0]).toMatchObject({ oneTime: true, itemLabel: 'Fixture repair', unit: 'Nos' });
   });
 
   it('a Returnable Challan goes to a supplier, takes the goods out, and is altered only until it has come back', async () => {

@@ -7,7 +7,7 @@ import { inboxBanner, itemSeedOf, partySeedOf } from '../vouchers/proposalForms'
 import { type SalesForm, type SalesLineForm, customerOptions, itemOptions, previewSales, salesLedgerOptions } from '../vouchers/salesModel';
 import { CreateScreen } from './CreateScreen';
 import type { CreateWhat } from './create';
-import { entryTitle, headIssues, isBlankEntry, lineFor, lineIssues, needsItem, shipChoices, shipChosen, startForm, stepQty, withDate, withItem, withParty, withShipTo } from './entry';
+import { entryTitle, headIssues, isBlankEntry, isUnwritten, lineFor, lineIssues, needsItem, shipChoices, shipChosen, startForm, stepQty, withDate, withItem, withParty, withShipTo, writtenLine, writtenUnits } from './entry';
 import type { EntryKind, MobileNav } from './nav';
 import { Empty, Frame, Group, Row, Search, matches, rupees } from './ui';
 
@@ -123,9 +123,20 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
     update((f) => ({ ...f, lines: [...f.lines, line] }));
     return line.key;
   };
+  /** A line's sheet closed: a written line left with no description is not kept. */
+  const closeLine = () => {
+    setEditing(undefined);
+    setForm((f) => (f && f.lines.some(isUnwritten) ? { ...f, lines: f.lines.filter((l) => !isUnwritten(l)) } : f));
+  };
   const openLine = (key: string) => {
     setEditing(key);
-    nav.openLayer(() => setEditing(undefined));
+    nav.openLayer(closeLine);
+  };
+  /** "Add written line": a line that is not a stock item (the desktop's Alt+T), opened at once for its description. */
+  const addWritten = () => {
+    const line = writtenLine(books, kind, form);
+    update((f) => ({ ...f, lines: [...f.lines, line] }));
+    openLine(line.key);
   };
   const chooseParty = (id: string) => {
     update((f) => withParty(f, kind, books, id));
@@ -136,7 +147,7 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
     const key = placeItem(id);
     setPicker(undefined);
     setEditing(key);
-    nav.swapLayer(() => setEditing(undefined));
+    nav.swapLayer(closeLine);
   };
   /** "+ Create" in a list: the new record's form takes the list's place (one Back still returns to the document). */
   const startCreating = (what: CreateWhat, name: string) => {
@@ -153,7 +164,7 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
     const key = placeItem(id);
     setCreating(undefined);
     setEditing(key);
-    nav.swapLayer(() => setEditing(undefined));
+    nav.swapLayer(closeLine);
   };
   /** What a scanned document printed about the party or the line being made: its new record starts with it. */
   const seedOf = (what: CreateWhat): Readonly<Record<string, string>> | undefined => {
@@ -285,7 +296,7 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
             return (
               <div key={l.key} class="m-line">
               <Row
-                title={l.itemLabel}
+                title={l.itemLabel || 'Written line'}
                 sub={[`${l.qty || '?'} ${unit?.symbol ?? l.unit ?? ''} × ${l.rate || '?'}`.replace('  ', ' '), gstOn && l.gstRate ? `GST ${l.gstRate}%` : undefined, l.orderLabel || undefined, p.order && l.due ? `due ${formatDate(l.due)}` : undefined].filter(Boolean).join(' · ')}
                 value={amount === undefined ? undefined : formatAmount(amount)}
                 problem={needsItem(l) ? 'Not a stock item yet: tap to choose or create it' : lineIssues(issues, i)[0]?.message}
@@ -300,6 +311,9 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
           })}
           <button type="button" class="m-row m-add" data-testid="entry-add" onClick={() => openPicker('item')}>
             + Add item
+          </button>
+          <button type="button" class="m-row m-add" data-testid="entry-add-written" onClick={addWritten}>
+            + Add written line (not a stock item)
           </button>
           {head.find((i) => i.field === 'general') ? <p class="m-note bad">{head.find((i) => i.field === 'general')?.message}</p> : null}
         </Group>
@@ -419,8 +433,9 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
           unit={unitOf(editingLine.itemId)?.symbol ?? editingLine.unit ?? ''}
           gstOn={gstOn}
           order={p.order}
+          units={writtenUnits(books)}
           godownLabel={p.goodsOut ? 'Godown' : 'Receive into'}
-          godowns={p.moves && !editingLine.challanId && masters.stockItem(editingLine.itemId as never)?.itemType !== 'service' ? masters.warehouses.filter((w) => w.isActive).map((w) => ({ id: w.id, name: w.name, held: formatQuantity(books.stock.qtyAt(editingLine.itemId as never, w.id, form.date as never), unitOf(editingLine.itemId)?.decimals ?? 0) })) : []}
+          godowns={p.moves && !editingLine.oneTime && !editingLine.challanId && masters.stockItem(editingLine.itemId as never)?.itemType !== 'service' ? masters.warehouses.filter((w) => w.isActive).map((w) => ({ id: w.id, name: w.name, held: formatQuantity(books.stock.qtyAt(editingLine.itemId as never, w.id, form.date as never), unitOf(editingLine.itemId)?.decimals ?? 0) })) : []}
           problems={lineIssues(issues, form.lines.indexOf(editingLine)).map((i) => i.message)}
           amount={preview.amounts.get(form.lines.indexOf(editingLine))}
           onChange={(patch) => setLine(editingLine.key, patch)}
@@ -539,6 +554,7 @@ function LineSheet({
   unit,
   gstOn,
   order,
+  units,
   godownLabel,
   godowns,
   problems,
@@ -551,6 +567,8 @@ function LineSheet({
   unit: string;
   gstOn: boolean;
   order: boolean;
+  /** The units a written line can be in. */
+  units: readonly string[];
   /** "Godown" where the goods leave it, "Receive into" where they arrive. */
   godownLabel: string;
   godowns: readonly { id: string; name: string; held: string }[];
@@ -560,13 +578,37 @@ function LineSheet({
   onRemove: () => void;
   onDone: () => void;
 }) {
+  const written = line.oneTime === true;
   const number = (label: string, value: string, set: (v: string) => void, testId: string) => (
     <input type="text" inputMode="decimal" class="m-input m-num" aria-label={label} data-testid={testId} value={value} autocomplete="off" onFocus={(e) => (e.target as HTMLInputElement).select()} onInput={(e) => set((e.target as HTMLInputElement).value)} />
   );
   return (
     <div class="m-sheet-back" onClick={(e) => e.target === e.currentTarget && onDone()}>
-      <div class="m-sheet" role="dialog" aria-label={line.itemLabel} data-testid="line-sheet">
-        <p class="m-sheet-title">{line.itemLabel}</p>
+      <div class="m-sheet" role="dialog" aria-label={written ? 'Written line' : line.itemLabel} data-testid="line-sheet">
+        <p class="m-sheet-title">{written ? 'Written line (not a stock item)' : line.itemLabel}</p>
+        {written ? (
+          <>
+            <label class="m-field">
+              <span class="m-field-label">Description</span>
+              <input type="text" class="m-input" aria-label="Description" data-testid="line-description" value={line.itemLabel} autocomplete="off" maxLength={200} onInput={(e) => onChange({ itemLabel: (e.target as HTMLInputElement).value })} />
+            </label>
+            <label class="m-field">
+              <span class="m-field-label">Unit</span>
+              <select class="m-input" aria-label="Unit" data-testid="line-unit" value={line.unit ?? ''} onChange={(e) => onChange({ unit: (e.target as HTMLSelectElement).value })}>
+                <option value="">No unit</option>
+                {units.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label class="m-field">
+              <span class="m-field-label">HSN / SAC</span>
+              <input type="text" inputMode="numeric" class="m-input" aria-label="HSN or SAC" data-testid="line-hsn" value={line.hsn ?? ''} autocomplete="off" maxLength={10} onInput={(e) => onChange({ hsn: (e.target as HTMLInputElement).value })} />
+            </label>
+          </>
+        ) : null}
         <div class="m-field">
           <span class="m-field-label">Quantity{unit ? ` (${unit})` : ''}</span>
           <span class="m-stepper">
