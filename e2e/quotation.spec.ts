@@ -138,6 +138,11 @@ test.describe('the top bar', () => {
     await app.getByTestId('crumb').filter({ hasText: 'Gateway' }).click();
     await expect(heading(app)).toHaveText('Gateway');
 
+    // two steps back in one click: both windows above it close
+    await openQuotations(app);
+    await app.getByTestId('crumb').filter({ hasText: 'Gateway' }).click();
+    await expect(heading(app)).toHaveText('Gateway');
+
     await app.keyboard.press('F8');
     await app.keyboard.type('sharma');
     await app.getByTestId('crumb').filter({ hasText: 'Gateway' }).click();
