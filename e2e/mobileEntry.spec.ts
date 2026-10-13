@@ -235,6 +235,35 @@ test.describe('entering a document by touch', () => {
     expect(problems).toEqual([]);
   });
 
+  test('a written line: not a stock item — its description, Nos unless changed, a rate; one left blank is not kept', async ({ page }) => {
+    const problems = watch(page);
+    await startNew(page, 'sales');
+    await chooseCustomer(page, 'sharma');
+    // opened and closed with nothing written: no line stays
+    await page.getByTestId('entry-add-written').tap();
+    await expect(sheet(page)).toContainText('Written line');
+    await page.getByTestId('line-done').tap();
+    await expect(page.getByTestId('entry-line')).toHaveCount(0);
+
+    await page.getByTestId('entry-add-written').tap();
+    await expect(page.getByTestId('line-unit')).toHaveValue('Nos');
+    await expect(sheet(page).getByLabel('Godown')).toHaveCount(0); // it moves no stock
+    await page.getByTestId('line-description').fill('Fixture repair charges');
+    await page.getByTestId('line-qty').fill('2');
+    await page.getByTestId('line-rate').fill('1500');
+    await page.getByTestId('line-done').tap();
+    await expect(page.getByTestId('entry-line')).toContainText('Fixture repair charges');
+    await expect(page.getByTestId('entry-line')).toContainText('2 Nos × 1500');
+    await page.getByTestId('entry-save').tap();
+    await expect(title(page)).toHaveText(/^Sales SAL\//);
+    await expect(page.getByTestId('doc-line')).toContainText('Fixture repair charges');
+    // it opens again as a written line
+    await page.getByTestId('doc-edit').tap();
+    await page.getByTestId('entry-line').tap();
+    await expect(page.getByTestId('line-description')).toHaveValue('Fixture repair charges');
+    expect(problems).toEqual([]);
+  });
+
   test('a Returnable Challan by taps: a supplier, an item out of its godown, no purpose asked — and Mark returned brings it back', async ({ page }) => {
     const problems = watch(page);
     await page.getByTestId('gateway-new').tap();

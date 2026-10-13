@@ -264,6 +264,24 @@ export function lineFor(books: Books, kind: EntryKind, form: SalesForm, itemId: 
   };
 }
 
+/** The units a written line can be in (the unit masters' symbols), and the one it starts with: Nos, where the company has it. */
+export const writtenUnits = (books: Books): string[] => books.masters.units.filter((u) => u.isActive).map((u) => u.symbol);
+const defaultWrittenUnit = (books: Books): string => {
+  const units = writtenUnits(books);
+  return units.find((u) => u.toLowerCase().replace(/\.$/, '') === 'nos') ?? units[0] ?? '';
+};
+
+/**
+ * A written line (the desktop's Alt+T): what is sold, bought or sent once and is not worth a stock item — its text instead of an item, no
+ * godown, no stock moved. It starts as one of it, in Nos, waiting for its description (due with the order).
+ */
+export function writtenLine(books: Books, kind: EntryKind, form: SalesForm): SalesLineForm {
+  return { ...blankSalesLine(newKey(), undefined, docProfile(kind).order ? form.date : undefined), oneTime: true, qty: '1', unit: defaultWrittenUnit(books) };
+}
+
+/** A written line with nothing written on it: not kept when its sheet is closed. */
+export const isUnwritten = (line: SalesLineForm): boolean => line.oneTime === true && line.itemLabel.trim() === '';
+
 /** One more or one fewer of a line, never below one (a line is removed with its own button, not by counting down). */
 export function stepQty(qty: string, by: 1 | -1): string {
   const q = parseQty(qty.trim());
