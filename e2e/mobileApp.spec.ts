@@ -136,6 +136,24 @@ test.describe('on a phone', () => {
     expect(problems).toEqual([]);
   });
 
+  test('a Purchase Order prints terms for the supplier — not the invoice’s terms, bank details or thank-you note', async ({ page }) => {
+    await openDemo(page);
+    await page.evaluate(() => void (window.print = () => {}));
+    await row(page, /^Transactions/).tap();
+    await row(page, 'Purchase Orders').tap();
+    await page.getByTestId('doc-row').first().tap();
+    await page.getByTestId('doc-print').tap();
+    await page.getByTestId('print-go').tap();
+    const copy = page.locator('#print-root .print-copy').first();
+    await expect(copy.getByTestId('print-own-terms')).toContainText('Quote this Purchase Order number');
+    await expect(copy.locator('.inv-foot .bank')).toHaveCount(0);
+    if (process.env['SAMPLE_PNG']) {
+      await page.setViewportSize({ width: 820, height: 1160 });
+      await page.emulateMedia({ media: 'print' });
+      await page.screenshot({ path: process.env['SAMPLE_PNG'], fullPage: true });
+    }
+  });
+
   test('a document shared to the app arrives at Scan in the mobile interface, and Back from it is the Gateway', async ({ page }) => {
     await openDemo(page);
     await page.goto('/?share=1#/inbox?shared=1');
@@ -159,6 +177,17 @@ test.describe('on a phone', () => {
     await expect(page.getByTestId('mobile-app')).toBeVisible();
     await page.goto('/');
     await expect(page.getByTestId('mobile-app')).toBeVisible();
+  });
+
+  test('from the desktop app on a phone, Utilities & Settings › Mobile version comes back to the mobile interface', async ({ page }) => {
+    await openDemo(page);
+    await row(page, /^Utilities/).tap();
+    await page.getByTestId('to-desktop').tap();
+    await expect(page.locator('.shell')).toBeVisible();
+    await page.getByRole('option', { name: /^Utilities & Settings/ }).tap();
+    await page.getByRole('option', { name: /^Mobile version/ }).tap();
+    await expect(page.getByTestId('mobile-app')).toBeVisible();
+    expect(new URL(page.url()).searchParams.get('ui')).toBe('mobile');
   });
 });
 

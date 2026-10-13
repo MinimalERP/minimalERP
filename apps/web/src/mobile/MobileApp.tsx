@@ -8,13 +8,15 @@ import { DrawingViewer } from '../ui/DrawingViewer';
 import { PrintView } from '../ui/PrintView';
 import type { PrintCoordinator } from '../ui/printCoordinator';
 import { printCompanyOf } from '../ui/printing';
+import { defaultDate } from '../vouchers/entryHelpers';
 import { formatAmount, formatDate, formatQuantity, todayText } from '../vouchers/format';
+import { returnDraftOf } from '../vouchers/salesModel';
 import { ANDROID_APK_URL, offerAndroidApp, openInApp } from '../ui/nativeApp';
 import { type StockTab, TRANSACTION_GROUPS, type DocRow, inStockTab, docList, docView, goToHits, homeFigures, itemList, itemPage, listTitleOf, partyList, partyPage } from './data';
 import { CreateScreen } from './CreateScreen';
 import { switchUi } from './device';
 import { Entry } from './EntryScreen';
-import { ENTRY_KINDS, canAlter, entryTitle, invoiceFrom, isEntryKind, pendingOrderLines } from './entry';
+import { ENTRY_KINDS, canAlter, entryTitle, invoiceFrom, isEntryKind, pendingOrderLines, returnableState } from './entry';
 import type { MobileNav, Page } from './nav';
 import { PrintSheet } from './PrintSheet';
 import { DayBook, OrderRegister, ReportsMenu } from './ReportsScreen';
@@ -143,7 +145,7 @@ function Gateway({ books, nav, today }: PageProps & { today: string }) {
           </Group>
           <Group title="Gateway">
             <Row title="Scan" sub="Photo or file of a bill or a PO, to be read" value={waiting ? String(waiting) : undefined} note={waiting ? 'waiting' : undefined} onOpen={open({ page: 'scan' })} testId="gateway-scan" />
-            <Row title="New" sub="Invoice, order, quotation, challan, purchase bill" onOpen={open({ page: 'new' })} testId="gateway-new" />
+            <Row title="New" sub="Invoice, order, quotation, challans, purchase bill" onOpen={open({ page: 'new' })} testId="gateway-new" />
             <Row title="Transactions" sub="Sales, purchases, receipts, payments" onOpen={open({ page: 'transactions' })} />
             <Row title="Parties" sub="Customers and suppliers, their bills" onOpen={open({ page: 'parties' })} />
             <Row title="Stock" sub="What is in the godowns" onOpen={open({ page: 'items' })} />
@@ -247,6 +249,8 @@ function Document({ books, nav, print, voucherId }: PageProps & { voucherId: str
   const [picked, setPicked] = useState<readonly string[]>([]);
   /** The sheet that asks which copies, and whether to print, share or save them. */
   const [printing, setPrinting] = useState(false);
+  const [returning, setReturning] = useState(false);
+  const [refused, setRefused] = useState('');
   if (!view) {
     return (
       <Frame nav={nav} title="Voucher">
@@ -265,10 +269,32 @@ function Document({ books, nav, print, voucherId }: PageProps & { voucherId: str
     setPrinting(true);
     nav.openLayer(() => setPrinting(false));
   };
+  // A Returnable Challan: whether its goods are still out, and the button that brings them back (the desktop's "Mark returned").
+  const returnable = returnableState(books, voucher);
+  const cameBack = returnable === 'returned' ? books.orders.challans.returnOf(voucher.id) : undefined;
+  const returnOf = (voucher.content as { returnOf?: string }).returnOf;
+  const markReturned = () => {
+    if (returning) return;
+    setReturning(true);
+    setRefused('');
+    void books.post(returnDraftOf(voucher, { id: crypto.randomUUID(), date: defaultDate(books.masters) })).then(
+      (r) => {
+        setReturning(false);
+        if (!r.ok) setRefused(r.issues[0]?.message ?? 'The return could not be posted');
+      },
+      (error: unknown) => {
+        setReturning(false);
+        setRefused(`The return could not be posted: ${error instanceof Error ? error.message : String(error)}`);
+      },
+    );
+  };
   return (
     <Frame nav={nav} title={`${view.typeName} ${voucher.number}`}>
       <Group title={formatDate(voucher.date)}>
         {cancelled && <Row title="Cancelled" sub="It keeps its number but is out of the books" tone="muted" />}
+        {returnable === 'out' ? <Row title="Out" sub="The goods have not come back yet" testId="doc-returnable" /> : null}
+        {returnable === 'returned' ? <Row title="Returned" sub={cameBack ? `Brought back by ${cameBack.number}` : undefined} tone="muted" onOpen={cameBack ? () => nav.open({ page: 'doc', voucherId: cameBack.voucherId }) : undefined} testId="doc-returnable" /> : null}
+        {returnable === 'return' ? <Row title={`Return of ${(returnOf ? books.voucher(returnOf)?.number : undefined) ?? ''}`} sub="The goods came back in" tone="muted" onOpen={returnOf ? () => nav.open({ page: 'doc', voucherId: returnOf }) : undefined} testId="doc-returnable" /> : null}
         {item ? (
           <>
             <Row title={item.form.partyLabel || 'No party'} sub={[item.form.partyDetails?.gstin, item.form.reference ? `Ref ${item.form.reference}` : undefined, item.form.billNo ? `Inv ${item.form.billNo}` : undefined].filter(Boolean).join(' · ')} onOpen={item.form.partyId ? () => nav.open({ page: 'party', partyId: item.form.partyId }) : undefined} testId="doc-party" />
@@ -328,6 +354,7 @@ function Document({ books, nav, print, voucherId }: PageProps & { voucherId: str
         </Group>
       )}
       {(voucher.content as { narration?: string }).narration ? <p class="m-note">{(voucher.content as { narration?: string }).narration}</p> : null}
+      {refused ? <p class="m-note bad">{refused}</p> : null}
       {item && !cancelled ? (
         <div class="m-actions m-wrap">
           <button type="button" class="m-button" data-testid="doc-print" onClick={openPrinting}>
@@ -336,6 +363,11 @@ function Document({ books, nav, print, voucherId }: PageProps & { voucherId: str
           {isEntryKind(view.baseKind) && canAlter(books, voucher) ? (
             <button type="button" class="m-button" data-testid="doc-edit" onClick={() => nav.open({ page: 'entry', kind: view.baseKind as never, voucherId: voucher.id })}>
               Edit
+            </button>
+          ) : null}
+          {returnable === 'out' ? (
+            <button type="button" class="m-button m-primary" data-testid="doc-returned" disabled={returning} onClick={markReturned}>
+              {returning ? 'Marking…' : 'Mark returned'}
             </button>
           ) : null}
           {invoiceFrom(books, voucher) ? (

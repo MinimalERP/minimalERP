@@ -19,6 +19,26 @@ export const RETURNABLE_TERMS: readonly string[] = [
   'Goods not returned within the time allowed under GST law will be treated as supplied and invoiced with tax.',
 ];
 
+/** What a purchase order prints in place of the company's invoice terms: what we, the buyer, ask of the supplier. */
+export const PURCHASE_ORDER_TERMS: readonly string[] = [
+  'Quote this Purchase Order number on your invoice, delivery challan and all correspondence.',
+  'Supply strictly as per the description, drawing, specification and quantity ordered. Excess or substitute supply will not be accepted without our written consent.',
+  'Deliver on or before the due date stated. We may cancel the order, in full or in part, for goods not delivered in time.',
+  'All goods are subject to our inspection on receipt. Rejected goods will be returned at your cost and risk, and debited to your account.',
+  'The prices in this order are firm. No increase will be accepted without our written amendment to this order.',
+  'Send a tax invoice showing our GSTIN and the HSN code along with the goods, and test certificates where applicable.',
+  'Payment will be made as per the agreed credit terms, counted from the date the goods are received and accepted.',
+];
+
+/** What a debit note prints in place of the company's invoice terms: it goes to a supplier, for goods sent back or a price put right. */
+export const DEBIT_NOTE_TERMS: readonly string[] = [
+  'The amount of this note has been debited to your account, against your invoice quoted above.',
+  'Please issue a credit note for this amount with GST, quoting this note number, so that the tax can be adjusted in the returns.',
+  'The amount will be adjusted against our payments due to you. Where nothing is due, please refund it.',
+  'Goods returned with this note are at your risk from the time of dispatch. Please acknowledge their receipt.',
+  'Any discrepancy is to be reported in writing within 7 days of receipt. Otherwise this note will be taken as accepted.',
+];
+
 /**
  * An item document (invoice / order / quotation) as it prints — the same figures the screen shows: every amount comes from
  * `preview.amounts`/`total`/`gst`/`grand`, indexed exactly as `previewSales` computed them, so a printed figure can never disagree with it.
@@ -63,6 +83,7 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
     ...(delivery ? { titleCentred: true, poLabel: 'PO / Ref.' } : {}),
     ...(returnable ? { titleCentred: true, poLabel: 'Reference', returnable: { terms: form.returnOf ? [] : RETURNABLE_TERMS, acknowledge: !form.returnOf } } : {}),
     ...(note ? { poLabel: noteFor ? 'Against Inv.' : 'Reference' } : {}),
+    ...(kind === 'purchaseOrder' ? { ownTerms: PURCHASE_ORDER_TERMS } : kind === 'debitNote' ? { ownTerms: DEBIT_NOTE_TERMS } : {}),
     numberLabel: kind === 'sales' ? 'Invoice No.' : delivery || returnable ? 'Challan No.' : note ? 'Note No.' : undefined,
     number: voucher.number,
     date: voucher.date,

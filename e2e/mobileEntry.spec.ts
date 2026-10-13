@@ -234,6 +234,37 @@ test.describe('entering a document by touch', () => {
     await expect(page.getByTestId('doc-invoice')).toHaveCount(0); // free of cost: never invoiced
     expect(problems).toEqual([]);
   });
+
+  test('a Returnable Challan by taps: a supplier, an item out of its godown, no purpose asked — and Mark returned brings it back', async ({ page }) => {
+    const problems = watch(page);
+    await page.getByTestId('gateway-new').tap();
+    await page.getByTestId('new-returnableChallan').tap();
+    await expect(title(page)).toHaveText('New Returnable Challan');
+    await expect(page.getByRole('group', { name: 'Purpose of the challan' })).toHaveCount(0); // it is always returnable
+    await page.getByTestId('entry-party').tap();
+    await picker(page).getByLabel('Search suppliers').fill('steel');
+    await picker(page).getByTestId('pick-row').first().tap();
+    await expect(page.getByTestId('entry-party')).toContainText('Steel Supplies Pvt Ltd');
+    await addItem(page, 'machine oil');
+    await expect(sheet(page)).toContainText('Godown');
+    await page.getByTestId('line-qty').fill('2');
+    await page.getByTestId('line-rate').fill('200');
+    await page.getByTestId('line-done').tap();
+    await page.getByTestId('entry-save').tap();
+    await expect(title(page)).toHaveText(/^Returnable Challan RC\//);
+    await expect(page.getByTestId('doc-returnable')).toContainText('Out');
+    await expect(page.getByTestId('doc-edit')).toBeVisible();
+
+    await page.getByTestId('doc-returned').tap();
+    await expect(page.getByTestId('doc-returnable')).toContainText('Returned');
+    await expect(page.getByTestId('doc-returnable')).toContainText(/Brought back by RC\//);
+    await expect(page.getByTestId('doc-returned')).toHaveCount(0);
+    await expect(page.getByTestId('doc-edit')).toHaveCount(0); // it has come back: nothing left to change
+    // the return itself says what it brought back
+    await page.getByTestId('doc-returnable').tap();
+    await expect(page.getByTestId('doc-returnable')).toContainText(/^Return of RC\//);
+    expect(problems).toEqual([]);
+  });
 });
 
 test.describe('choosing lines of a Sales Order', () => {

@@ -208,6 +208,32 @@ function ReturnableFoot({ company, returnable }: { company: PrintCompany; return
   );
 }
 
+/** The foot of a document made out to a supplier: its own terms across the page — no bank details or thank-you note (nobody pays us on it). */
+function OwnTermsFoot({ company, terms }: { company: PrintCompany; terms: readonly string[] }) {
+  return (
+    <>
+      {terms.length > 0 && (
+        <div class="inv-foot">
+          <div class="terms wide" data-testid="print-own-terms">
+            <div class="label">Terms &amp; Conditions</div>
+            <ol>
+              {terms.map((t, i) => (
+                <li key={i}>{t}</li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      )}
+      <div class="inv-sign">
+        <div>
+          <div class="for-company">For {company.name}</div>
+          <div class="sign-line">Authorised Signatory</div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function LedgerBody({ doc, company, copyLabel }: { doc: LedgerDoc; company: PrintCompany; copyLabel: string | undefined }) {
   return (
     <>
@@ -346,7 +372,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
       </div>
       {doc.narration && <Narration text={doc.narration} />}
       {doc.paymentStatus && <PaymentStatusBox status={doc.paymentStatus} />}
-      {doc.returnable ? <ReturnableFoot company={company} returnable={doc.returnable} /> : <BankAndSign company={company} />}
+      {doc.returnable ? <ReturnableFoot company={company} returnable={doc.returnable} /> : doc.ownTerms ? <OwnTermsFoot company={company} terms={doc.ownTerms} /> : <BankAndSign company={company} />}
     </>
   );
 }

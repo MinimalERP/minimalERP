@@ -113,7 +113,7 @@
 .print-root .inv-foot .terms { max-width: 55%; }
 .print-root .inv-foot .terms ol { margin: 0; padding-left: 16px; }
 .print-root .inv-foot .terms li { margin-bottom: 2px; }
-.print-root .inv-foot .terms.wide { max-width: none; } /* a returnable challan's own terms: nothing beside them, so the full width */
+.print-root .inv-foot .terms.wide { max-width: none; } /* a document's own terms (a returnable challan, a purchase order, a debit note): nothing beside them, so the full width */
 .print-root .inv-foot .thanks { margin-top: 8px; font-style: italic; }
 
 .print-root .inv-sign { display: flex; justify-content: flex-end; margin-top: 18px; break-inside: avoid; page-break-inside: avoid; }

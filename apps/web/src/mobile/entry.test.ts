@@ -4,9 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { type Books, BooksHost, type LocalBackend } from '../books/books';
 import { loadDemoCompany } from '../books/demo';
 import { createLocalFactory, memoryStore } from '../books/local';
-import { previewSales } from '../vouchers/salesModel';
+import { previewSales, returnDraftOf } from '../vouchers/salesModel';
 import { docList } from './data';
-import { canAlter, headIssues, invoiceFrom, isBlankEntry, lastRate, lineFor, lineIssues, newForm, startForm, stepQty, withDate, withParty } from './entry';
+import { canAlter, headIssues, invoiceFrom, isBlankEntry, lastRate, lineFor, lineIssues, newForm, returnableState, startForm, stepQty, withDate, withParty } from './entry';
 
 const id = (kind: string, name: string) => deterministicUuid(`demo|${kind}|${name}`);
 const SHARMA = id('party', 'Sharma Traders');
@@ -102,5 +102,29 @@ describe('touch entry fills the desktop’s own form', () => {
     // an order with nothing pending starts a plain invoice
     expect(startForm(books, { kind: 'sales', fromOrder: closed.id })?.lines).toEqual([]);
     expect(startForm(books, { kind: 'sales', partyId: ABC })?.partyId).toBe(ABC);
+  });
+
+  it('a Returnable Challan goes to a supplier, takes the goods out, and is altered only until it has come back', async () => {
+    const books = await demo();
+    const STEEL = id('party', 'Steel Supplies Pvt Ltd');
+    const start = withParty(newForm(books, 'returnableChallan')!, 'returnableChallan', books, STEEL);
+    expect(start.partyLabel).toBe('Steel Supplies Pvt Ltd');
+    const line = lineFor(books, 'returnableChallan', start, OIL);
+    expect(line.warehouseLabel).toBe('Main Location');
+    const made = preview(books, 'returnableChallan', { ...start, lines: [{ ...line, qty: '2', rate: '200' }] });
+    expect(made.issues).toEqual([]);
+    const posted = await books.post(made.draft);
+    if (!posted.ok) throw new Error(JSON.stringify(posted.issues));
+    const challan = posted.value.voucher;
+    expect(returnableState(books, challan)).toBe('out');
+    expect(canAlter(books, challan)).toBe(true);
+
+    const back = await books.post(returnDraftOf(challan, { id: crypto.randomUUID(), date: challan.date }));
+    if (!back.ok) throw new Error(JSON.stringify(back.issues));
+    expect(returnableState(books, books.voucher(challan.id)!)).toBe('returned');
+    expect(canAlter(books, books.voucher(challan.id)!)).toBe(false);
+    expect(returnableState(books, back.value.voucher)).toBe('return');
+    expect(canAlter(books, back.value.voucher)).toBe(false);
+    expect(returnableState(books, books.voucher(docList(books, 'sales', '2026-06-30')[0]!.voucherId)!)).toBeUndefined();
   });
 });
