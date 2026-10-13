@@ -32,12 +32,14 @@ const addressLines = (a: PrintAddress | undefined): string[] =>
 export function layoutData(doc: InvoiceDoc | LedgerDoc, company: PrintCompany, copyLabel: string | undefined, images: Readonly<Record<string, string>>): TemplateData {
   // a returnable challan prints its own terms, never the invoice's (see `InvoiceDoc.returnable`)
   const returnable = doc.kind === 'invoice' ? doc.returnable : undefined;
-  const terms = returnable ? returnable.terms : (company.invoiceTerms?.split('\n').filter((t) => t.trim() !== '') ?? []);
+  // so does a document made out to a supplier: what we ask of them, never what we tell a customer (see `InvoiceDoc.ownTerms`)
+  const ownTerms = doc.kind === 'invoice' ? doc.ownTerms : undefined;
+  const terms = returnable ? returnable.terms : ownTerms ? ownTerms : (company.invoiceTerms?.split('\n').filter((t) => t.trim() !== '') ?? []);
   const common = {
     company: { ...company, terms: terms.map((text) => ({ text })) },
     images: { logo: images['logo'], signature: images['signature'] },
     hasTerms: terms.length > 0,
-    termsLabel: returnable ? 'Terms & Conditions' : 'Terms',
+    termsLabel: returnable || ownTerms ? 'Terms & Conditions' : 'Terms',
     copyLabel,
     title: doc.docTitle,
     number: doc.number,
@@ -63,6 +65,7 @@ export function layoutData(doc: InvoiceDoc | LedgerDoc, company: PrintCompany, c
     poLabel: doc.poLabel ?? 'PO No.',
     titleCentred: doc.titleCentred === true,
     returnable: returnable !== undefined,
+    ownTerms: returnable !== undefined || ownTerms !== undefined,
     acknowledge: returnable?.acknowledge === true,
     shipLabel: returnable?.acknowledge ? 'Deliver To' : 'Ship To',
     totalLabel: returnable ? 'Total Value' : 'Total',
@@ -93,7 +96,7 @@ export const LAYOUT_PLACEHOLDERS: Readonly<Record<LayoutShape, readonly string[]
     'company.bankBranch', 'company.invoiceNote', '#hasTerms', '#company.terms … text … /company.terms', 'images.logo', 'images.signature', 'copyLabel', 'title',
     '#titleCentred', 'numberLabel', 'number', 'date', 'poNo', 'poLabel', 'ewayBillNo', 'dcNo', 'placeOfSupply', 'party.name', 'party.label', 'party.gstin', '#party.billTo.lines … text …',
     'shipLabel', '#party.shipTo.lines … text …', '#lines … sno desc hsn qty rate gstRate amount … /lines', 'subtotal', '#gst … cgst sgst igst … /gst', 'roundOff',
-    'totalLabel', 'grandTotal', 'wordsLabel', 'amountInWords', 'narration', 'termsLabel', '#returnable', '#acknowledge',
+    'totalLabel', 'grandTotal', 'wordsLabel', 'amountInWords', 'narration', 'termsLabel', '#returnable', '#ownTerms', '#acknowledge',
   ],
   ledger: [
     'company.name', 'company.address', 'company.gstin', 'company.phone', 'company.email', 'images.logo', 'images.signature', 'copyLabel', 'title',
@@ -199,10 +202,10 @@ const HEAD = `{{#titleCentred}}<div class="title-centre">{{title}}</div>{{/title
 </div>`;
 
 const FOOT = `<div class="foot">
-  {{^returnable}}<div>
+  {{^ownTerms}}<div>
     {{#company.bankName}}<div class="label">Bank details</div><div>{{company.bankName}}</div><div>A/c No. {{company.bankAccountNo}}</div><div>IFSC {{company.bankIfsc}}</div><div>{{company.bankBranch}}</div>{{/company.bankName}}
     {{#company.invoiceNote}}<div><i>{{company.invoiceNote}}</i></div>{{/company.invoiceNote}}
-  </div>{{/returnable}}
+  </div>{{/ownTerms}}
   {{#hasTerms}}<div><div class="label">{{termsLabel}}</div><ol>{{#company.terms}}<li>{{text}}</li>{{/company.terms}}</ol></div>{{/hasTerms}}
 </div>
 <div class="sign">{{#acknowledge}}<div class="recv">

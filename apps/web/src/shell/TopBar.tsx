@@ -65,16 +65,22 @@ export function TopBar() {
 
   // A click on an earlier crumb closes the windows above it one at a time, exactly as the × does — so a window with something entered
   // still asks "Close and leave?", and the walk stops there. One window per render: the next top screen's keys are registered by then.
+  // The walk ends the moment it arrives, and is dropped if the trail changes under it: a window opened meanwhile (F8 straight after the
+  // click) is not part of what was asked to close.
   const target = useRef<number | undefined>(undefined);
+  /** How deep the trail was left by the walk's last step: any other depth means something else moved it. */
+  const reached = useRef(0);
   const closeOne = () => {
     const depth = screens.depth;
     const active = scopes.snapshot();
     registry.dispatch('app.close', { scopes: active.ids, modal: active.modal });
-    if (screens.depth === depth) target.current = undefined; // it asked (or could not close): stop here
+    reached.current = screens.depth;
+    // it asked (or could not close): stop here — and so it does once the crumb that was clicked is on top
+    if (screens.depth === depth || (target.current !== undefined && screens.depth <= target.current)) target.current = undefined;
   };
   useEffect(() => {
     if (target.current === undefined) return;
-    if (screens.depth <= target.current) {
+    if (screens.depth !== reached.current) {
       target.current = undefined;
       return;
     }

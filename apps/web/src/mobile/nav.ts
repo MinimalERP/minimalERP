@@ -34,8 +34,8 @@ export type Page =
    */
   | { readonly page: 'entry'; readonly kind: EntryKind; readonly voucherId?: string; readonly partyId?: string; readonly fromOrder?: string; /** With `fromOrder`: only these lines of the order. */ readonly fromOrderLines?: readonly string[]; /** A document read by Scan: the form starts as what was read, and is posted under its id. */ readonly proposal?: InboxItem };
 
-/** The documents the phone enters: the selling side's, and the Purchase bill. Everything else is entered on the desktop. */
-export type EntryKind = 'sales' | 'salesOrder' | 'quotation' | 'deliveryChallan' | 'purchase';
+/** The documents the phone enters: the selling side's, the Returnable Challan and the Purchase bill. Everything else is entered on the desktop. */
+export type EntryKind = 'sales' | 'salesOrder' | 'quotation' | 'deliveryChallan' | 'returnableChallan' | 'purchase';
 
 interface HistoryWindow {
   readonly history: { pushState(data: unknown, unused: string): void; back(): void };

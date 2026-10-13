@@ -332,7 +332,7 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
               {head.find((i) => i.field === 'billno') ? <p class="m-note bad">{head.find((i) => i.field === 'billno')?.message}</p> : null}
             </>
           ) : null}
-          {p.challan ? (
+          {p.challan && !p.returnable ? (
             <div class="m-field">
               <span class="m-field-label">Purpose</span>
               <span class="m-seg" role="group" aria-label="Purpose of the challan">
@@ -404,7 +404,7 @@ export function Entry({ books, nav, kind, voucherId, partyId, fromOrder, fromOrd
           title={namingLine ? 'Which item is this?' : 'Add item'}
           label="Search items"
           initial={namingLine?.itemLabel ?? ''}
-          options={itemOptions(masters, p.invoice || p.order || p.challan).map((o) => ({ ...o, value: stockOf(books, o.id, form.date) }))}
+          options={itemOptions(masters, p.invoice || p.order || (p.challan && !p.returnable)).map((o) => ({ ...o, value: stockOf(books, o.id, form.date) }))}
           onChoose={chooseItem}
           onClose={() => nav.closeLayer()}
           empty="No such item."

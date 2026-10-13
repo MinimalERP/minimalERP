@@ -92,4 +92,15 @@ describe('the built-in layouts, written as layouts', () => {
     expect(html).toContain("Receiver's Signature");
     expect(html).toContain('Total Value');
   });
+
+  it('a purchase order or debit note: its own terms for the supplier, not the invoice’s, and no bank details', () => {
+    const order: InvoiceDoc = { ...invoice, voucherKind: 'purchaseOrder', docTitle: 'Purchase Order', ownTerms: ['Quote this order number'] };
+    const r = renderTemplate(BUILT_IN_LAYOUTS.invoice, layoutData(order, { ...company, bankName: 'HDFC Bank' }, 'Original', {}));
+    const html = r.ok ? r.html : '';
+    expect(html).toContain('Terms &amp; Conditions');
+    expect(html).toContain('<li>Quote this order number</li>');
+    expect(html).not.toContain('Goods once sold');
+    expect(html).not.toContain('HDFC Bank');
+    expect(html).not.toContain("Receiver's Signature");
+  });
 });

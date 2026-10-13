@@ -66,6 +66,11 @@ export interface InvoiceDoc {
    * over (`acknowledge`) — a place for the receiver to sign for them.
    */
   readonly returnable?: { readonly terms: readonly string[]; readonly acknowledge: boolean } | undefined;
+  /**
+   * A document made out to a supplier (a purchase order, a debit note): it prints these terms — what we ask of the supplier — in place of
+   * the company's invoice terms, and no bank details or thank-you note (those are for whoever pays us).
+   */
+  readonly ownTerms?: readonly string[] | undefined;
   /** The E-way Bill number for this invoice's movement of goods (Sales) — shown only when present. */
   readonly ewayBillNo?: string | undefined;
   /** The delivery challans a sales invoice bills ("DC/26-27/0004, DC/26-27/0007") — shown only when present. */

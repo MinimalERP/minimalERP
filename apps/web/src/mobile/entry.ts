@@ -36,6 +36,7 @@ export const ENTRY_KINDS: readonly { readonly kind: EntryKind; readonly title: s
   { kind: 'salesOrder', title: 'Sales Order', hint: 'What a customer has ordered' },
   { kind: 'quotation', title: 'Quotation', hint: 'Prices for a customer' },
   { kind: 'deliveryChallan', title: 'Delivery Challan', hint: 'Goods out now, billed later or free' },
+  { kind: 'returnableChallan', title: 'Returnable Challan', hint: 'Goods to a supplier that come back' },
   { kind: 'purchase', title: 'Purchase Bill', hint: "A supplier's invoice: the goods come in" },
 ];
 
@@ -101,11 +102,22 @@ export function startForm(books: Books, start: { readonly kind: EntryKind; reado
   return start.partyId ? withParty(blank, start.kind, books, start.partyId) : blank;
 }
 
-/** Whether the phone may open this posted document for altering: one of its four kinds, still posted, and not a quotation already made into an order. */
+/**
+ * Whether the phone may open this posted document for altering: one of its kinds, still posted, and not a quotation already made into an
+ * order — nor a returnable challan that has come back, or the return that brought one back.
+ */
 export function canAlter(books: Books, voucher: Voucher): boolean {
   const kind = books.masters.voucherType(voucher.voucherTypeId)?.baseKind;
   if (voucher.status !== 'posted' || !isEntryKind(kind)) return false;
+  if (kind === 'returnableChallan') return returnableState(books, voucher) === 'out';
   return !(kind === 'quotation' && orderOfQuotation(voucher.id, books.vouchers) !== undefined);
+}
+
+/** Where a posted Returnable Challan stands: its goods are still out, they have come back, or it is itself the return of one. Undefined for anything else. */
+export function returnableState(books: Books, voucher: Voucher): 'out' | 'returned' | 'return' | undefined {
+  if (voucher.status !== 'posted' || books.masters.voucherType(voucher.voucherTypeId)?.baseKind !== 'returnableChallan') return undefined;
+  if (typeof (voucher.content as { returnOf?: unknown }).returnOf === 'string') return 'return';
+  return books.orders.challans.returnOf(voucher.id) ? 'returned' : 'out';
 }
 
 /** What a posted order or challan can still be invoiced (a purchase order: billed) for, said as the button that does it — or nothing. */

@@ -296,7 +296,9 @@ test.describe('the Purchase Order and receiving against it', () => {
 
   test('the Purchase Order Register: one row per order line with what is received and pending; and the stock shows what is on order', async ({ app }) => {
     await openReport(app, 'Purchase Order Register');
-    await expect(app.getByRole('columnheader', { name: /Received/ })).toBeVisible();
+    // what was ordered and received is read from Fill: no columns of their own
+    await expect(app.getByRole('columnheader', { name: /Fill/ })).toBeVisible();
+    await expect(app.getByRole('columnheader', { name: /Ordered|Received/ })).toHaveCount(0);
     await expect(app.getByRole('columnheader', { name: /Supplier ref/ })).toBeVisible();
     await expect(gridRows(app)).toHaveCount(2);
     await expect(gridRows(app).filter({ hasText: 'MS Sheet 2mm' })).toContainText('SS/Q/31');
