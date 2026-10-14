@@ -334,12 +334,12 @@ describe('the HSN / SAC a line prints', () => {
 });
 
 describe('a quotation as it prints', () => {
-  it('prints the standard quotation terms, valid for 7 days from its date, in place of the invoice terms', async () => {
+  it('prints the standard quotation terms, valid for 7 days, in place of the invoice terms', async () => {
     const books = await demo();
     const typeId = books.masters.voucherTypes.find((t) => t.baseKind === 'quotation')!.id;
     const po = purchaseOrder(books)!;
     const form = { ...salesFormFromVoucher(po, books.masters, books.orders), typeId, date: '2026-10-14' };
     const doc = invoiceDocOf({ ...po, voucherTypeId: typeId } as never, form, 'quotation', previewSales(form, 'quotation', books.masters, books.stock, books.orders), books.masters)!;
-    expect(doc.ownTerms?.[0]).toContain('valid for 7 days from its date, up to 21-Oct-2026');
+    expect(doc.ownTerms?.[0]).toBe('Valid for 7 days from the date of this quotation.');
   });
 });

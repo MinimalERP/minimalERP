@@ -2,7 +2,7 @@ import { type Masters, type Money, type Qty, type Voucher, parseQty, qty } from 
 import type { Books } from '../books/books';
 import type { DocketDoc, InvoiceDoc } from '../ui/PrintView';
 import { placeOfSupplyText } from '../ui/printing';
-import { addDays, formatDate, formatQuantity } from './format';
+import { formatQuantity } from './format';
 import { type ItemDocKind, docProfile, receivedAtOurs } from './kinds';
 import { type SalesForm, type SalesLineForm, type SalesPreview, previewSales, salesFormFromVoucher, salesKindOf } from './salesModel';
 
@@ -39,19 +39,16 @@ export const DEBIT_NOTE_TERMS: readonly string[] = [
   'Any discrepancy is to be reported in writing within 7 days of receipt. Otherwise this note will be taken as accepted.',
 ];
 
-/** How many days a quotation holds good from its date. */
-export const QUOTATION_VALID_DAYS = 7;
-
-/** What a quotation prints in place of the company's invoice terms: the standard terms of an offer, valid until `validUntil`. */
-export const quotationTerms = (validUntil: string): readonly string[] => [
-  `This quotation is valid for ${QUOTATION_VALID_DAYS} days from its date, up to ${validUntil}. After that, prices and delivery are subject to our reconfirmation.`,
-  'Prices are in Indian Rupees, ex-works, for the quantities and specifications quoted. GST and other taxes are extra at the rates in force on the date of supply, unless shown above.',
-  'Packing, forwarding, freight and transit insurance are extra unless stated otherwise.',
-  'Delivery as agreed, counted from the receipt of your purchase order with all technical details, drawings and specifications made clear.',
-  'Any change in drawing, specification or quantity may change the price and delivery.',
-  'Payment: as per the agreed credit terms, counted from the date of our invoice.',
-  'An order once accepted cannot be cancelled without our written consent, as parts are made to your requirement.',
-  'Our liability is limited to repairing or replacing items found defective in material or workmanship and reported in writing within 7 days of receipt. We are not liable for any consequential loss.',
+/** What a quotation prints in place of the company's invoice terms: the standard terms of an offer. */
+export const QUOTATION_TERMS: readonly string[] = [
+  'Valid for 7 days from the date of this quotation.',
+  'Prices in INR, ex-works, for the quantities and specifications quoted. GST and other taxes extra, unless shown above.',
+  'Packing, forwarding, freight and insurance extra, unless stated.',
+  'Delivery as agreed, from receipt of your purchase order with complete technical details.',
+  'Any change in drawing, specification or quantity may change price and delivery.',
+  'Payment as per agreed credit terms, from the invoice date.',
+  'Accepted orders cannot be cancelled without our written consent.',
+  'Defects in material or workmanship, reported in writing within 7 days of receipt, will be repaired or replaced. No liability for consequential loss.',
   'Please quote this quotation number on your purchase order.',
   'Subject to the jurisdiction of the courts at our place of business.',
 ];
@@ -107,7 +104,7 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
       : kind === 'debitNote'
         ? { ownTerms: DEBIT_NOTE_TERMS }
         : kind === 'quotation'
-          ? { ownTerms: quotationTerms(formatDate(addDays(form.date, QUOTATION_VALID_DAYS))) }
+          ? { ownTerms: QUOTATION_TERMS }
           : {}),
     numberLabel: kind === 'sales' ? 'Invoice No.' : delivery || returnable ? 'Challan No.' : note ? 'Note No.' : undefined,
     number: voucher.number,
