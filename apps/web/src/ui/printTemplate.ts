@@ -159,6 +159,7 @@ const STYLE = `<style>
   .label { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.04em; color: #333; margin-bottom: 3px; }
   table.items { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
   table.items th, table.items td { border: 1px solid #000; padding: 4px 6px; }
+  table.items td { white-space: pre-line; }
   table.items th { font-size: 10.5px; text-transform: uppercase; text-align: left; }
   table.items thead { display: table-header-group; }
   table.items tr { break-inside: avoid; }

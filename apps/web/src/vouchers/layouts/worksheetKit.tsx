@@ -129,6 +129,8 @@ export function Cell(props: {
   readonly base?: string;
   readonly id?: string;
   readonly spellcheck?: boolean;
+  /** Not typed in here (a text of several lines, which a one-line cell would flatten): it is changed elsewhere. */
+  readonly readOnly?: boolean;
 }) {
   const { host, field, variant = 'text' } = props;
   return (
@@ -141,7 +143,7 @@ export function Cell(props: {
       {...(variant === 'num' ? { inputMode: 'decimal' as const } : {})}
       {...(variant === 'combo' ? { role: 'combobox', 'aria-expanded': host.isFocus(field) && !host.readOnly, spellcheck: false } : {})}
       {...(props.spellcheck === false ? { spellcheck: false } : {})}
-      readOnly={host.readOnly}
+      readOnly={host.readOnly || props.readOnly === true}
       autocomplete="off"
       value={props.value}
       onFocus={() => !host.isFocus(field) && host.go(field)}

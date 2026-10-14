@@ -250,6 +250,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const [docketOpen, setDocketOpen] = useState(false);
   /** The line whose one-time form (Alt+T) is open. */
   const [oneTimeFor, setOneTimeFor] = useState<number | undefined>(undefined);
+  /** The quotation line whose own description (Alt+W) is being written. */
+  const [detailsFor, setDetailsFor] = useState<number | undefined>(undefined);
   const leave = useLeaveGuard('This document has not been saved.');
   const rootRef = useRef<HTMLDivElement>(null);
   /** Clicking blank space deactivates the active field until a field is clicked or a key pressed. */
@@ -261,9 +263,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const gstOn = (p.invoice || p.quote || p.challan) && masters.company.chargeGst === true;
   /** Where a written (Alt+T) line is offered: an invoice, an order, a quotation, or a challan (on a returnable one it goes and comes back, moving no stock). */
   const oneTimeHere = p.invoice || p.quote || p.order || p.challan;
-  /** Where a service item is offered: an invoice (it is billed), an order (it has no godown and moves nothing itself), or a delivery
-   * challan (not returnable) — job work on a part that was never our own stock, so nothing of ours leaves on it either. */
-  const serviceHere = p.invoice || p.order || (p.challan && !p.returnable);
+  /** Where a service item is offered: every item document — it has no godown and moves no stock, so it is billed, quoted, ordered or sent like a written line. */
+  const serviceHere = p.invoice || p.order || p.quote || p.challan;
   const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
   const type = masters.voucherType(form.typeId as never);
   const fields = fieldsOf(form, kind, masters, gstOn);
@@ -810,6 +811,12 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     setOneTimeFor(current.line);
     return true;
   };
+  /** Alt+W on a quotation's stock item line: lines of text printed under the item's name. */
+  const openDetails = (): boolean => {
+    if (readOnly || !p.quote || current.line === undefined || !line?.itemId) return false;
+    setDetailsFor(current.line);
+    return true;
+  };
   /** On an item line, a way straight to that item's own master — to check its stock, drawing or last sale without leaving (and losing) the voucher's draft. */
   const openItemDetails = (): boolean => {
     if (current.line === undefined || !line?.itemId) return false;
@@ -1159,13 +1166,20 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
                 field={`l${i}.item`}
                 base="vcell one-time"
                 label={`Line ${i + 1} one-time line`}
-                value={l.itemLabel}
+                value={l.itemLabel.split('\n')[0] ?? ''}
                 spellcheck={false}
+                readOnly={l.itemLabel.includes('\n')}
                 onInput={(text) => {
                   setLine(i, { itemLabel: text });
                   clearError(`line.${i}.item`);
                 }}
               />
+              {/* a description of several lines shows its first line in the cell (edited in its Alt+T form) and the rest under it */}
+              {l.itemLabel.includes('\n') && (
+                <div class="vbal" style={{ whiteSpace: 'pre-line', fontStyle: 'normal' }} data-testid="one-time-more">
+                  {l.itemLabel.split('\n').slice(1).join('\n')}
+                </div>
+              )}
               {errorOf(`line.${i}.item`)}
               {!isFocus(`l${i}.item`) && (
                 <div class="vbal" data-testid="one-time-note">
@@ -1175,6 +1189,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             </>
           ) : (
             pickerInput(`l${i}.item`, `Line ${i + 1} stock item`, l.itemLabel, (v) => setLine(i, { itemLabel: v }), `line.${i}.item`)
+          )}
+          {!l.oneTime && (l.details ?? '') !== '' && (
+            <div class="vbal" style={{ whiteSpace: 'pre-line', fontStyle: 'normal' }} data-testid="line-details">
+              {l.details}
+            </div>
           )}
           {isService && !isFocus(`l${i}.item`) && (
             <div class="vbal" data-testid="service-note">
@@ -1357,12 +1376,27 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       {mode !== 'create' && voucher?.status === 'posted' && p.invoice && !p.note && p.side === 'purchase' && <PurchaseInvoiceShown />}
       {!readOnly && oneTimeHere && current.kind === 'item' && oneTimeFor === undefined && <Only scope={SCOPE} command="voucher.oneTimeLine" run={openOneTime} />}
       {current.line !== undefined && line?.itemId && <Only scope={SCOPE} command="voucher.itemDetails" run={openItemDetails} />}
+      {!readOnly && p.quote && current.line !== undefined && line?.itemId && detailsFor === undefined && <Only scope={SCOPE} command="voucher.lineDescription" run={openDetails} />}
+      {detailsFor !== undefined && (
+        <FieldsDialog
+          title={`Line ${detailsFor + 1}: description under ${form.lines[detailsFor]?.itemLabel ?? 'the item'}`}
+          enterOnly
+          fields={[{ key: 'details', label: 'Description', value: form.lines[detailsFor]?.details ?? '', hint: 'printed under the item — Shift+Enter for a new line, Enter to apply', multiline: true }]}
+          validate={(v) => ((v['details'] ?? '').trim().length > 1000 ? { details: 'At most 1000 characters' } : {})}
+          onDone={(v) => {
+            const i = detailsFor;
+            setDetailsFor(undefined);
+            if (v) setLine(i, { details: (v['details'] ?? '').trim() });
+            go(`l${i}.item`);
+          }}
+        />
+      )}
       {oneTimeFor !== undefined && (
         <FieldsDialog
           title={`Line ${oneTimeFor + 1}: one-time line (not a stock item)`}
           enterOnly
           fields={[
-            { key: 'description', label: 'Description', value: form.lines[oneTimeFor]?.itemLabel ?? '', hint: 'what is sold or bought — leave empty to make it a stock item line again' },
+            { key: 'description', label: 'Description', value: form.lines[oneTimeFor]?.itemLabel ?? '', hint: 'what is sold or bought — Shift+Enter for a new line; leave empty to make it a stock item line again', multiline: true },
             { key: 'hsn', label: 'HSN / SAC', value: form.lines[oneTimeFor]?.hsn ?? '', hint: '4 to 8 digits' },
             { key: 'qty', label: 'Qty', value: form.lines[oneTimeFor]?.qty || '1' },
             { key: 'unit', label: 'Unit', value: form.lines[oneTimeFor]?.unit ?? '', hint: unitNames.join(', ') },

@@ -94,6 +94,8 @@ export interface InputField {
   readonly hint?: string;
   /** A field that names one of these: what is typed lists the ones that match, and Enter (or a click) takes the one on top. */
   readonly options?: readonly string[];
+  /** A text box of several lines: Shift+Enter starts a new line, Enter still moves on. */
+  readonly multiline?: boolean;
 }
 
 export function FieldsDialog(props: {
@@ -114,7 +116,7 @@ export function FieldsDialog(props: {
   const [at, setAt] = useState(() => Math.max(0, props.fields.findIndex((f) => f.key === props.initial)));
   const root = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    const el = root.current?.querySelector<HTMLInputElement>(`[data-rf="${props.fields[at]?.key}"]`);
+    const el = root.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-rf="${props.fields[at]?.key}"]`);
     el?.focus();
     el?.select();
   }, [at]);
@@ -170,20 +172,37 @@ export function FieldsDialog(props: {
               {f.label}
             </label>
             <div class="field-control">
-              <input
-                id={`rf-${f.key}`}
-                data-rf={f.key}
-                class={errors[f.key] ? 'field-input invalid' : 'field-input'}
-                type="text"
-                autocomplete="off"
-                spellcheck={false}
-                value={values[f.key] ?? ''}
-                onFocus={() => setAt(i)}
-                onInput={(e) => {
-                  setValues({ ...values, [f.key]: (e.target as HTMLInputElement).value });
-                  setErrors({ ...errors, [f.key]: '' });
-                }}
-              />
+              {f.multiline ? (
+                <textarea
+                  id={`rf-${f.key}`}
+                  data-rf={f.key}
+                  class={errors[f.key] ? 'field-input invalid' : 'field-input'}
+                  rows={4}
+                  style={{ resize: 'vertical', fontFamily: 'inherit' }}
+                  spellcheck={false}
+                  value={values[f.key] ?? ''}
+                  onFocus={() => setAt(i)}
+                  onInput={(e) => {
+                    setValues({ ...values, [f.key]: (e.target as HTMLTextAreaElement).value });
+                    setErrors({ ...errors, [f.key]: '' });
+                  }}
+                />
+              ) : (
+                <input
+                  id={`rf-${f.key}`}
+                  data-rf={f.key}
+                  class={errors[f.key] ? 'field-input invalid' : 'field-input'}
+                  type="text"
+                  autocomplete="off"
+                  spellcheck={false}
+                  value={values[f.key] ?? ''}
+                  onFocus={() => setAt(i)}
+                  onInput={(e) => {
+                    setValues({ ...values, [f.key]: (e.target as HTMLInputElement).value });
+                    setErrors({ ...errors, [f.key]: '' });
+                  }}
+                />
+              )}
               {errors[f.key] && (
                 <span class="field-error" role="alert">
                   {errors[f.key]}

@@ -54,7 +54,8 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
       const unit = unitOfLine(l, masters);
       const q = parseQty(l.qty.trim());
       return {
-        desc: l.itemLabel,
+        // a quotation's item line prints its own description (Alt+W) under the item's name
+        desc: l.itemId !== '' && (l.details ?? '').trim() !== '' ? `${l.itemLabel}\n${(l.details ?? '').trim()}` : l.itemLabel,
         hsn: l.hsn,
         qty: q !== undefined ? `${formatQuantity(q, unit?.decimals ?? 0)} ${unit?.symbol ?? l.unit ?? ''}`.trim() : l.qty,
         rate: l.rate,
