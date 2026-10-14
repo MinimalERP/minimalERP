@@ -167,3 +167,69 @@ describe('a service item on a Sales Order / Purchase Order', () => {
     expect(r.ok, r.ok ? '' : r.issues.map((i) => i.message).join('; ')).toBe(true);
   });
 });
+
+describe('a service item on a Quotation and a Returnable Challan', () => {
+  it('a Quotation takes a service item beside a stock item, with its own description under the stock item', () => {
+    const c = company();
+    const r = prepareVoucher(
+      {
+        id: newId('qt'),
+        voucherTypeId: c.type('quotation'),
+        date: '2026-09-24',
+        partyId: newId('acme'),
+        partyDetails: details(newId('acme')),
+        lines: [
+          { id: 'a', itemId: c.bolt, details: 'Zinc plated\nPacked in tens', qty: '10', rate: '50' },
+          { id: 'b', itemId: c.amc, qty: '1', rate: '5000' },
+        ],
+      },
+      c.m,
+      kinds,
+      c.stock,
+      new OrderBook([], []),
+    );
+    expect(r.ok, r.ok ? '' : JSON.stringify(r.issues)).toBe(true);
+    if (r.ok) expect(r.value.plan.stock).toHaveLength(0);
+  });
+
+  it('a Returnable Challan takes a service item with no godown: only the stock line leaves its godown', () => {
+    const c = company();
+    run: {
+      const r = prepareVoucher(
+        {
+          id: newId('rc'),
+          voucherTypeId: c.type('returnableChallan'),
+          date: '2026-09-24',
+          partyId: newId('steel'),
+          partyDetails: details(newId('steel')),
+          lines: [
+            { id: 'a', itemId: c.bolt, warehouseId: c.main, qty: '5', rate: '4' },
+            { id: 'b', itemId: c.amc, qty: '1', rate: '0' },
+          ],
+        },
+        c.m,
+        kinds,
+        c.stock,
+        new OrderBook([], []),
+      );
+      expect(r.ok, r.ok ? '' : JSON.stringify(r.issues)).toBe(true);
+      if (!r.ok) break run;
+      expect(r.value.plan.stock).toEqual([expect.objectContaining({ itemId: c.bolt, direction: 'out' })]);
+    }
+    const withGodown = prepareVoucher(
+      {
+        id: newId('rc2'),
+        voucherTypeId: c.type('returnableChallan'),
+        date: '2026-09-24',
+        partyId: newId('steel'),
+        partyDetails: details(newId('steel')),
+        lines: [{ id: 'a', itemId: c.amc, warehouseId: c.main, qty: '1', rate: '0' }],
+      },
+      c.m,
+      kinds,
+      c.stock,
+      new OrderBook([], []),
+    );
+    expect(withGodown.ok ? [] : withGodown.issues.map((i) => i.path)).toContain('lines.0.warehouseId');
+  });
+});

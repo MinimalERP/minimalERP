@@ -66,7 +66,7 @@ export const quotationKind = defineVoucherKind<QuotationDraft>({
       } else if (l.itemId === undefined && l.description === undefined) {
         problems.push(issue(IssueCode.SalesDocInvalid, 'Choose a stock item — or write the line and press Alt+T', `${path}.itemId`));
       } else if (l.itemId !== undefined) {
-        problems.push(...itemQtyProblems(l.itemId, l.qty, masters, path));
+        problems.push(...itemQtyProblems(l.itemId, l.qty, masters, path, { allowService: true }));
         if (l.unit !== undefined) problems.push(issue(IssueCode.SalesDocInvalid, 'A stock item line takes the unit of its item', `${path}.unit`));
       } else if ((parseQty(l.qty) ?? 0n) <= 0n) {
         problems.push(issue(IssueCode.StockLineInvalid, 'Enter a quantity above zero', `${path}.qty`));

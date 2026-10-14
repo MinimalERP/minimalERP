@@ -263,9 +263,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const gstOn = (p.invoice || p.quote || p.challan) && masters.company.chargeGst === true;
   /** Where a written (Alt+T) line is offered: an invoice, an order, a quotation, or a challan (on a returnable one it goes and comes back, moving no stock). */
   const oneTimeHere = p.invoice || p.quote || p.order || p.challan;
-  /** Where a service item is offered: an invoice (it is billed), an order (it has no godown and moves nothing itself), or a delivery
-   * challan (not returnable) — job work on a part that was never our own stock, so nothing of ours leaves on it either. */
-  const serviceHere = p.invoice || p.order || (p.challan && !p.returnable);
+  /** Where a service item is offered: every item document — it has no godown and moves no stock, so it is billed, quoted, ordered or sent like a written line. */
+  const serviceHere = p.invoice || p.order || p.quote || p.challan;
   const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
   const type = masters.voucherType(form.typeId as never);
   const fields = fieldsOf(form, kind, masters, gstOn);

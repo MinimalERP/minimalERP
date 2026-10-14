@@ -8,7 +8,8 @@ import { defineVoucherKind } from '../kind';
 import { documentShape, lineValueProblems, onInvoiceLines, partyProblems } from './documents';
 import { grandTotalParts, gstHeaderSchema, invoiceGst, roundOffProblems } from './gstDoc';
 import { percentSchema } from '../../gst/tax';
-import { itemIdSchema, plannedStockOf, qtySchema, rateSchema, shortfallProblems, stockEntryProblems, warehouseIdSchema } from './stockJournal';
+import type { Masters } from '../../masters/masters';
+import { itemIdSchema, itemQtyProblems, plannedStockOf, qtySchema, rateSchema, shortfallProblems, stockEntryProblems, warehouseIdSchema } from './stockJournal';
 
 /**
  * A returnable challan line: a stock item and the godown it leaves — or, written (Alt+T), something that is not our stock (a customer's
@@ -43,13 +44,16 @@ export const returnableChallanDraftSchema = z.object({
 });
 export type ReturnableChallanDraft = z.output<typeof returnableChallanDraftSchema>;
 
-/** The stock lines of a challan — a written line moves nothing, so it has no entry. */
-const asEntries = (draft: ReturnableChallanDraft) =>
+/** A line whose item is a service: a real item, but it holds no stock — it goes and comes back like a written line, moving nothing. */
+const isServiceLine = (l: { itemId?: string | undefined }, masters: Masters): boolean =>
+  l.itemId !== undefined && masters.stockItem(l.itemId as never)?.itemType === 'service';
+/** The stock lines of a challan — a written or service line moves nothing, so it has no entry. */
+const asEntries = (draft: ReturnableChallanDraft, masters: Masters) =>
   draft.lines.flatMap((l) =>
-    l.itemId !== undefined ? [{ itemId: l.itemId, warehouseId: l.warehouseId as WarehouseId, direction: draft.returnOf ? ('in' as const) : ('out' as const), qty: l.qty, ...(draft.returnOf ? { rate: l.rate } : {}) }] : [],
+    l.itemId !== undefined && !isServiceLine(l, masters) ? [{ itemId: l.itemId, warehouseId: l.warehouseId as WarehouseId, direction: draft.returnOf ? ('in' as const) : ('out' as const), qty: l.qty, ...(draft.returnOf ? { rate: l.rate } : {}) }] : [],
   );
-/** Where each stock entry sits on the challan (a written line has none). */
-const placesOf = (draft: ReturnableChallanDraft) => draft.lines.flatMap((l, at) => (l.itemId !== undefined ? [at] : []));
+/** Where each stock entry sits on the challan (a written or service line has none). */
+const placesOf = (draft: ReturnableChallanDraft, masters: Masters) => draft.lines.flatMap((l, at) => (l.itemId !== undefined && !isServiceLine(l, masters) ? [at] : []));
 
 export const returnableChallanKind = defineVoucherKind<ReturnableChallanDraft>({
   base: 'returnableChallan',
@@ -65,7 +69,7 @@ export const returnableChallanKind = defineVoucherKind<ReturnableChallanDraft>({
     if (draft.lines.length === 0) problems.push(issue(IssueCode.TooFewLines, 'A challan needs at least one line', 'lines'));
     problems.push(...invoiceGst(draft, masters, 'sales').problems);
     problems.push(...roundOffProblems(masters, grandTotalParts(draft.lines, draft.gst).roundOff));
-    const places = placesOf(draft);
+    const places = placesOf(draft, masters);
     draft.lines.forEach((l, i) => {
       const path = `lines.${i}`;
       if (l.itemId !== undefined && l.description !== undefined) {
@@ -75,19 +79,22 @@ export const returnableChallanKind = defineVoucherKind<ReturnableChallanDraft>({
       } else if (l.itemId === undefined) {
         if (l.warehouseId !== undefined) problems.push(issue(IssueCode.StockLineInvalid, 'A written line has no godown', `${path}.warehouseId`));
         if ((parseQty(l.qty) ?? 0n) <= 0n) problems.push(issue(IssueCode.StockLineInvalid, 'Enter a quantity above zero', `${path}.qty`));
+      } else if (isServiceLine(l, masters)) {
+        if (l.warehouseId !== undefined) problems.push(issue(IssueCode.StockLineInvalid, 'A service item has no godown', `${path}.warehouseId`));
+        problems.push(...itemQtyProblems(l.itemId, l.qty, masters, path, { allowService: true }));
       } else if (l.warehouseId === undefined) {
         problems.push(issue(IssueCode.StockLineInvalid, 'Choose the godown', `${path}.warehouseId`));
       }
       problems.push(...lineValueProblems(l, path));
     });
-    asEntries(draft).forEach((e, i) => problems.push(...onInvoiceLines(stockEntryProblems(e, masters, `lines.${i}`), places)));
+    asEntries(draft, masters).forEach((e, i) => problems.push(...onInvoiceLines(stockEntryProblems(e, masters, `lines.${i}`), places)));
     problems.push(...(draft.returnOf ? returnProblems(draft, orders.challans) : returnedProblems(draft, orders.challans)));
     if (problems.length > 0) return problems;
-    return onInvoiceLines(shortfallProblems(asEntries(draft), draft.id, draft.date, masters, stock, 'lines'), places);
+    return onInvoiceLines(shortfallProblems(asEntries(draft, masters), draft.id, draft.date, masters, stock, 'lines'), places);
   },
 
   post: () => [],
-  postStock: (draft) => plannedStockOf(asEntries(draft)),
+  postStock: (draft, { masters }) => plannedStockOf(asEntries(draft, masters)),
   stockItems: (draft) => [...new Set(draft.lines.flatMap((l) => (l.itemId !== undefined ? [l.itemId] : [])))],
   // a return is checked against its challan; a challan against its return
   orderIds: (draft) => [draft.returnOf ?? draft.id] as VoucherId[],
