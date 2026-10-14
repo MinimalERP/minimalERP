@@ -319,3 +319,27 @@ describe('a written line (Alt+T) on a purchase order', () => {
   });
 });
 
+
+describe('the HSN / SAC a line prints', () => {
+  it('is the item master’s when the line keeps none (a document of a company that charges no GST)', async () => {
+    const books = await demo();
+    const po = purchaseOrder(books)!;
+    const form = salesFormFromVoucher(po, books.masters, books.orders);
+    const f = { ...form, lines: form.lines.map((l) => ({ ...l, hsn: '' })) };
+    const doc = invoiceDocOf(po, f, 'purchaseOrder', previewSales(f, 'purchaseOrder', books.masters, books.stock, books.orders), books.masters)!;
+    const fromMaster = f.lines.map((l) => books.masters.stockItem(l.itemId as never)?.hsn ?? '');
+    expect(fromMaster.some((h) => h !== '')).toBe(true);
+    expect(doc.lines.map((l) => l.hsn)).toEqual(fromMaster);
+  });
+});
+
+describe('a quotation as it prints', () => {
+  it('prints the standard quotation terms, valid for 7 days, in place of the invoice terms', async () => {
+    const books = await demo();
+    const typeId = books.masters.voucherTypes.find((t) => t.baseKind === 'quotation')!.id;
+    const po = purchaseOrder(books)!;
+    const form = { ...salesFormFromVoucher(po, books.masters, books.orders), typeId, date: '2026-10-14' };
+    const doc = invoiceDocOf({ ...po, voucherTypeId: typeId } as never, form, 'quotation', previewSales(form, 'quotation', books.masters, books.stock, books.orders), books.masters)!;
+    expect(doc.ownTerms?.[0]).toBe('Valid for 7 days from the date of this quotation.');
+  });
+});

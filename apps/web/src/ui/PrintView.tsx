@@ -208,7 +208,7 @@ function ReturnableFoot({ company, returnable }: { company: PrintCompany; return
   );
 }
 
-/** The foot of a document made out to a supplier: its own terms across the page — no bank details or thank-you note (nobody pays us on it). */
+/** The foot of a document with terms of its own (a quotation; a document made out to a supplier): its terms across the page — no bank details or thank-you note (nobody pays us on it). */
 function OwnTermsFoot({ company, terms }: { company: PrintCompany; terms: readonly string[] }) {
   return (
     <>
