@@ -70,6 +70,50 @@ test.describe('the Quotation window', () => {
     await expect(panel(app).locator('[data-command="voucher.cancel"]')).toBeDisabled();
     await expect(panel(app).locator('[data-command="quotation.order"]')).toHaveCount(0);
   });
+
+  test('a line takes a description of several lines: Alt+W under a stock item, Shift+Enter in the Alt+T form of a written line', async ({ app }) => {
+    await openQuotations(app);
+    await panel(app).locator('[data-command="list.new.quotation"]').click();
+    await app.keyboard.type('sharma');
+    await app.keyboard.press('Enter');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('mounting');
+    await app.keyboard.press('Enter');
+    // Alt+W: the item line's own description, printed under the item
+    await app.keyboard.press('Alt+W');
+    await app.keyboard.type('Zinc plated');
+    await app.keyboard.press('Shift+Enter');
+    await app.keyboard.type('Packed in tens');
+    await app.keyboard.press('Enter');
+    await expect(app.getByTestId('line-details')).toHaveText('Zinc plated\nPacked in tens');
+    await app.locator('[data-vf="l0.qty"]').click();
+    await app.keyboard.type('10');
+    await app.keyboard.press('Enter');
+    await app.keyboard.type('55');
+    await app.keyboard.press('Enter');
+    // a written line of two lines: its first in the cell, the rest under it
+    await app.locator('[data-vf="l1.item"]').click();
+    await app.keyboard.type('Fuel valve body');
+    await app.keyboard.press('Alt+T');
+    await app.keyboard.press('End');
+    await app.keyboard.press('Shift+Enter');
+    await app.keyboard.type('As per drawing rev B');
+    await app.keyboard.press('Enter'); // to HSN
+    await app.keyboard.press('Enter'); // to qty
+    await app.keyboard.press('Enter'); // to unit
+    await app.keyboard.press('Enter'); // applies
+    await expect(app.locator('[data-vf="l1.item"]')).toHaveValue('Fuel valve body');
+    await expect(app.getByTestId('one-time-more')).toHaveText('As per drawing rev B');
+    await app.keyboard.type('100');
+    await app.keyboard.press('Control+a');
+    await expect(heading(app)).toHaveText('Quotation Vouchers');
+
+    // saved and opened again, both descriptions are as written
+    await app.keyboard.press('Enter');
+    await expect(heading(app)).toContainText('Display Quotation QT/');
+    await expect(app.getByTestId('line-details')).toHaveText('Zinc plated\nPacked in tens');
+    await expect(app.getByTestId('one-time-more')).toHaveText('As per drawing rev B');
+  });
 });
 
 test.describe('emailing a voucher to its party', () => {

@@ -73,6 +73,8 @@ export interface SalesLineForm {
   oneTime?: boolean;
   /** A one-time line's unit (a unit master's symbol), chosen in its Alt+T form. */
   unit?: string;
+  /** Quotation: a stock item line's own description (Alt+W), printed under the item's name. */
+  details?: string;
 }
 
 export interface SalesForm {
@@ -427,7 +429,7 @@ export function formToSalesDraft(form: SalesForm, kind: ItemDocKind, masters?: M
     return p.order
       ? { id: l.key, ...common, dueDate: l.due }
       : p.quote
-        ? { id: l.key, ...common, ...taxed }
+        ? { id: l.key, ...common, ...taxed, ...((l.details ?? '').trim() !== '' ? { details: (l.details ?? '').trim() } : {}) }
         : l.challanId
           ? { ...common, challanRef: { challanId: l.challanId, lineId: l.challanLineId ?? '' }, ...taxed }
           : {
@@ -754,7 +756,7 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     quotationId?: string;
     purpose?: ChallanPurpose;
     returnOf?: string;
-    lines?: { id?: string; itemId?: string; description?: string; unit?: string; warehouseId?: string; qty: string; rate: string; dueDate?: string; gstRate?: string; hsn?: string; orderRef?: { orderId: string; lineId: string }; challanRef?: { challanId: string; lineId: string } }[];
+    lines?: { id?: string; itemId?: string; description?: string; unit?: string; warehouseId?: string; qty: string; rate: string; dueDate?: string; gstRate?: string; hsn?: string; details?: string; orderRef?: { orderId: string; lineId: string }; challanRef?: { challanId: string; lineId: string } }[];
   };
   const item = (id: string | undefined) => (id === undefined ? '' : (masters.stockItem(id as never)?.name ?? ''));
   const godown = (id: string | undefined) => (id === undefined ? '' : (masters.warehouse(id as never)?.name ?? ''));
@@ -775,6 +777,7 @@ export function salesFormFromVoucher(voucher: Voucher, masters: Masters, orders:
     ...(l.challanRef ? { challanId: l.challanRef.challanId, challanLineId: l.challanRef.lineId } : {}),
     gstRate: l.gstRate ?? '',
     hsn: l.hsn ?? '',
+    ...(l.details ? { details: l.details } : {}),
   }));
   return {
     id: voucher.id,

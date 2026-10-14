@@ -24,7 +24,7 @@ const challanLineSchema = z.object({
   id: lineIdSchema,
   itemId: itemIdSchema.optional(),
   /** A written line: text instead of a stock item. */
-  description: z.string().trim().min(1).max(200).optional(),
+  description: z.string().trim().min(1).max(1000).optional(),
   /** A written line's unit (a unit master's symbol), for the printed challan. */
   unit: z.string().trim().min(1).max(20).optional(),
   warehouseId: warehouseIdSchema.optional(),

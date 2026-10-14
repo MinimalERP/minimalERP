@@ -318,7 +318,7 @@ function InvoiceBody({ doc, company, copyLabel }: { doc: InvoiceDoc; company: Pr
           {doc.lines.map((l, i) => (
             <tr key={i}>
               <td class="center sno">{i + 1}</td>
-              <td>{l.desc}</td>
+              <td style={{ whiteSpace: 'pre-line' }}>{l.desc}</td>
               <td class="center">{l.hsn}</td>
               <td class="num">{l.qty}</td>
               <td class="num">{l.rate}</td>
@@ -523,7 +523,7 @@ function DocketItems({ doc }: { doc: DocketDoc }) {
         {doc.items.map((it, i) => (
           <tr key={i}>
             <td class="center sno">{i + 1}</td>
-            <td>{it.desc}</td>
+            <td style={{ whiteSpace: 'pre-line' }}>{it.desc}</td>
             <td class="center">{it.hsn}</td>
             <td class="num">{it.qty}</td>
           </tr>

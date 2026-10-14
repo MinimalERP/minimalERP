@@ -19,9 +19,11 @@ const quoteLineSchema = z.object({
   id: lineIdSchema,
   itemId: itemIdSchema.optional(),
   /** A ONE-TIME line: written text instead of a stock item. */
-  description: z.string().trim().min(1).max(200).optional(),
+  description: z.string().trim().min(1).max(1000).optional(),
   /** A one-time line's unit (a unit master's symbol: "Nos", "Kg"…), for the printed quote and GST's unit code. */
   unit: z.string().trim().min(1).max(20).optional(),
+  /** A stock item line's own description (Alt+W): lines of text printed under the item's name — the size, the finish, what is included. */
+  details: z.string().trim().min(1).max(1000).optional(),
   qty: qtySchema,
   rate: rateSchema,
   gstRate: percentSchema.optional(),

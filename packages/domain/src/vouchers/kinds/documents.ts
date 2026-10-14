@@ -33,7 +33,7 @@ export const orderLineSchema = z.object({
   /** The stock item — or, on a written line (Alt+T), none: then `description` says what is ordered. */
   itemId: itemIdSchema.optional(),
   /** A WRITTEN line: text instead of a stock item. It is on the order and its print, and an invoice's written line fills it like an item line. */
-  description: z.string().trim().min(1).max(200).optional(),
+  description: z.string().trim().min(1).max(1000).optional(),
   /** A written line's unit (a unit master's symbol) and HSN / SAC, as typed. */
   unit: z.string().trim().min(1).max(20).optional(),
   hsn: z.string().trim().max(10).optional(),
@@ -54,7 +54,7 @@ export const invoiceLineSchema = z.object({
   /** The stock item — or, on a one-time line, none: then `description` says what it is (a job charge, freight, a one-off part). */
   itemId: itemIdSchema.optional(),
   /** A ONE-TIME line: written text instead of a stock item. It is billed and taxed like any line and moves no stock. */
-  description: z.string().trim().min(1).max(200).optional(),
+  description: z.string().trim().min(1).max(1000).optional(),
   /** A one-time line's unit (a unit master's symbol: "Nos", "Kg"…), for the printed invoice and GST's unit code. */
   unit: z.string().trim().min(1).max(20).optional(),
   /** Where the goods leave (sales) or arrive (purchase); a one-time line has none. */
