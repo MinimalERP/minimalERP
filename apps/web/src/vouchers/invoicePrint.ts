@@ -2,7 +2,7 @@ import { type Masters, type Money, type Qty, type Voucher, parseQty, qty } from 
 import type { Books } from '../books/books';
 import type { DocketDoc, InvoiceDoc } from '../ui/PrintView';
 import { placeOfSupplyText } from '../ui/printing';
-import { formatQuantity } from './format';
+import { addDays, formatDate, formatQuantity } from './format';
 import { type ItemDocKind, docProfile, receivedAtOurs } from './kinds';
 import { type SalesForm, type SalesLineForm, type SalesPreview, previewSales, salesFormFromVoucher, salesKindOf } from './salesModel';
 
@@ -39,6 +39,23 @@ export const DEBIT_NOTE_TERMS: readonly string[] = [
   'Any discrepancy is to be reported in writing within 7 days of receipt. Otherwise this note will be taken as accepted.',
 ];
 
+/** How many days a quotation holds good from its date. */
+export const QUOTATION_VALID_DAYS = 7;
+
+/** What a quotation prints in place of the company's invoice terms: the standard terms of an offer, valid until `validUntil`. */
+export const quotationTerms = (validUntil: string): readonly string[] => [
+  `This quotation is valid for ${QUOTATION_VALID_DAYS} days from its date, up to ${validUntil}. After that, prices and delivery are subject to our reconfirmation.`,
+  'Prices are in Indian Rupees, ex-works, for the quantities and specifications quoted. GST and other taxes are extra at the rates in force on the date of supply, unless shown above.',
+  'Packing, forwarding, freight and transit insurance are extra unless stated otherwise.',
+  'Delivery as agreed, counted from the receipt of your purchase order with all technical details, drawings and specifications made clear.',
+  'Any change in drawing, specification or quantity may change the price and delivery.',
+  'Payment: as per the agreed credit terms, counted from the date of our invoice.',
+  'An order once accepted cannot be cancelled without our written consent, as parts are made to your requirement.',
+  'Our liability is limited to repairing or replacing items found defective in material or workmanship and reported in writing within 7 days of receipt. We are not liable for any consequential loss.',
+  'Please quote this quotation number on your purchase order.',
+  'Subject to the jurisdiction of the courts at our place of business.',
+];
+
 /**
  * An item document (invoice / order / quotation) as it prints — the same figures the screen shows: every amount comes from
  * `preview.amounts`/`total`/`gst`/`grand`, indexed exactly as `previewSales` computed them, so a printed figure can never disagree with it.
@@ -56,7 +73,8 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
       return {
         // a quotation's item line prints its own description (Alt+W) under the item's name
         desc: l.itemId !== '' && (l.details ?? '').trim() !== '' ? `${l.itemLabel}\n${(l.details ?? '').trim()}` : l.itemLabel,
-        hsn: l.hsn,
+        // a line keeps the HSN / SAC only where GST is charged: elsewhere the item's own code still prints
+        hsn: l.hsn || itemHsnOf(l, masters),
         qty: q !== undefined ? `${formatQuantity(q, unit?.decimals ?? 0)} ${unit?.symbol ?? l.unit ?? ''}`.trim() : l.qty,
         rate: l.rate,
         amount,
@@ -84,7 +102,13 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
     ...(delivery ? { titleCentred: true, poLabel: 'PO / Ref.' } : {}),
     ...(returnable ? { titleCentred: true, poLabel: 'Reference', returnable: { terms: form.returnOf ? [] : RETURNABLE_TERMS, acknowledge: !form.returnOf } } : {}),
     ...(note ? { poLabel: noteFor ? 'Against Inv.' : 'Reference' } : {}),
-    ...(kind === 'purchaseOrder' ? { ownTerms: PURCHASE_ORDER_TERMS } : kind === 'debitNote' ? { ownTerms: DEBIT_NOTE_TERMS } : {}),
+    ...(kind === 'purchaseOrder'
+      ? { ownTerms: PURCHASE_ORDER_TERMS }
+      : kind === 'debitNote'
+        ? { ownTerms: DEBIT_NOTE_TERMS }
+        : kind === 'quotation'
+          ? { ownTerms: quotationTerms(formatDate(addDays(form.date, QUOTATION_VALID_DAYS))) }
+          : {}),
     numberLabel: kind === 'sales' ? 'Invoice No.' : delivery || returnable ? 'Challan No.' : note ? 'Note No.' : undefined,
     number: voucher.number,
     date: voucher.date,
@@ -103,6 +127,9 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
     narration: [foc ? 'Free of charge (FOC) – not for sale.' : '', returnable && !form.returnOf ? 'Returnable – to be returned to us after the work.' : '', noteFor && form.reference.trim() !== '' ? `Ref: ${form.reference.trim()}.` : '', form.narration].filter(Boolean).join(' ') || undefined,
   };
 }
+
+/** The HSN / SAC of a line's stock (or service) item, from the item master. */
+const itemHsnOf = (l: SalesLineForm, masters: Masters): string => (l.itemId !== '' ? (masters.stockItem(l.itemId as never)?.hsn ?? '') : '');
 
 /** A one-time line prints with the unit chosen in its Alt+T form. */
 const unitOfLine = (l: SalesLineForm, masters: Masters) => {
@@ -163,7 +190,7 @@ export function dispatchDocketOf(vouchers: readonly Voucher[], books: Books, d: 
       const key = l.itemId !== '' ? l.itemId : `${l.itemLabel.trim().toLowerCase()}|${unit?.symbol ?? l.unit ?? ''}`;
       const had = items.get(key);
       if (had) had.qty = qty(had.qty + q);
-      else items.set(key, { desc: l.itemLabel, hsn: l.hsn || undefined, unit: unit?.symbol ?? l.unit ?? '', decimals: unit?.decimals ?? 0, qty: q });
+      else items.set(key, { desc: l.itemLabel, hsn: l.hsn || itemHsnOf(l, masters) || undefined, unit: unit?.symbol ?? l.unit ?? '', decimals: unit?.decimals ?? 0, qty: q });
     }
   }
   // the total quantity, per unit (Nos and Kg are not added together)
