@@ -23,6 +23,8 @@ export interface VoucherListRow {
   /** Purchase invoices: the supplier's invoice number — the name of the bill. Credit / debit notes: the invoice the note is for. */
   readonly billNo: string;
   readonly narration: string;
+  /** Narration and item names are searchable even when they are not visible columns. */
+  readonly searchText: string;
   /** Debit total of the journal; a sales order's value (it has no journal). */
   readonly amount: Money;
   readonly cancelled: boolean;
@@ -77,7 +79,7 @@ export function voucherListRows({ vouchers, lines, masters, orders, kind, range,
     .filter((r) => r.baseKind === kind)
     .map((r): VoucherListRow => {
       const v = byId.get(r.voucherId) as Voucher;
-      const c = v.content as unknown as { reference?: string; billNo?: string; invoiceRef?: string; partyId?: string; dueDate?: string; purpose?: string; returnOf?: string; lines?: { qty: string; rate: string }[] };
+      const c = v.content as unknown as { reference?: string; billNo?: string; invoiceRef?: string; partyId?: string; dueDate?: string; purpose?: string; returnOf?: string; lines?: { itemId?: string; description?: string; qty: string; rate: string }[] };
       const cancelled = r.status === 'cancelled';
       const state = isOrder && !cancelled ? orders.state(v.id) : undefined;
       const value = isOrder || isQuote || isChallan || isReturnable ? money((c.lines ?? []).reduce((sum, l) => sum + lineValue(l), 0n)) : r.debit;
@@ -123,6 +125,9 @@ export function voucherListRows({ vouchers, lines, masters, orders, kind, range,
         reference: c.reference ?? '',
         billNo: kind === 'purchase' ? (c.billNo ?? '') : isNote ? (c.invoiceRef ?? '') : '',
         narration: r.narration,
+        searchText: kind === 'sales'
+          ? [r.narration, ...(c.lines ?? []).flatMap((line) => [line.itemId ? masters.stockItem(line.itemId as never)?.name ?? line.itemId : '', line.description ?? ''])].filter(Boolean).join(' ')
+          : '',
         amount: cancelled ? money(0n) : value,
         cancelled,
         pending,
@@ -155,7 +160,7 @@ export function voucherListColumns(kind: BaseKind): ColumnSpec<VoucherListRow>[]
     return [
       date,
       number,
-      particulars('Customer'),
+      { ...particulars('Customer'), searchText: (r) => r.searchText },
       reference,
       amount('Amount'),
       { id: 'pending', label: 'Pending', type: 'money', align: 'right', value: (r) => r.pending, text: (r) => money0(r.pending) },

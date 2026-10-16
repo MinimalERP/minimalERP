@@ -21,6 +21,8 @@ export interface ColumnSpec<R> {
   value(row: R): CellValue;
   /** How the cell reads on screen (also what "contains" and the quick filter search). Defaults to the raw value. */
   text?(row: R): string;
+  /** Extra row text included in quick search without displaying another column. */
+  searchText?(row: R): string;
   /** For `choice` columns: the options a filter may pick from. */
   readonly choices?: readonly { readonly value: string; readonly label: string }[];
   /** Shown cut short at about this many characters, the whole text on hover: a column that only has to be recognised, not read in full. */
@@ -118,7 +120,7 @@ export function applyGridQuery<R>(rows: readonly R[], columns: readonly ColumnSp
       if (!passes(col, filter, row)) return;
     }
     if (words.length > 0) {
-      const hay = columns.map((c) => cellText(c, row)).join('  ').toLowerCase();
+      const hay = columns.map((c) => `${cellText(c, row)} ${c.searchText?.(row) ?? ''}`).join('  ').toLowerCase();
       if (!words.every((w) => hay.includes(w))) return;
     }
     kept.push({ row, at });
