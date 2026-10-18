@@ -41,7 +41,7 @@ import type { ReportKind, ScreenRef } from '../shell/router';
 import { DataGrid } from '../ui/DataGrid';
 import { downloadText } from '../ui/download';
 import { Kbd } from '../ui/Kbd';
-import { formatAmount, formatBalance, formatDate, formatQuantity, normalizeAmount, parseDateInput, todayText } from '../vouchers/format';
+import { addDays, formatAmount, formatBalance, formatDate, formatQuantity, normalizeAmount, parseDateInput, todayText } from '../vouchers/format';
 import { FieldsDialog, LedgerDialog, MultiSelectDialog } from './ReportDialogs';
 import type { InvoiceDoc, ReportDoc } from '../ui/PrintView';
 import { DocketDialog } from '../vouchers/DocketDialog';
@@ -145,7 +145,9 @@ function ReportBody({
           pending: { kind: 'range', min: 1 },
         },
       }
-    : EMPTY_QUERY;
+    : report === 'stock-summary'
+      ? { ...EMPTY_QUERY, sort: [{ column: 'committed', dir: 'desc' }] }
+      : EMPTY_QUERY;
   const [query, setQuery] = useFrameState<GridQuery>(frame, 'query', defaultQuery);
   // Outstanding is AS ON a date (today, unless changed with F2); the rest cover the financial year.
   const today = todayText();
@@ -320,6 +322,25 @@ function ReportBody({
   };
   const getChosenOrderRows = (): OrderRow[] | undefined =>
     canPickOrderLines && pickedOrderLines.length > 0 ? rows.filter((r): r is OrderRow => 'orderId' in r && pickedOrderLineSet.has(r.key)) : undefined;
+  const createPurchaseOrderFromSelectedLines = (): boolean => {
+    const selected = (getChosenOrderRows() ?? []).filter((r) => r.actionable && r.pending > 0n);
+    if (selected.length === 0) {
+      setNotice('Select one or more open sales order lines with a pending quantity first.');
+      return true;
+    }
+    setNotice(undefined);
+    const purchaseOrderLines = selected.map((r) => ({
+      itemId: r.itemId,
+      itemLabel: r.item,
+      unit: r.unit,
+      qty: formatQuantity(r.pending, r.decimals),
+      due: addDays(r.due, -5),
+    }));
+    void app.navigateForResult<{ id: string; number: string; typeName: string }>({ type: 'voucher', mode: 'create', typeKey: 'purchaseOrder', purchaseOrderLines }).then((made) => {
+      if (made) frame.state.set('notice', `${made.typeName} ${made.number} saved.`);
+    });
+    return true;
+  };
   const openDocket = (): boolean => {
     const vs = chosenVouchers();
     const problem = docketProblem(vs, books);
@@ -520,7 +541,7 @@ function ReportBody({
           </strong>
         </p>
       )}
-      {(report === 'vouchers' || report === 'ledger') && notice && (
+      {(report === 'vouchers' || report === 'ledger' || report === 'sales-orders') && notice && (
         <p class="notice" role="status" data-testid="list-notice">
           {notice}
         </p>
@@ -640,6 +661,10 @@ function ReportBody({
             {' · '}
             {pickedOrderLines.length > 0 ? `${pickedOrderLines.length} order lines ticked` : selecting ? 'Tick order lines in the Item column to export a subset' : 'Select shows tick boxes, to export a subset'}
             {' — '}{chord('report.exportCsv') ?? 'Ctrl+M'} exports CSV, {chord('report.print') ?? 'Ctrl+P'} prints
+            {' · '}
+            <button type="button" class="button" data-testid="create-purchase-order-from-lines" disabled={pickedOrderLines.length === 0} onClick={createPurchaseOrderFromSelectedLines}>
+              Create Purchase Order
+            </button>
           </span>
         )}
         {' · '}

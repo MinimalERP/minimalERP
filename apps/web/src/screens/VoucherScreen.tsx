@@ -112,6 +112,8 @@ interface Props {
   readonly fromOrder?: string | undefined;
   /** with fromOrder: only these lines of the order. */
   readonly fromOrderLines?: readonly string[] | undefined;
+  /** create, purchase order: selected customer-order lines, ready to be ordered from a supplier. */
+  readonly purchaseOrderLines?: readonly { readonly itemId: string; readonly itemLabel: string; readonly unit: string; readonly qty: string; readonly due: string }[] | undefined;
   /** create, credit / debit note: the posted invoice it is for, whose lines it starts with. */
   readonly fromInvoice?: string | undefined;
   /** create: an AI Inbox proposal it starts from (and posts under the id of). */
@@ -124,7 +126,7 @@ interface Props {
   readonly fast?: boolean | undefined;
 }
 
-export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromOrderLines, fromInvoice, fromQuotation, fromInbox, fromBill, from2b, fast }: Props) {
+export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromOrderLines, purchaseOrderLines, fromInvoice, fromQuotation, fromInbox, fromBill, from2b, fast }: Props) {
   const stay = mode === 'create' && fast === true;
   const { books: host, keymapStore } = useServices();
   useSubscriptions(host, keymapStore);
@@ -165,7 +167,7 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromOrderLi
     return (
       <>
         {paging}
-        <ItemInvoiceEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} fromOrder={fromOrder} fromOrderLines={fromOrderLines} fromInvoice={mode === 'create' ? fromInvoice : undefined} fromQuotation={fromQuotation} fromInbox={mode === 'create' ? fromInbox : undefined} from2b={mode === 'create' ? from2b : undefined} stay={stay} />
+        <ItemInvoiceEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} fromOrder={fromOrder} fromOrderLines={fromOrderLines} purchaseOrderLines={purchaseOrderLines} fromInvoice={mode === 'create' ? fromInvoice : undefined} fromQuotation={fromQuotation} fromInbox={mode === 'create' ? fromInbox : undefined} from2b={mode === 'create' ? from2b : undefined} stay={stay} />
       </>
     );
   }

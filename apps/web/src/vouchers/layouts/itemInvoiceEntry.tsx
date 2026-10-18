@@ -148,6 +148,8 @@ interface Props {
   readonly fromOrder?: string | undefined;
   /** With `fromOrder`: only these order lines (ticked on the order). */
   readonly fromOrderLines?: readonly string[] | undefined;
+  /** Selected customer-order lines prepared for a new purchase order. */
+  readonly purchaseOrderLines?: readonly { readonly itemId: string; readonly itemLabel: string; readonly unit: string; readonly qty: string; readonly due: string }[] | undefined;
   /** A new credit (debit) note starts with the lines of this posted Sales (Purchase) invoice, named for it. */
   readonly fromInvoice?: string | undefined;
   /** A new document made from an AI Inbox proposal (ADR-0023): it posts under the proposal's id. */
@@ -177,7 +179,7 @@ function LinesSelected() {
  * header, the entry grid straight under it, narration at the foot, its actions in the panel — and an invoice and its order switch into each
  * other in place (F8 / Shift+F8, F9 / Shift+F9) keeping the party, the reference and the lines. What differs between the four is in `docProfile`.
  */
-export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrder, fromOrderLines, fromInvoice, fromQuotation, fromInbox, from2b, stay }: Props) {
+export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrder, fromOrderLines, purchaseOrderLines, fromInvoice, fromQuotation, fromInbox, from2b, stay }: Props) {
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books, keymapStore);
   const masters = books.masters;
@@ -203,6 +205,21 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     }
     return order ? invoiceFormFromOrder(order, books.orders, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID(), stock: books.stock, onlyLines: fromOrderLines, ...extra() }) : undefined;
   };
+  const fromSalesOrderLinesForm = (): SalesForm | undefined => {
+    if (!purchaseOrderLines || purchaseOrderLines.length === 0) return undefined;
+    const form = blankForm();
+    return {
+      ...form,
+      lines: purchaseOrderLines.map((seed) => ({
+        ...blankSalesLine(crypto.randomUUID()),
+        ...(seed.itemId ? { itemId: seed.itemId } : { oneTime: true, unit: seed.unit }),
+        itemLabel: seed.itemLabel,
+        qty: seed.qty,
+        due: seed.due,
+        dueText: formatDate(seed.due),
+      })),
+    };
+  };
   const fromInvoiceForm = (): SalesForm | undefined => {
     const invoice = fromInvoice ? books.voucher(fromInvoice) : undefined;
     return invoice ? noteFormFromInvoice(invoice, masters, { id: crypto.randomUUID(), typeId, date: defaultDate(masters), newKey: () => crypto.randomUUID(), warehouse: defaultGodown(books) }) : undefined;
@@ -221,9 +238,9 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const startForm = (): SalesForm =>
     voucher
       ? salesFormFromVoucher(voucher, masters, books.orders)
-      : (mode === 'create' && (inboxForm() ?? fromQuotationForm() ?? fromOrderForm() ?? fromInvoiceForm() ?? (from2b ? withPurchasePrefill(blankForm(), from2b, masters) : undefined))) || blankForm();
+      : (mode === 'create' && (inboxForm() ?? fromQuotationForm() ?? fromOrderForm() ?? fromSalesOrderLinesForm() ?? fromInvoiceForm() ?? (from2b ? withPurchasePrefill(blankForm(), from2b, masters) : undefined))) || blankForm();
   /** A proposal is its own starting point: it neither loads nor leaves a half-entered draft (that belongs to the ordinary New voucher). */
-  const drafts = mode === 'create' && !fromInbox && !from2b && !fromInvoice;
+  const drafts = mode === 'create' && !fromInbox && !from2b && !fromInvoice && !purchaseOrderLines;
 
   const [form, setFormState] = useFrameState<SalesForm>(frame, 'form', startForm());
   // a proposal opens on the first thing the reading could not settle: the party, else the first line without an item

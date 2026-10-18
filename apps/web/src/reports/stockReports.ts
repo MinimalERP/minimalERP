@@ -90,6 +90,8 @@ export function stockSummaryColumns(): ColumnSpec<StockSummaryRow>[] {
   return [
     { id: 'name', label: 'Particulars', type: 'text', value: (r) => r.name },
     { id: 'group', label: 'Group', type: 'text', value: (r) => r.group },
+    { id: 'committed', label: 'Committed', type: 'number', align: 'right', value: (r) => num(r.committed), text: (r) => q(r, { qty: r.committed, value: 0n as never }) },
+    { id: 'available', label: 'Available', type: 'number', align: 'right', value: (r) => num(availableOf(r)), text: (r) => (r.closing.qty === 0n && r.committed === 0n ? '' : formatQuantity(availableOf(r) as never, r.decimals)) },
     { id: 'unit', label: 'Unit', type: 'text', value: (r) => r.unit },
     { id: 'openQty', label: 'Opening qty', type: 'number', align: 'right', value: (r) => num(r.opening.qty), text: (r) => q(r, r.opening) },
     { id: 'inQty', label: 'Inward qty', type: 'number', align: 'right', value: (r) => num(r.inward.qty), text: (r) => q(r, r.inward) },
@@ -111,8 +113,6 @@ export function stockSummaryColumns(): ColumnSpec<StockSummaryRow>[] {
     },
     { id: 'closeValue', label: 'Closing value', type: 'money', align: 'right', value: (r) => r.closing.value, text: (r) => money(r.closing.value) },
     { id: 'onOrder', label: 'On order', type: 'number', align: 'right', value: (r) => num(r.onOrder), text: (r) => (r.onOrder === 0n ? '' : formatQuantity(r.onOrder as never, r.decimals)) },
-    { id: 'committed', label: 'Committed', type: 'number', align: 'right', value: (r) => num(r.committed), text: (r) => q(r, { qty: r.committed, value: 0n as never }) },
-    { id: 'available', label: 'Available', type: 'number', align: 'right', value: (r) => num(availableOf(r)), text: (r) => (r.closing.qty === 0n && r.committed === 0n ? '' : formatQuantity(availableOf(r) as never, r.decimals)) },
   ];
 }
 
