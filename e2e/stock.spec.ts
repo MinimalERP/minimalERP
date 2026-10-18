@@ -194,7 +194,7 @@ test.describe('opening stock, the Stock Summary and the Item ledger', () => {
 
   test('sorting and filtering are the grid’s own: Alt+S on the value column, Alt+L on the quantity', async ({ app }) => {
     await openSummary(app);
-    for (let i = 0; i < 8; i++) await app.keyboard.press('Tab'); // → Closing value
+    for (let i = 0; i < 10; i++) await app.keyboard.press('Tab'); // → Closing value
     await expect(app.getByRole('columnheader', { name: /Closing value/ })).toHaveClass(/active/);
     await app.keyboard.press('Alt+s');
     await app.keyboard.press('Alt+s'); // descending
