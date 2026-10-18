@@ -824,6 +824,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
     return true;
   };
   const unitNames = masters.units.filter((u) => u.isActive).map((u) => u.symbol);
+  const defaultWrittenUnit = masters.units.find((u) => u.isActive && u.symbol.toLowerCase() === 'nos')?.symbol ?? '';
   const unitOf = (text: string) => {
     const t = text.trim().toLowerCase().replace(/\.$/, '');
     return masters.units.find((u) => u.isActive && (u.symbol.toLowerCase() === t || u.name.toLowerCase() === t));
@@ -1399,7 +1400,7 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
             { key: 'description', label: 'Description', value: form.lines[oneTimeFor]?.itemLabel ?? '', hint: 'what is sold or bought — Shift+Enter for a new line; leave empty to make it a stock item line again', multiline: true },
             { key: 'hsn', label: 'HSN / SAC', value: form.lines[oneTimeFor]?.hsn ?? '', hint: '4 to 8 digits' },
             { key: 'qty', label: 'Qty', value: form.lines[oneTimeFor]?.qty || '1' },
-            { key: 'unit', label: 'Unit', value: form.lines[oneTimeFor]?.unit ?? '', hint: unitNames.join(', ') },
+            { key: 'unit', label: 'Unit', value: form.lines[oneTimeFor]?.unit || defaultWrittenUnit, hint: unitNames.join(', ') },
           ]}
           validate={(v) => {
             const out: Record<string, string> = {};
