@@ -90,7 +90,7 @@ describe('the demo company’s stock', () => {
     const cols = stockSummaryColumns();
     // Available is shown for every item that has stock — not only the ones with orders — so 50 in stock and nothing committed reads 50
     expect(cols.find((c) => c.id === 'available')?.text?.(by('MS Sheet 2mm') as never)).toBe('2,200.000');
-    expect(cols.slice(-2).map((c) => c.id)).toEqual(['committed', 'available']);
+    expect(cols.slice(2, 4).map((c) => c.id)).toEqual(['committed', 'available']); // immediately after Group
     const committedOnly = applyGridQuery(rows, cols, { sort: [], filters: { committed: { kind: 'range', min: 1 } }, quick: '' });
     expect(committedOnly.map((r) => r.name).sort()).toEqual(['ABC Hex Bolt M8', 'Fabricated Frame', 'Mounting Bracket']);
     // without the order book the column is just empty (the report is still a function of what it is given)
