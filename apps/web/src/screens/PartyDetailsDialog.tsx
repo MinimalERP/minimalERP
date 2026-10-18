@@ -146,6 +146,7 @@ export function PartyDetailsDialog({ books, ledgerIds, value, receiving = false,
 
   const [v, setV] = useState<Values>(() => initialValues(savedParty ?? partyFromLines, value, receiving));
   const [focus, setFocus] = useState('party');
+  const [choiceClosed, setChoiceClosed] = useState<string | undefined>(undefined);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pick, setPick] = useState({ index: 0, touched: false });
   const [busy, setBusy] = useState(false);
@@ -244,6 +245,7 @@ export function PartyDetailsDialog({ books, ledgerIds, value, receiving = false,
   };
   const go = (key: string) => {
     setPick({ index: 0, touched: false });
+    setChoiceClosed(undefined);
     setFocus(key);
   };
   const next = (): boolean => {
@@ -370,6 +372,7 @@ export function PartyDetailsDialog({ books, ledgerIds, value, receiving = false,
                     autocomplete="off"
                     spellcheck={false}
                     value={show(f)}
+                    onClick={() => f.type === 'choice' && choiceClosed === f.key && setChoiceClosed(undefined)}
                     onFocus={() => !active && go(f.key)}
                     onInput={(e) => {
                       const text = (e.target as HTMLInputElement).value;
@@ -387,14 +390,19 @@ export function PartyDetailsDialog({ books, ledgerIds, value, receiving = false,
                   )}
                   {!err && active && 'hint' in f && f.hint && <span class="field-hint">{f.hint}</span>}
                   {/* a choice shows what can be chosen (so "Same as billing address" is there to see and to click), the one in use under the cursor */}
-                  {active && f.type === 'choice' && (
+                  {active && f.type === 'choice' && choiceClosed !== f.key && (
                     <div class="picker" data-testid="choice-list">
                       <ListView
                         items={f.options}
                         index={f.options.findIndex((o) => o.value === byKey(v, f.key))}
                         itemKey={(o) => o.value}
                         label={f.label}
-                        onActivate={(n) => f.options[n] && selectOption(f.key, (f.options[n] as Opt).value)}
+                        onActivate={(n) => {
+                          const option = f.options[n] as Opt | undefined;
+                          if (!option) return;
+                          selectOption(f.key, option.value);
+                          setChoiceClosed(f.key);
+                        }}
                         renderItem={(o) => (
                           <>
                             <span class="row-title">{o.label}</span>

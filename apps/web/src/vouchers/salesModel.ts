@@ -1014,14 +1014,15 @@ export function invoiceFormFromOrder(
   const pending = openOrderLines(orders, state.order.partyId, undefined, args.id, side).filter((o) => o.orderId === order.id && (args.onlyLines === undefined || args.onlyLines.includes(o.lineId)));
   if (pending.length === 0) return undefined;
   const blank = blankSalesForm(args.id, args.typeId, date, args.newKey(), { warehouse: args.warehouse, salesLedger: args.salesLedger });
-  const snapshot = (order.content as unknown as { partyDetails?: PartyDetails }).partyDetails;
   const due = dueDateFor(masters, party.id, date);
   return {
     ...blank,
     partyId: party.id,
     partyLabel: party.name,
     reference: side === 'purchase' ? state.order.number : (state.order.reference ?? ''),
-    partyDetails: snapshot ?? partyDetailsOfParty(party, side),
+    // A new invoice starts with the party's current master addresses. The order's snapshot may be incomplete or stale; any invoice-specific
+    // change to billing or shipping is then kept on the invoice itself.
+    partyDetails: partyDetailsOfParty(party, side),
     due,
     dueText: formatDate(due),
     lines: linesFromOrder(pending, masters, args.newKey, (itemId, qty) => (args.stock ? godownWithStock(masters, args.stock, itemId, date, args.warehouse, qty) : args.warehouse)),
