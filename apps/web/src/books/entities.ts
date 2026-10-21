@@ -46,7 +46,7 @@ function describe(kind: MasterKind, masters: Masters, r: Record<string, unknown>
         title: str('name') ?? '',
         subtitle: compact([rolesLabel(r.roles), str('gstin'), str('phone'), str('address')]).join(' · '),
         identifiers: compact([str('gstin'), str('pan'), str('phone'), str('email')]),
-        keywords: compact([str('address')]),
+        keywords: compact([str('address'), str('info1'), str('info2'), str('info3'), str('info4')]),
       };
     case 'stockItem': {
       const unit = masters.unit(r.unitId as never)?.symbol;

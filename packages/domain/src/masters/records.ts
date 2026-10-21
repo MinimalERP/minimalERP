@@ -31,6 +31,10 @@ export interface Party {
   readonly roles?: readonly PartyRole[] | undefined;
   readonly creditDays?: number | undefined;
   readonly creditLimit?: Money | undefined;
+  readonly info1?: string | undefined;
+  readonly info2?: string | undefined;
+  readonly info3?: string | undefined;
+  readonly info4?: string | undefined;
   /** How the party is registered for GST (drives the tax on its documents). */
   readonly gstRegistration?: 'regular' | 'composition' | 'unregistered' | 'sez' | 'overseas' | undefined;
   /** Saved billing/shipping addresses, picked (or added to) in the Party Details window of a voucher. */

@@ -186,6 +186,10 @@ export const FORMS: Readonly<Record<MasterKind, FormSpec>> = {
       text('shipCountry', 'Country', { visibleIf: (v) => v.shipMode === 'different', placeholder: 'India' }),
       { key: 'creditDays', label: 'Credit days', type: 'integer', heading: 'Terms' },
       { key: 'creditLimit', label: 'Credit limit', type: 'money' },
+      text('info1', 'Info 1', { heading: 'Party Info' }),
+      text('info2', 'Info 2'),
+      text('info3', 'Info 3'),
+      text('info4', 'Info 4'),
       ...(['customer', 'vendor'] as const).flatMap((role): FieldSpec[] => {
         const on = (v: FormValues) => roleTypeRoles(v.roleType ?? '').includes(role);
         const cap = role === 'customer' ? 'Cust' : 'Vend';
