@@ -411,7 +411,7 @@ export class MemoryBackend
       );
     }
 
-    const prepared = planVoucher(resolved.value, masters, this.stockBook(), this.orderBook());
+    const prepared = planVoucher(resolved.value, masters, this.stockBook(), this.orderBook(), [...this.vouchers.values()]);
     if (!prepared.ok) return prepared;
     const duplicate = billRefProblems(prepared.value.voucherType.baseKind, prepared.value.draft, masters, [...this.vouchers.values()]);
     if (duplicate.length > 0) return { ok: false, issues: duplicate };
@@ -469,6 +469,7 @@ export class MemoryBackend
       registry: this.registry,
       stock: this.stockBook(),
       orders: this.orderBook(),
+      vouchers: [...this.vouchers.values()],
     });
     if (!prepared.ok) return prepared;
     const duplicate = billRefProblems(prepared.value.voucherType.baseKind, prepared.value.draft, this.masters, [...this.vouchers.values()], existing.id);
@@ -503,7 +504,7 @@ export class MemoryBackend
     const existing = this.vouchers.get(request.voucherId);
     if (!existing) return fail(notFound(request.voucherId));
 
-    const allowed = prepareCancellation(existing, request.expectedVersion, this.masters, this.stockBook(), this.orderBook());
+    const allowed = prepareCancellation(existing, request.expectedVersion, this.masters, this.stockBook(), this.orderBook(), [...this.vouchers.values()]);
     if (!allowed.ok) return allowed;
 
     const cancelled: Voucher = { ...existing, status: 'cancelled', version: existing.version + 1 };

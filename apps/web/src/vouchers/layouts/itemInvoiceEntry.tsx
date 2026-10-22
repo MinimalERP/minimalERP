@@ -1,5 +1,5 @@
 import type { Frame } from '@minimalerp/command';
-import { type ChallanPurpose, type Masters, type Voucher, billStatusOf, gstr2bPeriodLabel, isMailKind, formatQty, formatRate, isQtyText, money, noteSettlementOf, orderLineStatusOf, parseQty, partyLedgerId } from '@minimalerp/domain';
+import { type ChallanPurpose, type Masters, type Voucher, billStatusOf, gstr2bPeriodLabel, isMailKind, formatQty, formatRate, isQtyText, money, noteSettlementOf, orderLineStatusOf, parseQty, partyLedgerId, settlementsOf } from '@minimalerp/domain';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { Only } from '../../shell/Only';
@@ -186,7 +186,8 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
   const propKind = (salesKindOf(masters, typeId) ?? 'sales') as ItemDocKind;
   /** A quotation that has become a sales order is kept as it was: it opens read-only and cannot be altered, cancelled or converted again. */
   const convertedTo = voucher && propKind === 'quotation' ? orderOfQuotation(voucher.id, books.vouchers) : undefined;
-  const readOnly = mode === 'display' || convertedTo !== undefined;
+  const settledBill = !!voucher && settlementsOf(voucher, books.vouchers, masters) > 0n;
+  const readOnly = mode === 'display' || convertedTo !== undefined || settledBill;
   /** The godown and the sales / purchase ledger a new document starts with (the ledger is the one of ITS side). */
   const extra = (k: ItemDocKind = propKind) => ({ warehouse: defaultGodown(books), salesLedger: defaultSalesLedger(masters, docProfile(k).side) });
   const blankForm = (): SalesForm => blankSalesForm(crypto.randomUUID(), typeId, defaultDate(masters), crypto.randomUUID(), extra());
@@ -1444,10 +1445,10 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
           }}
         />
       )}
-      {mode === 'display' && voucher?.status === 'posted' && !convertedTo && (
+      {mode === 'display' && voucher?.status === 'posted' && !convertedTo && !settledBill && (
         <Only scope={SCOPE} command="master.alter" run={() => (app.navigate({ type: 'voucher', mode: 'alter', id: voucher.id }), true)} />
       )}
-      {mode !== 'create' && voucher?.status === 'posted' && !convertedTo && <Only scope={SCOPE} command="voucher.cancel" run={() => (setConfirm('cancel'), true)} />}
+      {mode !== 'create' && voucher?.status === 'posted' && !convertedTo && !settledBill && <Only scope={SCOPE} command="voucher.cancel" run={() => (setConfirm('cancel'), true)} />}
       {mode !== 'create' && voucher?.status === 'posted' && p.order && !form.closed && (
         <Only scope={SCOPE} command="order.close" run={() => (setConfirm('close'), true)} />
       )}
@@ -1557,6 +1558,11 @@ export function ItemInvoiceEntry({ frame, books, mode, typeId, voucher, fromOrde
       general={general}
       notices={
         <>
+          {settledBill && (
+            <p class="notice" role="status" data-testid="bill-settlement-lock">
+              This bill has payments or other settlements. Cancel or correct those entries before altering or cancelling it.
+            </p>
+          )}
           {confirm === 'cancel' && (
             <p class="notice error" role="alert" data-testid="cancel-confirm">
               Cancel voucher {voucher?.number}? It keeps its number but leaves the books. Press <Kbd chord={chord('voucher.accept') ?? 'Ctrl+A'} /> to confirm, <Kbd chord={chord('app.back') ?? 'Esc'} /> to keep it.

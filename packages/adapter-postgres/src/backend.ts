@@ -29,6 +29,7 @@ import {
   ZERO,
   draftToJson,
   defaultVoucherKinds,
+  allocatedLinesOf,
   fail,
   formatMoney,
   issue,
@@ -182,7 +183,8 @@ export class PostgresBackend
     const masters = await this.withLedgers(core, kind.ledgerRefs(draft));
     const stock = await this.stockBook(request.companyId, kind.stockItems(draft));
     const orders = await this.orderBook(request.companyId, kind.orderIds(draft));
-    const prepared = planVoucher(resolved.value, masters, stock, orders);
+    const currentVouchers = await this.currentVouchers(request.companyId, core, kind.ledgerRefs(draft).map((ref) => ref.ledgerId));
+    const prepared = planVoucher(resolved.value, masters, stock, orders, currentVouchers);
     if (!prepared.ok) return prepared;
 
     const rpc = await this.rpc(
@@ -221,6 +223,10 @@ export class PostgresBackend
     if (!resolved.ok) return resolved;
 
     const masters = await this.withLedgers(core, resolved.value.kind.ledgerRefs(resolved.value.draft));
+    const currentVouchers = await this.currentVouchers(request.companyId, core, [
+      ...resolved.value.kind.ledgerRefs(resolved.value.draft).map((ref) => ref.ledgerId),
+      ...allocatedLinesOf(existing, core).map((line) => line.ledgerId),
+    ]);
     // The items the new draft touches AND the ones the voucher touches now: replacing it must not leave a later day short.
     const own = await this.stockOf(request.companyId, existing.id);
     const stock = await this.stockBook(request.companyId, [...resolved.value.kind.stockItems(resolved.value.draft), ...own.map((m) => m.itemId)]);
@@ -233,6 +239,7 @@ export class PostgresBackend
       registry: this.registry,
       stock,
       orders,
+      vouchers: currentVouchers,
     });
     if (!prepared.ok) return prepared;
 
@@ -273,7 +280,8 @@ export class PostgresBackend
     const own = await this.stockOf(request.companyId, existing.id);
     const stock = await this.stockBook(request.companyId, own.map((m) => m.itemId));
     const orders = await this.orderBook(request.companyId, [existing.id]);
-    const allowed = prepareCancellation(existing, request.expectedVersion, core, stock, orders);
+    const oldBillLedgers = allocatedLinesOf(existing, core).map((line) => line.ledgerId);
+    const allowed = prepareCancellation(existing, request.expectedVersion, core, stock, orders, await this.currentVouchers(request.companyId, core, oldBillLedgers));
     if (!allowed.ok) return allowed;
 
     const rpc = await this.rpc(
@@ -978,6 +986,25 @@ export class PostgresBackend
     );
     const row = r.rows[0];
     return row ? this.readable(voucherFromRow(row)) : undefined;
+  }
+
+  /** Posted vouchers are loaded for bill-wise posting checks; content is parsed from the already loaded type snapshot. */
+  private async currentVouchers(companyId: CompanyId, masters: Masters, ledgerIds: readonly string[]): Promise<Voucher[]> {
+    const ids = [...new Set(ledgerIds.filter(isUuid))];
+    if (ids.length === 0) return [];
+    const r = await this.db.query(
+      `select ${VOUCHER_COLUMNS} from public.vouchers v where v.company_id = $1::uuid and v.status = 'posted'
+       and exists (select 1 from public.bill_allocations b where b.company_id = v.company_id and b.voucher_id = v.id and b.ledger_id = any($2::text[]::uuid[]))`,
+      [companyId, `{${ids.join(',')}}`],
+    );
+    return r.rows.map((row) => {
+      const voucher = voucherFromRow(row);
+      const base = masters.voucherType(voucher.voucherTypeId)?.baseKind;
+      const kind = base === undefined ? undefined : this.registry.get(base);
+      if (!kind) return voucher;
+      const parsed = kind.parse(voucher.content);
+      return parsed.ok ? { ...voucher, content: parsed.value } : voucher;
+    });
   }
 
   /** The book of just these items (what a change must be checked against). */

@@ -1,5 +1,5 @@
 import { type EntityDoc, type Frame, searchEntities } from '@minimalerp/command';
-import { type OpenBill, type Voucher, type VoucherKindRegistry, defaultVoucherKinds, formatMoney, partyLedgerId } from '@minimalerp/domain';
+import { type OpenBill, type Voucher, type VoucherKindRegistry, defaultVoucherKinds, formatMoney, partyLedgerId, settlementsOf } from '@minimalerp/domain';
 import { useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../../books/books';
 import { useCommandHandler, useFrameState, useServices, useSubscriptions } from '../../shell/hooks';
@@ -114,7 +114,8 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
   const { app, keymapStore, print } = useServices();
   useSubscriptions(books);
   const masters = books.masters;
-  const readOnly = mode === 'display';
+  const settledBill = !!voucher && settlementsOf(voucher, books.vouchers, masters) > 0n;
+  const readOnly = mode === 'display' || settledBill;
   const bill = fromBill ? books.voucher(fromBill) : undefined;
   const settling = bill ? settleFormFor(bill, books.vouchers, masters, typeId, defaultDate(masters)) : undefined;
   const startForm = (): VoucherForm =>
@@ -194,7 +195,7 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
   });
 
   // ---- what each problem says, and where ----
-  const preview = useMemo(() => previewVoucher(form, layout, masters, kinds), [form, layout, masters]);
+  const preview = useMemo(() => previewVoucher(form, layout, masters, kinds, books.vouchers), [form, layout, masters, books.vouchers]);
   const { setFieldErrors, issueAt, errorOf, general } = useFieldIssues({ issues: preview.issues, showErrors });
 
   // ---- ledger pickers ----
@@ -649,7 +650,7 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
     typeName: type?.name ?? 'Voucher',
     draftKey,
     settle: () => settle(),
-    preview: () => previewVoucher(fresh(), layout, masters, kinds),
+    preview: () => previewVoucher(fresh(), layout, masters, kinds, books.vouchers),
     showFirstProblem: (issues) => {
       const first = issues[0];
       if (first?.field.startsWith('line.')) {
@@ -967,8 +968,8 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
   const modeHandlers = (
     <VoucherModeHandlers
       switchTo={mode === 'create' ? switchTo : undefined}
-      onAlter={mode === 'display' && voucher?.status === 'posted' ? () => app.navigate({ type: 'voucher', mode: 'alter', id: (voucher as Voucher).id }) : undefined}
-      onCancel={mode !== 'create' && voucher?.status === 'posted' ? () => setConfirm('cancel') : undefined}
+      onAlter={mode === 'display' && voucher?.status === 'posted' && !settledBill ? () => app.navigate({ type: 'voucher', mode: 'alter', id: (voucher as Voucher).id }) : undefined}
+      onCancel={mode !== 'create' && voucher?.status === 'posted' && !settledBill ? () => setConfirm('cancel') : undefined}
     />
   );
 
@@ -984,11 +985,14 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
       banner={banner}
       general={general}
       notices={
-        confirm === 'cancel' ? (
-          <p class="notice error" role="alert" data-testid="cancel-confirm">
-            Cancel voucher {voucher?.number}? It keeps its number but leaves the books. Press <Kbd chord={chord('voucher.accept') ?? 'Ctrl+A'} /> to confirm, <Kbd chord={chord('app.back') ?? 'Esc'} /> to keep it.
-          </p>
-        ) : undefined
+        <>
+          {settledBill && <p class="notice" role="status" data-testid="bill-settlement-lock">This bill has payments or other settlements. Cancel or correct those entries before altering or cancelling it.</p>}
+          {confirm === 'cancel' && (
+            <p class="notice error" role="alert" data-testid="cancel-confirm">
+              Cancel voucher {voucher?.number}? It keeps its number but leaves the books. Press <Kbd chord={chord('voucher.accept') ?? 'Ctrl+A'} /> to confirm, <Kbd chord={chord('app.back') ?? 'Esc'} /> to keep it.
+            </p>
+          )}
+        </>
       }
       head={
         <VoucherWorksheetHead
@@ -1150,4 +1154,3 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
     </VoucherWorksheetSection>
   );
 }
-

@@ -602,8 +602,8 @@ export function previewSales(
   stock: StockBook,
   orders: OrderBook,
   registry: VoucherKindRegistry = defaultVoucherKinds(),
-  /** The company's vouchers: a purchase invoice's supplier invoice number is checked against the bills already there. */
-  vouchers: readonly Voucher[] = [],
+  /** The company's vouchers, used for duplicate supplier invoice numbers and bill settlement validation. */
+  vouchers?: readonly Voucher[],
 ): SalesPreview {
   const built = formToSalesDraft(form, kind, masters);
   const { kept } = built;
@@ -624,7 +624,7 @@ export function previewSales(
     gst,
   );
   // a note is set against the invoice it names for as much as that invoice's bill still has open (its own earlier share counted as open)
-  const against = docProfile(kind).note ? noteAgainst(kind, form, grand, masters, vouchers) : undefined;
+  const against = docProfile(kind).note ? noteAgainst(kind, form, grand, masters, vouchers ?? []) : undefined;
   const draft = against !== undefined ? { ...built.draft, against } : built.draft;
   const local = localIssues(form, kind, kept, masters);
   if (local.length > 0) return { ok: false, issues: local, draft, amounts, total, gst, roundOff, grand, against };
@@ -635,9 +635,10 @@ export function previewSales(
     registry,
     stock.withChange({ remove: [form.id as never] }),
     orders.withChange({ removeLinksOf: [form.id as never] }),
+    vouchers,
   );
   if (result.ok) {
-    const duplicate = billRefProblems(result.value.voucherType.baseKind, result.value.draft, masters, vouchers, form.id as never);
+    const duplicate = billRefProblems(result.value.voucherType.baseKind, result.value.draft, masters, vouchers ?? [], form.id as never);
     if (duplicate.length === 0) return { ok: true, issues: [], draft, amounts, total, gst, roundOff, grand, against };
     return { ok: false, issues: duplicate.map((i) => ({ field: fieldOfSalesPath(i.path, kept), message: i.message, code: i.code })), draft, amounts, total, gst, roundOff, grand, against };
   }

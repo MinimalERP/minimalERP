@@ -92,6 +92,7 @@ export const IssueCode = {
   RoundOffInvalid: 'ROUND_OFF_INVALID',
   /** A purchase invoice reuses a supplier's invoice number that is already a bill of that supplier. */
   BillRefInUse: 'BILL_REF_IN_USE',
+  BillSettled: 'BILL_SETTLED',
   /** Infrastructure: a master change was checked against data that changed underneath it. Callers re-check and retry. */
   MastersChanged: 'MASTERS_CHANGED',
   /** Emailing a voucher: an address that is not its party's, no address, no subject, or an attachment that is not a PDF / too big. */

@@ -217,7 +217,7 @@ export function totalsOf(form: VoucherForm, layout: Layout): { debit: bigint; cr
 }
 
 /** The engine's verdict on the form as it stands, with each problem placed on its field. */
-export function previewVoucher(form: VoucherForm, layout: Layout, masters: Masters, registry: VoucherKindRegistry = defaultVoucherKinds()): Preview {
+export function previewVoucher(form: VoucherForm, layout: Layout, masters: Masters, registry: VoucherKindRegistry = defaultVoucherKinds(), vouchers?: readonly Voucher[]): Preview {
   const { draft, kept } = formToDraft(form, layout);
   const { debit, credit } = totalsOf(form, layout);
   const balanced = layout === 'single-entry' ? debit > 0n : debit > 0n && debit === credit;
@@ -225,7 +225,7 @@ export function previewVoucher(form: VoucherForm, layout: Layout, masters: Maste
   const local = localIssues(form, layout, kept);
   if (local.length > 0) return { ok: false, issues: local, debit, credit, balanced, draft };
 
-  const result = prepareVoucher(draft, masters, registry);
+  const result = prepareVoucher(draft, masters, registry, undefined, undefined, vouchers);
   if (result.ok) return { ok: true, issues: [], debit, credit, balanced, draft };
   return {
     ok: false,

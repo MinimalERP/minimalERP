@@ -6,6 +6,7 @@ import { StockBook } from '../stock/book';
 import { formatQty } from '../stock/quantity';
 import type { Voucher } from '../vouchers/voucher';
 import type { VoucherKindRegistry } from '../vouchers/registry';
+import { settlementsOf } from '../vouchers/allocations';
 import { type PreparedVoucher, prepareVoucher } from './engine';
 
 /** Preconditions shared by alter and cancel: still posted, not stale, and its period is open. */
@@ -38,6 +39,8 @@ export interface AlterArgs {
   readonly stock?: StockBook | undefined;
   /** The company's orders and deliveries as they stand INCLUDING this voucher's own deliveries (an invoice's); those are taken out before the new ones are checked. */
   readonly orders?: OrderBook | undefined;
+  /** Posted vouchers used to enforce bill-wise settlement dependencies. */
+  readonly vouchers?: readonly Voucher[] | undefined;
 }
 
 /**
@@ -45,12 +48,16 @@ export interface AlterArgs {
  * An alteration keeps the voucher's id, type, number and financial year; everything else may change.
  */
 export function prepareAlteration(args: AlterArgs): Result<PreparedVoucher> {
-  const { existing, input, expectedVersion, masters, registry, stock = StockBook.empty, orders = OrderBook.empty } = args;
+  const { existing, input, expectedVersion, masters, registry, stock = StockBook.empty, orders = OrderBook.empty, vouchers } = args;
 
   const mutable = checkMutable(existing, expectedVersion, masters);
   if (!mutable.ok) return mutable;
 
-  const prepared = prepareVoucher(input, masters, registry, stock.withChange({ remove: [existing.id] }), orders.withChange({ removeLinksOf: [existing.id] }));
+  if (vouchers && settlementsOf(existing, vouchers, masters) > 0n) {
+    return fail(issue(IssueCode.BillSettled, `Voucher ${existing.number} has payments or other settlements. Cancel or correct those entries before altering it.`));
+  }
+
+  const prepared = prepareVoucher(input, masters, registry, stock.withChange({ remove: [existing.id] }), orders.withChange({ removeLinksOf: [existing.id] }), vouchers);
   if (!prepared.ok) return prepared;
 
   const { draft, financialYear } = prepared.value;
@@ -73,9 +80,13 @@ export function prepareCancellation(
   masters: Masters,
   stock: StockBook = StockBook.empty,
   orders: OrderBook = OrderBook.empty,
+  vouchers?: readonly Voucher[],
 ): Result<void> {
   const mutable = checkMutable(existing, expectedVersion, masters);
   if (!mutable.ok) return mutable;
+  if (vouchers && settlementsOf(existing, vouchers, masters) > 0n) {
+    return fail(issue(IssueCode.BillSettled, `Voucher ${existing.number} has payments or other settlements. Cancel or correct those entries before cancelling it.`));
+  }
   // A sales order that something has been delivered against cannot go: the invoices would point at nothing. (Cancelling an invoice
   // is always fine — it only frees the quantity it had filled.)
   if (orders.linksTo(existing.id).length > 0) {

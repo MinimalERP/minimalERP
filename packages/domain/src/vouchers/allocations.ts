@@ -1,13 +1,13 @@
 import { type Issue, IssueCode, issue } from '../errors';
 import type { LedgerId, VoucherId } from '../ids';
-import type { Masters } from '../masters/masters';
+import type { BaseKind, Masters } from '../masters/masters';
 import { canonicalId, gstinProblem, GST_STATE_CODES, stateOfGstin } from '../masters/rules';
 import { type Money, formatMoney, money } from '../money';
 import type { LocalDate } from '../dates';
-import type { BillAllocation, PartyDetails } from './drafts';
+import type { BillAllocation, DraftBase, PartyDetails } from './drafts';
 import { customerLedgerOf, vendorLedgerOf } from './kinds/documents';
 import { gstOfContent, grandTotal } from './kinds/gstDoc';
-import { noteSettlementOf } from './kinds/notes';
+import { isNoteKind, noteSettlementOf } from './kinds/notes';
 import type { Voucher } from './voucher';
 
 /**
@@ -243,6 +243,81 @@ export function billStatusOf(voucher: Voucher, vouchers: readonly Voucher[], mas
   const open = openBills(vouchers, masters, line.ledgerId).find((b) => b.ref === ref && b.voucherId === voucher.id);
   const pending = open?.pending ?? money(0n);
   return { total: money(bill.amount), settled: money(bill.amount - pending), pending };
+}
+
+/** The amount already settled against a voucher's own bill(s), without hiding over-settlements. */
+export function settlementsOf(voucher: Voucher, vouchers: readonly Voucher[], masters: Masters): Money {
+  if (voucher.status !== 'posted') return money(0n);
+  const bills = allocatedLinesOf(voucher, masters).flatMap((line) =>
+    line.allocations.filter((a) => a.kind === 'new').map((a) => ({ ledgerId: line.ledgerId, side: line.side, ref: (a.ref ?? '').trim() })),
+  );
+  if (bills.length === 0) return money(0n);
+  let total = 0n;
+  for (const other of vouchers) {
+    if (other.id === voucher.id || other.status !== 'posted') continue;
+    for (const line of allocatedLinesOf(other, masters)) {
+      for (const allocation of line.allocations) {
+        if (allocation.kind !== 'against') continue;
+        const ref = (allocation.ref ?? '').trim();
+        if (bills.some((bill) => bill.ledgerId === line.ledgerId && bill.ref === ref && bill.side !== line.side)) total += allocation.amount;
+      }
+    }
+  }
+  return money(total);
+}
+
+interface DraftSettlementLine {
+  readonly ledgerId: LedgerId;
+  readonly side: 'debit' | 'credit';
+  readonly allocations: readonly BillAllocation[];
+}
+
+/** Bill-wise "against" references in a draft, checked against live open bills for this same party ledger. */
+export function againstAllocationProblems(
+  baseKind: BaseKind,
+  draft: DraftBase,
+  masters: Masters,
+  vouchers: readonly Voucher[],
+  ignoring?: VoucherId,
+): Issue[] {
+  const c = draft as unknown as Record<string, unknown>;
+  let lines: DraftSettlementLine[] = [];
+  if (baseKind === 'payment' || baseKind === 'receipt') {
+    const side = baseKind === 'payment' ? 'debit' : 'credit';
+    lines = Array.isArray(c['lines']) ? (c['lines'] as Array<Record<string, unknown>>).map((line) => ({
+      ledgerId: line['ledgerId'] as LedgerId, side, allocations: (line['allocations'] as BillAllocation[] | undefined) ?? [],
+    })) : [];
+  } else if (baseKind === 'journal') {
+    lines = Array.isArray(c['entries']) ? (c['entries'] as Array<Record<string, unknown>>).map((line) => ({
+      ledgerId: line['ledgerId'] as LedgerId, side: line['side'] as 'debit' | 'credit', allocations: (line['allocations'] as BillAllocation[] | undefined) ?? [],
+    })) : [];
+  } else if (baseKind === 'opening' && typeof c['ledgerId'] === 'string') {
+    lines = [{ ledgerId: c['ledgerId'] as LedgerId, side: c['side'] as 'debit' | 'credit', allocations: (c['allocations'] as BillAllocation[] | undefined) ?? [] }];
+  } else if (isNoteKind(baseKind)) {
+    const note = noteSettlementOf(baseKind, draft);
+    if (note?.invoiceRef && note.against > 0n) {
+      lines = [{ ledgerId: note.ledgerId, side: note.side, allocations: [{ kind: 'against', ref: note.invoiceRef, amount: note.against }] }];
+    }
+  }
+
+  const problems: Issue[] = [];
+  for (const line of lines) {
+    const against = new Map<string, bigint>();
+    for (const allocation of line.allocations) {
+      if (allocation.kind !== 'against') continue;
+      const ref = (allocation.ref ?? '').trim();
+      against.set(ref, (against.get(ref) ?? 0n) + allocation.amount);
+    }
+    for (const [ref, amount] of against) {
+      const bill = openBills(vouchers, masters, line.ledgerId, ignoring).find((candidate) => candidate.ref === ref);
+      if (!bill || bill.side === line.side) {
+        problems.push(issue(IssueCode.AllocationInvalid, `Bill ${ref} is not an open bill for this party`, 'allocations'));
+      } else if (amount > bill.pending) {
+        problems.push(issue(IssueCode.AllocationInvalid, `Bill ${ref} has only ${formatMoney(bill.pending)} remaining to settle`, 'allocations'));
+      }
+    }
+  }
+  return problems;
 }
 
 /**

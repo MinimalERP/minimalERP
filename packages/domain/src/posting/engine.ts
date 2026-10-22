@@ -7,7 +7,8 @@ import type { Masters, VoucherType } from '../masters/masters';
 import { type DraftBase, voucherTypeIdSchema } from '../vouchers/drafts';
 import type { VoucherKind } from '../vouchers/kind';
 import type { VoucherKindRegistry } from '../vouchers/registry';
-import { partyDetailsProblems } from '../vouchers/allocations';
+import { againstAllocationProblems, partyDetailsProblems } from '../vouchers/allocations';
+import type { Voucher } from '../vouchers/voucher';
 import { OrderBook } from '../orders/orderBook';
 import { StockBook } from '../stock/book';
 import { type PostingPlan, checkPlanInvariants, stampPlan } from './plan';
@@ -67,6 +68,7 @@ export function planVoucher(
   masters: Masters,
   stock: StockBook = StockBook.empty,
   orders: OrderBook = OrderBook.empty,
+  existingVouchers?: readonly Voucher[],
 ): Result<PreparedVoucher> {
   const { draft, voucherType, kind } = resolved;
 
@@ -99,6 +101,11 @@ export function planVoucher(
   const businessIssues = kind.validate(draft, ctx);
   if (businessIssues.length > 0) return failWith(businessIssues);
 
+  if (existingVouchers !== undefined) {
+    const allocationIssues = againstAllocationProblems(voucherType.baseKind, draft, masters, existingVouchers, draft.id);
+    if (allocationIssues.length > 0) return failWith(allocationIssues);
+  }
+
   const plan = stampPlan(draft.id, draft.date, kind.post(draft, ctx), kind.postStock(draft, ctx), kind.postLinks(draft, ctx));
   const invariantIssues = checkPlanInvariants(plan, { document: kind.document, noJournal: kind.noJournal, linkDirection: voucherType.baseKind === 'purchase' ? 'in' : 'out',
     holdsNoStock: (itemId) => masters.stockItem(itemId as never)?.itemType === 'service',
@@ -115,7 +122,8 @@ export function prepareVoucher(
   registry: VoucherKindRegistry,
   stock: StockBook = StockBook.empty,
   orders: OrderBook = OrderBook.empty,
+  existingVouchers?: readonly Voucher[],
 ): Result<PreparedVoucher> {
   const resolved = resolveDraft(input, masters, registry);
-  return resolved.ok ? planVoucher(resolved.value, masters, stock, orders) : resolved;
+  return resolved.ok ? planVoucher(resolved.value, masters, stock, orders, existingVouchers) : resolved;
 }
