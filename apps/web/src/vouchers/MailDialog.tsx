@@ -6,8 +6,9 @@ import { saveInApp } from '../ui/nativeApp';
 import { pdfOf } from '../ui/pdf';
 import { COPY_LABELS } from '../ui/printCoordinator';
 import { printCompanyOf } from '../ui/printing';
+import type { InvoiceDoc } from '../ui/printDocs';
 import { useCommandHandler, useScope } from '../shell/hooks';
-import { fileName } from './format';
+import { fileName, formatAmount } from './format';
 import { invoiceDocFromBooks } from './invoicePrint';
 
 const SCOPE = 'overlay:mail';
@@ -46,6 +47,24 @@ function openFile(a: { readonly name: string; readonly base64: string }): void {
 
 const sizeText = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 
+/** Adds a compact plain-text item and total preview before the email sign-off. */
+function bodyWithDocumentPreview(body: string, doc: InvoiceDoc | undefined): string {
+  if (!doc || doc.lines.length === 0) return body;
+  const title = doc.voucherKind === 'sales' || doc.voucherKind === 'purchase' ? 'Invoice details' : doc.voucherKind?.toLowerCase().includes('order') ? 'Order details' : 'Document details';
+  const lines = doc.lines.map((line, i) => `${i + 1}. ${line.desc.replace(/\s*\n\s*/g, ' — ')} · ${line.qty} × ₹${line.rate} = ₹${formatAmount(line.amount)}`);
+  lines.push('', `Subtotal: ₹${formatAmount(doc.subtotal)}`);
+  if (doc.gst) {
+    if (doc.gst.cgst !== 0n) lines.push(`CGST: ₹${formatAmount(doc.gst.cgst)}`);
+    if (doc.gst.sgst !== 0n) lines.push(`SGST: ₹${formatAmount(doc.gst.sgst)}`);
+    if (doc.gst.igst !== 0n) lines.push(`IGST: ₹${formatAmount(doc.gst.igst)}`);
+  }
+  if (doc.roundOff) lines.push(`Round off: ${doc.roundOff < 0n ? '−' : '+'}₹${formatAmount(doc.roundOff < 0n ? -doc.roundOff : doc.roundOff)}`);
+  lines.push(`Total: ₹${formatAmount(doc.grandTotal)}`);
+  const section = `${title}\n${lines.join('\n')}`;
+  const signoff = body.lastIndexOf('\n\n');
+  return signoff < 0 ? `${body.trimEnd()}\n\n${section}` : `${body.slice(0, signoff)}\n\n${section}\n\n${body.slice(signoff + 2)}`;
+}
+
 /**
  * Email a saved voucher to its party, from the company's Gmail: the party's own addresses (ticked, and nothing else offered), the subject
  * and message from that kind's template (editable), and the PDF you choose — for example the one you printed and signed with your DSC — or
@@ -53,8 +72,8 @@ const sizeText = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1
  */
 export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: Voucher; onDone: (sentTo: readonly string[] | undefined) => void }) {
   const start = voucherMail(voucher, books.masters);
+  const doc = invoiceDocFromBooks(voucher, books);
   const attachPdf = async () => {
-    const doc = invoiceDocFromBooks(voucher, books);
     if (!doc) throw new Error('The voucher could not be read back');
     return { name: `${fileName(voucher.number)}.pdf`, base64: await pdfOf([doc], printCompanyOf(books.masters), books.printLayouts, COPY_LABELS['1']) };
   };
@@ -63,8 +82,8 @@ export function MailDialog({ books, voucher, onDone }: { books: Books; voucher: 
       title={`Email ${start?.docName ?? 'voucher'} ${voucher.number}`}
       addresses={start?.to ?? []}
       subject={start?.subject ?? ''}
-      body={start?.body ?? ''}
-      bodyHint="Sent in the voucher’s own typewriter style, with the document’s number, date and amount above it."
+      body={bodyWithDocumentPreview(start?.body ?? '', doc)}
+      bodyHint="Includes a preview of the document lines and totals; edit it as needed before sending."
       fileHint="Attach PDF adds the voucher’s Original copy; or choose your own (signed with your DSC if you like) and any supporting documents — several at once."
       attachPdf={attachPdf}
       problems={(req) => voucherMailProblems(voucher, books.masters, req)}
