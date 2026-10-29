@@ -227,6 +227,7 @@ const commands: Command<AppContext>[] = [
   ...switchCommands,
   contextual('voucher.changeDate', 'Change date / period', { label: 'Date', group: 'Actions', order: 10, on: ['voucher', 'report', 'import-export'], labelOn: { report: 'Period', 'import-export': 'Export period' } }),
   contextual('voucher.partyDetails', 'Party details (billing and shipping)', { label: 'Party details', group: 'Actions', order: 13, on: ['voucher'] }),
+  contextual('voucher.related', 'Related vouchers and the entries linking them', { label: 'Related vouchers', group: 'Actions', order: 13.2, on: ['voucher'], hideWhenUnavailable: true }),
   contextual('voucher.acceptAndNew', 'Save and start a new one', { label: 'Save & new', group: 'Actions', order: 11.5, on: ['voucher'] }),
   contextual('voucher.againstOrder', 'Deliver or receive against an order', { label: 'Against order', group: 'Actions', order: 12, on: ['voucher'] }),
   contextual('voucher.paidFrom', 'Paid from: pay this purchase now from cash or a bank (a Payment is saved with it)', { label: 'Paid from', group: 'Actions', order: 12.5, on: ['voucher'], hideWhenUnavailable: true }),

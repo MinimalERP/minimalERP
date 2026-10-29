@@ -2,7 +2,7 @@ import type { Frame } from '@minimalerp/command';
 import { type Voucher, type VoucherKindRegistry, defaultVoucherKinds } from '@minimalerp/domain';
 import type { InboxItem } from '@minimalerp/ports';
 import type { PurchasePrefill } from '../vouchers/salesModel';
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Books } from '../books/books';
 import { useCommandHandler, useServices, useSubscriptions } from '../shell/hooks';
 import type { ScreenRef, VoucherMode } from '../shell/router';
@@ -12,6 +12,9 @@ import { ItemInvoiceEntry } from '../vouchers/layouts/itemInvoiceEntry';
 import { LedgerVoucherEntry } from '../vouchers/layouts/ledgerEntry';
 import { StockVoucherEntry } from '../vouchers/layouts/stockEntry';
 import { layoutOf } from '../vouchers/model';
+import { Only } from '../shell/Only';
+import { relatedVoucherEntries } from '../vouchers/relatedVouchers';
+import { RelatedVouchersDialog } from '../vouchers/RelatedVouchersDialog';
 
 /**
  * The voucher window's router: which layout draws a voucher type — the accounting vouchers (ledgerEntry), the item documents
@@ -154,11 +157,13 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromOrderLi
   // a voucher shown is its own window: turning to the next one (PgDn) starts it afresh
   const key = voucher?.id ?? 'new';
   const paging = mode === 'display' && voucher ? <VoucherPaging frame={frame} books={books} voucher={voucher} /> : null;
+  const related = mode !== 'create' && voucher ? <RelatedVouchersAction books={books} voucher={voucher} /> : null;
   const layout = typeId ? voucherLayoutOf(books.masters, typeId, kinds) : undefined;
   if (layout === 'stock') {
     return (
       <>
         {paging}
+        {related}
         <StockVoucherEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} stay={stay} />
       </>
     );
@@ -167,6 +172,7 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromOrderLi
     return (
       <>
         {paging}
+        {related}
         <ItemInvoiceEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId!} voucher={voucher} fromOrder={fromOrder} fromOrderLines={fromOrderLines} purchaseOrderLines={purchaseOrderLines} fromInvoice={mode === 'create' ? fromInvoice : undefined} fromQuotation={fromQuotation} fromInbox={mode === 'create' ? fromInbox : undefined} from2b={mode === 'create' ? from2b : undefined} stay={stay} />
       </>
     );
@@ -182,7 +188,28 @@ export function VoucherScreen({ frame, mode, typeKey, id, fromOrder, fromOrderLi
   return (
     <>
       {paging}
+      {related}
       <LedgerVoucherEntry key={key} frame={frame} books={books} mode={mode} typeId={typeId} voucher={voucher} fromInbox={mode === 'create' ? fromInbox : undefined} fromBill={mode === 'create' ? fromBill : undefined} stay={stay} />
+    </>
+  );
+}
+
+function RelatedVouchersAction({ books, voucher }: { books: Books; voucher: Voucher }) {
+  const { app } = useServices();
+  const [open, setOpen] = useState(false);
+  const entries = useMemo(() => relatedVoucherEntries(voucher, books.vouchers, books.masters), [voucher, books.vouchers, books.masters]);
+  return (
+    <>
+      <Only scope="screen:voucher" command="voucher.related" run={() => (setOpen(true), true)} />
+      {open && <RelatedVouchersDialog
+        current={voucher}
+        entries={entries}
+        onOpen={(relatedVoucher) => {
+          setOpen(false);
+          app.navigate({ type: 'voucher', mode: 'display', id: relatedVoucher.id });
+        }}
+        onClose={() => setOpen(false)}
+      />}
     </>
   );
 }
