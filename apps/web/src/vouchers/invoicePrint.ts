@@ -30,6 +30,19 @@ export const PURCHASE_ORDER_TERMS: readonly string[] = [
   'Payment will be made as per the agreed credit terms, counted from the date the goods are received and accepted.',
 ];
 
+/** What an issued Sales Order prints: confirmation that we accept the customer's purchase order, not invoice payment boilerplate. */
+export const SALES_ORDER_TERMS: readonly string[] = [
+  'This Sales Order confirms our acceptance of the customer purchase order or reference shown above.',
+  'The items, specifications, quantities, rates and delivery dates stated in this Sales Order form the accepted order.',
+  'Prices are in INR. GST and other statutory taxes are charged as shown or as applicable on the invoice.',
+  'Packing, forwarding, freight and insurance are included only where expressly stated; otherwise they will be charged as agreed.',
+  'Delivery will follow the dates stated against each line, subject to receipt of complete specifications, approvals and any agreed advance.',
+  'Partial deliveries may be made unless the parties have agreed otherwise in writing.',
+  'Payment is due as per the credit terms agreed between the parties and will be invoiced on dispatch or delivery, as applicable.',
+  'Changes or cancellation after acceptance require our written agreement; costs already incurred for the order remain payable.',
+  'Please quote both this Sales Order number and your purchase order number in correspondence and payment advice.',
+];
+
 /** What a debit note prints in place of the company's invoice terms: it goes to a supplier, for goods sent back or a price put right. */
 export const DEBIT_NOTE_TERMS: readonly string[] = [
   'The amount of this note has been debited to your account, against your invoice quoted above.',
@@ -99,13 +112,15 @@ export function invoiceDocOf(voucher: Voucher, form: SalesForm, kind: ItemDocKin
     ...(delivery ? { titleCentred: true, poLabel: 'PO / Ref.' } : {}),
     ...(returnable ? { titleCentred: true, poLabel: 'Reference', returnable: { terms: form.returnOf ? [] : RETURNABLE_TERMS, acknowledge: !form.returnOf } } : {}),
     ...(note ? { poLabel: noteFor ? 'Against Inv.' : 'Reference' } : {}),
-    ...(kind === 'purchaseOrder'
-      ? { ownTerms: PURCHASE_ORDER_TERMS }
-      : kind === 'debitNote'
-        ? { ownTerms: DEBIT_NOTE_TERMS }
-        : kind === 'quotation'
-          ? { ownTerms: QUOTATION_TERMS }
-          : {}),
+    ...(kind === 'salesOrder'
+      ? { ownTerms: SALES_ORDER_TERMS }
+      : kind === 'purchaseOrder'
+        ? { ownTerms: PURCHASE_ORDER_TERMS }
+        : kind === 'debitNote'
+          ? { ownTerms: DEBIT_NOTE_TERMS }
+          : kind === 'quotation'
+            ? { ownTerms: QUOTATION_TERMS }
+            : {}),
     numberLabel: kind === 'sales' ? 'Invoice No.' : delivery || returnable ? 'Challan No.' : note ? 'Note No.' : undefined,
     number: voucher.number,
     date: voucher.date,

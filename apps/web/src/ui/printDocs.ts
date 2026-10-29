@@ -67,8 +67,8 @@ export interface InvoiceDoc {
    */
   readonly returnable?: { readonly terms: readonly string[]; readonly acknowledge: boolean } | undefined;
   /**
-   * A document made out to a supplier (a purchase order, a debit note): it prints these terms — what we ask of the supplier — in place of
-   * the company's invoice terms, and no bank details or thank-you note (those are for whoever pays us).
+   * A document with its own terms (sales order, quotation, purchase order, or debit note): these print in place of the company's invoice
+   * terms, and no bank details or thank-you note are shown.
    */
   readonly ownTerms?: readonly string[] | undefined;
   /** The E-way Bill number for this invoice's movement of goods (Sales) — shown only when present. */
