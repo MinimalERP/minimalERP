@@ -811,6 +811,35 @@ export function LedgerVoucherEntry({ frame, books, mode, typeId, voucher, fromIn
           )}
         </div>
         {billsFor === i && billPanel(l, i)}
+        {readOnly && l.allocations.length > 0 && (
+          <details class="bill-panel bill-readonly" data-testid={`line-bill-details-${i}`}>
+            <summary>Show bill-wise details ({l.allocations.length})</summary>
+            <div class="bill-readonly-list">
+              {l.allocations.map((a, j) => {
+                const amount = toMinor(a.amount);
+                const tds = toMinor(a.tds ?? '') ?? 0n;
+                const amountText = amount === undefined ? a.amount : formatAmount(amount);
+                const isReceiptSettlement = isReceipt && a.kind === 'against';
+                return (
+                  <div class="bill-readonly-row" key={j} data-testid="line-bill-allocation">
+                    <strong>{ALLOC_LABELS[a.kind]}</strong>
+                    <span>{a.ref.trim() || 'No reference'}</span>
+                    <span>{a.kind === 'new' && a.dueDate ? `Due ${formatDate(a.dueDate)}` : ''}</span>
+                    {isReceiptSettlement ? (
+                      <>
+                        <span>Received {amountText}</span>
+                        <span>TDS {formatAmount(tds as never)}</span>
+                        <strong>Settled {amount === undefined ? amountText : formatAmount((amount + tds) as never)}</strong>
+                      </>
+                    ) : (
+                      <span>{a.kind === 'new' ? 'Bill amount' : 'Amount'} {amountText}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        )}
       </div>
     );
   };
